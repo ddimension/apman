@@ -1,0 +1,20 @@
+ApManBundle\Entity\Client:
+  type: entity
+  table: client
+  id:
+    id:
+      type: integer
+      primary: true
+      generator:
+        strategy: AUTO
+  fields:
+    mac:
+      type: string
+      nullable: true
+      length: 17
+    mode_g:
+      type: boolean
+      nullable: true
+    mode_a:
+      type: boolean
+      nullable: true

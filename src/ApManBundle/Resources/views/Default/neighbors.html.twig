@@ -1,0 +1,80 @@
+{% extends 'ApManBundle::frontend.html.twig' %}
+
+{% block body %}
+<table border=2>
+<tr>
+<th>
+	SSID
+</th>
+<th>
+	BSSID
+</th>
+<th>
+	Mode
+</th>
+<th>
+	Channel
+</th>
+<th>
+	Signal
+</th>
+<th>
+	Quality
+</th>
+<th>
+	Quality Max
+</th>
+<th>
+	Encryption
+</th>
+</tr>
+{% for neighbor in neighbors %}
+	<tr>
+	<td>
+	{% if neighbor.ssid is defined  %}
+		{{ neighbor.ssid }}
+	{% endif %}
+	</td>
+	<td>
+	{% if neighbor.bssid is defined  %}
+		{{ neighbor.bssid }}
+	{% endif %}
+	</td>
+	<td>
+	{% if neighbor.mode is defined  %}
+		{{ neighbor.mode }}
+	{% endif %}
+	</td>
+	<td>
+	{% if neighbor.channel is defined  %}
+		{{ neighbor.channel }}
+	{% endif %}
+	</td>
+	<td>
+	{% if neighbor.signal is defined  %}
+		{{ neighbor.signal }}
+	{% endif %}
+	</td>
+	<td>
+	{% if neighbor.quality is defined  %}
+		{{ neighbor.quality }}
+	{% endif %}
+	</td>
+	<td>
+	{% if neighbor.quality_max is defined  %}
+		{{ neighbor.quality_max }}
+	{% endif %}
+	</td>
+	<td>
+	</td>
+	</tr>
+{% endfor %}
+</table>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+
+</style>
+{% endblock %}
+

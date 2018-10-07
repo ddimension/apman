@@ -1,0 +1,60 @@
+{% extends 'ApManBundle::frontend.html.twig' %}
+
+{% block body %}
+<table border=1>
+{% for system in data|keys %}
+	<tr><th>
+	{{ system }}
+	</th></tr>
+	{% for device in data[system]|keys %}
+		<tr>
+		<th>
+                {% if data[system][device]['info'].ssid is defined %}
+			{{ data[system][device]['info'].ssid }}
+		{% endif %}
+		</th>
+		<th>Device {{ device }} </th>
+		<th> 
+			{% if data[system][device]['info'].channel is defined %}
+				Chan: {{ data[system][device]['info'].channel }}
+			{% endif %}:
+			{% if data[system][device]['info'].frequency is defined %}
+				Freq: {{ data[system][device]['info'].frequency }}
+			{% endif %}
+		</th>
+		<th>
+                {% if data[system][device]['info'].txpower is defined %}
+			{{ data[system][device]['info'].txpower }}
+		{% endif %}
+		</th>
+		<th>
+                {% if data[system][device]['info'].mode is defined %}
+			{{ data[system][device]['info'].mode }}
+		{% endif %}
+		</th>
+		<th>
+                {% if data[system][device]['info'].hardware is defined and data[system][device]['info'].hardware.name is defined %}
+			{{ data[system][device]['info'].hardware.name }}
+		{% endif %}
+		</th>
+		</tr>
+		{% for client in data[system][device]['clients']|keys %}
+			<tr>
+			<td><a href="disconnect?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">{{ client }}</td>
+			{% for prop in data[system][device]['clients'][client]|keys %}
+				<td>{{ prop }}:{{ data[system][device]['clients'][client][prop] }}</td>
+			{% endfor %}
+			</tr>
+		{% endfor %}
+	{% endfor %}
+	
+{% endfor %}
+</table>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+
+</style>
+{% endblock %}
+

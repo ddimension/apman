@@ -1,0 +1,242 @@
+{% extends 'ApManBundle::frontend.html.twig' %}
+{% block header %}
+<meta http-equiv="refresh" content="30">
+{% endblock %}
+
+{% block body %}
+<table border=2>
+<tr align="right">
+<th>
+	Access Point
+</th>
+<th>
+	SSID
+</th>
+<th>
+	Interface
+</th>
+<th>
+	Kanal
+</th>
+<th>
+	Frequenz
+</th>
+<th>
+	MAC
+</th>
+<th>
+	Authentifiziert
+</th>
+<th>
+	Assoziiert
+</th>
+<th>
+	Authorisiert
+</th>
+<th>
+	Preauth
+</th>
+<th>
+	WDS
+</th>
+<th>
+	WMM
+</th>
+<th>
+	HT
+</th>
+<th>
+	VHT
+</th>
+<th>
+	WPS
+</th>
+<th>
+	MFP
+</th>
+<th>
+	Signal<br />
+	(dBm)
+</th>
+<th>
+	Noise<br />
+	(dBm)
+</th>
+<th>
+	Rate<br />
+	(MBit/s)
+</th>
+<th>
+	RX Bytes
+	(B)
+</th>
+<th>
+	TX Bytes
+	(B)
+</th>
+<th>
+	Connected Time
+	(s)
+</th>
+<th>
+	Inactive<br />
+	(s)
+</th>
+<th>
+	Info
+</th>
+</tr>
+{% for system in data|keys %}
+	{% for device in data[system]|keys %}
+		{% for client in data[system][device]['assoclist']|keys %}
+			<tr align="right">
+			<td>
+				{{ system }}
+			{% if data[system][device]['board'] is defined and data[system][device]['board'].model is defined %}
+				<br />
+				{{ data[system][device]['board'].model }}
+			{% endif %}
+               		{% if data[system][device]['info'].hardware is defined and data[system][device]['info'].hardware.name is defined %}
+	                        <br />{{ data[system][device]['info'].hardware.name }}
+        	        {% endif %}
+			</td>
+			<td>
+			{% if data[system][device]['info'].ssid is defined %}
+				{{ data[system][device]['info'].ssid }}
+			{% endif %}
+			</td>
+			<td>{{ device }}</td>
+			<td> 
+				{% if data[system][device]['info'].channel is defined %}
+					{{ data[system][device]['info'].channel }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['info'].frequency is defined %}
+					{{ data[system][device]['info'].frequency|number_format_decimal }}
+				{% endif %}
+			</td>
+			
+			<td>
+				{{ client }}
+				{% if neighbors[client] is defined %}
+					<br />{{ neighbors[client]['ip'] }}
+					{% if neighbors[client]['name'] is defined %}
+						<br />{{ neighbors[client]['name'] }}
+					{% endif %}
+				{% endif %}
+				{% if apsrv.MacManufacturer(client) %}
+					<br />{{ apsrv.MacManufacturer(client) }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clientstats'][client].authenticated is defined %}
+					{{ data[system][device]['clientstats'][client].authenticated }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clientstats'][client].associated is defined %}
+					{{ data[system][device]['clientstats'][client].associated }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clientstats'][client].authorized is defined %}
+					{{ data[system][device]['clientstats'][client].authorized }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clients'][client].preauth is defined %}
+					{{ data[system][device]['clients'][client].preauth }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clients'][client].wds is defined %}
+					{{ data[system][device]['clients'][client].wds }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clientstats'][client].WMM_WME is defined %}
+					{{ data[system][device]['clientstats'][client].WMM_WME }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clients'][client].ht is defined %}
+					{{ data[system][device]['clients'][client].ht }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clients'][client].vht is defined %}
+					{{ data[system][device]['clients'][client].vht }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clients'][client].wps is defined %}
+					{{ data[system][device]['clients'][client].wps }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clientstats'][client].MFP is defined %}
+					{{ data[system][device]['clientstats'][client].MFP }}
+				{% endif %}
+			</td>
+			<td align="right">
+				{% if data[system][device]['assoclist'][client] is defined and data[system][device]['assoclist'][client].signal is defined %}
+					{{ data[system][device]['assoclist'][client].signal }}
+				{% endif %}
+			</td>
+			<td align="right">
+				{% if data[system][device]['assoclist'][client] is defined and data[system][device]['assoclist'][client].noise is defined %}
+					{{ data[system][device]['assoclist'][client].noise }}
+				{% endif %}
+			</td>
+			<td>
+				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].tx_bitrate is defined %}
+					TX:&nbsp;{{ data[system][device]['clientstats'][client].tx_bitrate|split(' ')[0] }}
+					<br />
+				{% endif %}
+				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].rx_bitrate is defined %}
+					RX:&nbsp;{{ data[system][device]['clientstats'][client].rx_bitrate|split(' ')[0] }}
+					<br />
+				{% endif %}
+			</td>
+			<td align="right">
+				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].rx_bytes is defined %}
+					{{ data[system][device]['clientstats'][client].rx_bytes|number_format_decimal }}
+				{% endif %}
+			</td>
+			<td align="right">
+				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].tx_bytes is defined %}
+					{{ data[system][device]['clientstats'][client].tx_bytes|number_format_decimal }}
+				{% endif %}
+			</td>
+			<td align="right">
+				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].connected_time is defined %}
+					{{ data[system][device]['clientstats'][client].connected_time|replace({' seconds':''})|number_format_duration }}
+				{% endif %}
+			</td>
+			<td align="right">
+				{% if data[system][device]['assoclist'][client] is defined and data[system][device]['assoclist'][client].inactive is defined %}
+					{{ (data[system][device]['assoclist'][client].inactive/1000)|number_format_decimal }}
+				{% endif %}
+			</td>
+			<td align="center">
+				<a href="disconnect?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">DisAssoc.</a><br />
+				<a href="deauth?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">DeAuth</a><br />
+				<a href="deauth?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ban_time=30">DeAuth+Ban (30s)</a><br />
+				<a href="wnm_disassoc_imminent?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ban_time=30">WNM Disassoc</a><br />
+				<a href="station?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">Info</a>
+			</td>
+			</tr>
+		{% endfor %}
+	{% endfor %}
+	
+{% endfor %}
+</table>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+
+</style>
+{% endblock %}
+

@@ -1,0 +1,15 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2016 AndréValentin
+
+START=80
+STOP=10
+
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	# Replace IP with own management IP
+	procd_set_param command logread -f -r 192.168.203.38 9000
+	procd_close_instance
+}
+

@@ -1,0 +1,31 @@
+ApManBundle\Entity\AccessPoint:
+  type: entity
+  table: accesspoint
+  oneToMany:
+    radios:
+      targetEntity: Radio
+      mappedBy: accesspoint
+      cascade: [ persist ]
+  id:
+    id:
+      type: integer
+      primary: true
+      generator:
+        strategy: AUTO
+  fields:
+    name:
+      type: string
+      nullable: true
+    username:
+      type: string
+      nullable: true
+    password:
+      type: string
+      nullable: true
+    ubus_url:
+      type: string
+      nullable: true
+    ipv4:
+      type: string
+      length: 15
+      nullable: true

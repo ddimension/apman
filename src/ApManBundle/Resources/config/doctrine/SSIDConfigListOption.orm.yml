@@ -1,0 +1,23 @@
+ApManBundle\Entity\SSIDConfigListOption:
+  type: entity
+  table: ssid_config_list_option
+  manyToOne:
+    ssid_config_list:
+      targetEntity: SSIDConfigList
+      inversedBy: options
+      joinColumn:
+        name: ssid_config_list_id
+        referencedColumnName: id
+        nullable: false
+        onDelete: CASCADE
+        onUpdate: CASCADE
+  id:
+    id:
+      type: integer
+      primary: true
+      generator:
+        strategy: AUTO
+  fields:
+    value:
+      type: string
+      nullable: true

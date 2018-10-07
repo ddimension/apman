@@ -1,0 +1,4 @@
+ap_man_ap_admin:
+    resource: "@ApManBundle/Resources/config/routing/accesspoint.yml"
+    prefix:   /ap_admin
+

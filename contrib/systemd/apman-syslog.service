@@ -1,0 +1,15 @@
+
+[Unit]
+Description=ApMan Syslog Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/usr/local/share/apman
+ExecStart=/usr/local/share/apman/bin/console apman:syslog --env prod
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

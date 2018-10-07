@@ -1,0 +1,33 @@
+<script language="Javascript" src="/apman/bundles/sonatacore/vendor/jquery/dist/jquery.min.js">
+</script>
+<script language="Javascript">
+
+function askWPSPin(client_uuid, ap_id, ap_if) {
+	var path="{{ path('apman_default_wpspinrequestack') }}";
+	console.debug(client_uuid);
+	console.debug(ap_id);
+	console.debug(ap_if);
+	var wps_pin=window.prompt("Please enter WPS PIN","12345678");
+	var url = path;
+	url = url+'?client_uuid='+client_uuid;
+	url = url+'&ap_id='+ap_id;
+	url = url+'&ap_if='+ap_if;
+	url = url+'&wps_pin='+wps_pin;
+	window.location=url;
+}
+
+</script>
+{% if wpsPendingRequests is defined %}
+<h1>WPS PIN Requests</h1>
+{% for device in wpsPendingRequests|keys %}
+<h2>WPS PIN Request</h2>
+Date: {{ wpsPendingRequests[device].log.ts|date('H:i:s') }}<br>
+Access Point: {{ wpsPendingRequests[device].ap.Name }}<br>
+Client MAC: {{ wpsPendingRequests[device].client_mac }}<br>
+Client Info: {{ wpsPendingRequests[device].client_info }}<br>
+<a id="req-{{ wpsPendingRequests[device].client_uuid }}" href="javascript:askWPSPin('{{ wpsPendingRequests[device].client_uuid }}','{{ wpsPendingRequests[device].ap.id }}','{{ wpsPendingRequests[device].if }}',)">Bestätigen</a>
+<br>
+{% endfor %}
+</table>
+{% endif %}
+
