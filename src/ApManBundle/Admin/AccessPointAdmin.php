@@ -42,6 +42,9 @@ class AccessPointAdmin extends AbstractAdmin
 			),
 			'login' => array(
 				'template' => 'ApManBundle:CRUD:list__action_login.html.twig'
+			),
+			'lldp' => array(
+				'template' => 'ApManBundle:CRUD:list__action_lldp.html.twig'
 			)
 		)
 	));
@@ -66,6 +69,7 @@ class AccessPointAdmin extends AbstractAdmin
     protected function configureRoutes(RouteCollection $collection) {
 	    $collection->add('syslog', $this->getRouterIdParameter().'/syslog');
 	    $collection->add('login', $this->getRouterIdParameter().'/login');
+	    $collection->add('lldp', $this->getRouterIdParameter().'/lldp');
     }
 }
 

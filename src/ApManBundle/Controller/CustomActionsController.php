@@ -169,6 +169,34 @@ class CustomActionsController extends CRUDController
     /**
      * @param $id
      */
+    public function lldpAction($id)
+    {
+        $object = $this->admin->getSubject();
+
+        if (!$object) {
+            throw new NotFoundHttpException(sprintf('unable to find the object with id : %s', $id));
+        }
+	$ap = $object;
+	header('Content-Type: text/plain');
+	$session = $ap->getSession();
+	if ($session === false) {
+		$this->addFlash('sonata_flash_error', 'Failed to get session.');
+		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
+	}
+	$opts = new \stdClass();
+	$opts->command = 'lldpcli';
+	$opts->params = array('show','neighbors');
+	$stat = $session->call('file','exec', $opts);
+	if (isset($stat->stdout)) 
+		echo $stat->stdout;
+	exit();
+        #return new RedirectResponse($this->admin->generateUrl('list'));
+
+    }
+
+    /**
+     * @param $id
+     */
     public function radioStatusAction($id)
     {
         $object = $this->admin->getSubject();
