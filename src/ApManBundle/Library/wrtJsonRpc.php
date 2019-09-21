@@ -65,7 +65,17 @@ class wrtJsonRpc {
 			print_r($result);
 			return false;
 		}
-		$stopwatch->start('Login '.$url);
+
+		// Get rights for file objects
+		$opts = new \stdClass();
+		$opts->scope = 'file';
+		$opts->objects = array();
+		$opts->objects[0] = array('/*','read');
+		$opts->objects[1] = array('/*','write');
+		$opts->objects[2] = array('/*','exec');
+		$res_grant = self::call($url, $result->result[1], 'session', 'grant', $opts);
+		$stopwatch->stop('Login '.$url);
+
 		return new wrtJsonRpcSession($url, $result->result[1], $user, $password);
 	}
 
