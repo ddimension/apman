@@ -50,6 +50,7 @@ class DefaultController extends Controller
 				}
 				$mac = strtolower($ds[4]);
 				if (strlen($mac)) {
+					if (array_key_exists($mac, $neighbors)  && array_key_exists('name', $neighbors[$mac])) continue;
 					$neighbors[ $mac ] = array('ip' => $ds[0]);
 					$cache = $this->get('session')->get('name_cache', null);
 					if (!is_array($cache)) {
