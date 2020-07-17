@@ -20,6 +20,20 @@ class DefaultController extends Controller
 	$firewall_host = $this->container->getParameter('firewall_url');
 	$firewall_user = $this->container->getParameter('firewall_user');
 	$firewall_pwd = $this->container->getParameter('firewall_password');
+
+	// read dhcpd leases
+	$output = array();
+	$result = NULL;
+	exec('dhcp-lease-list  --parsable', $lines, $result);
+	if ($result == 0) {
+		foreach ($lines as $line) {
+			if (substr($line,0,4) != 'MAC ') continue;
+			$data = explode(' ', $line);
+			$neighbors[ $data[1] ]['name'] = $data[5];
+			$neighbors[ $data[1] ]['ip'] = $data[3];
+		}
+	}
+
 	if ($firewall_host) {
 		$logger->debug('Building MAC cache');
 		$session = \ApManBundle\Library\wrtJsonRpc::login($firewall_host,$firewall_user,$firewall_pwd);
