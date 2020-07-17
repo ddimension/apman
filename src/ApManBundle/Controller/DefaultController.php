@@ -38,6 +38,25 @@ class DefaultController extends Controller
 		$logger->debug('Building MAC cache');
 		$session = \ApManBundle\Library\wrtJsonRpc::login($firewall_host,$firewall_user,$firewall_pwd);
 		if ($session !== false) {
+			// Read dnsmasq leases
+			$opts = new \stdclass();
+			$opts->command = 'cat';
+			$opts->params = array('/tmp/dhcp.leases');
+			$stat = $session->call('file','exec', $opts);
+			$lines = explode("\n", $stat->stdout);
+			foreach ($lines as $line) {
+				$ds = explode(" ", $line);
+				if (!array_key_exists(3, $ds)) {
+					continue;
+				}
+				$mac = strtolower($ds[1]);
+				if (strlen($mac)) {
+					if (array_key_exists($mac, $neighbors)  && array_key_exists('name', $neighbors[$mac])) continue;
+					$neighbors[ $mac ] = array('ip' => $ds[2], 'name' => $ds[3]);
+				}
+			}
+
+			// Read neighbor information
 			$opts = new \stdclass();
 			$opts->command = 'ip';
 			$opts->params = array('-4','neighb');
