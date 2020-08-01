@@ -76,7 +76,7 @@ sonata_block:
         # enable the SonataAdminBundle block
         sonata.admin.block.admin_list:
             contexts: [admin]
-        apman.block.link_list: ~
+            #        apman.block.link_list: ~
 
 sonata_intl:
     timezone:
@@ -88,4 +88,4 @@ sonata_admin:
     dashboard:
         blocks:
             - { position: left, type: sonata.admin.block.admin_list }
-            - { position: right, type: apman.block.link_list }
+              #            - { position: right, type: apman.block.link_list }
