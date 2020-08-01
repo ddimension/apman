@@ -29,8 +29,14 @@ class DefaultController extends Controller
 		foreach ($lines as $line) {
 			if (substr($line,0,4) != 'MAC ') continue;
 			$data = explode(' ', $line);
-			$neighbors[ $data[1] ]['name'] = $data[5];
 			$neighbors[ $data[1] ]['ip'] = $data[3];
+			if ($data[5] != '-NA-') {
+				$neighbors[ $data[1] ]['name'] = $data[5];
+			} else {
+				$name = gethostbyaddr($data[3]);
+				if ($name == $data[3]) continue;
+				$neighbors[ $data[1] ]['name'] = $name;
+			}
 		}
 	}
 
