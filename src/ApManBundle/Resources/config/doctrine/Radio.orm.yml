@@ -82,6 +82,10 @@ ApManBundle\Entity\Radio:
       type: string
       nullable: true
       length: 64
+    config_supported_rates:
+      type: string
+      nullable: true
+      length: 64
     config_rts:
       type: string
       nullable: true

@@ -27,6 +27,7 @@ class RadioAdmin extends AbstractAdmin
         $formMapper->add('config_noscan');
         $formMapper->add('config_beacon_int');
         $formMapper->add('config_basic_rate');
+        $formMapper->add('config_supported_rates');
         $formMapper->add('config_rts');
         $formMapper->add('config_antenna_gain')
 //	$formMapper->add('config_ht_capab', 'array');

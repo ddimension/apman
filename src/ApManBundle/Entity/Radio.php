@@ -415,6 +415,12 @@ class Radio
     /**
      * @var string
      */
+    private $config_supported_rates;
+
+
+    /**
+     * @var string
+     */
     private $config_rts;
 
     /**
@@ -738,6 +744,30 @@ class Radio
     public function getConfigBasicRate()
     {
         return $this->config_basic_rate;
+    }
+
+    /**
+     * Set configSupportedRates
+     *
+     * @param string $configSupportedRates
+     *
+     * @return Radio
+     */
+    public function setConfigSupportedRates($configSupportedRates)
+    {
+        $this->config_supported_rates = $configSupportedRates;
+
+        return $this;
+    }
+
+    /**
+     * Get configSupportedRates
+     *
+     * @return string
+     */
+    public function getConfigSupportedRates()
+    {
+        return $this->config_supported_rates;
     }
 
     /**
