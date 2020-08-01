@@ -9,7 +9,7 @@ class AccessPointService {
 	private $logger;
 	private $doctrine;
 
-	function __construct($logger, $doctrine) {
+	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Bundle\DoctrineBundle\Registry $doctrine) {
 		$this->logger = $logger;
 		$this->doctrine = $doctrine;
 	}
@@ -102,7 +102,7 @@ class AccessPointService {
     public function refreshRadios($ap)
     {
         $doc = $this->doctrine;
-	$em = $this->doctrine->getEntityManager();
+	$em = $this->doctrine->getManager();
 	$session = $ap->getSession();
 	if ($session === false) {
 		$this->logger->error("Cannot connect to AP ".$ap->getName());
@@ -112,7 +112,7 @@ class AccessPointService {
 	$opts->config = 'wireless';
 	$opts->type = 'wifi-device';
 	$stat = $session->call('uci','get', $opts);
-	if (!isset($stat->values) || !count($stat->values)) {
+	if (!isset($stat->values) || !count(get_object_vars($stat->values))) {
 		$this->logger->warn("No radios found on AP ".$ap->getName());
 		return false;
 	}
