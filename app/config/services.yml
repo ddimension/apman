@@ -24,18 +24,26 @@ services:
 
     # controllers are imported separately to make sure they're public
     # and have a tag that allows actions to type-hint services
-    #AppBundle\Controller\:
-    #    resource: '../../src/AppBundle/Controller'
-    #    public: true
-    #    tags: ['controller.service_arguments']
+    ApManBundle\Controller\:
+        resource: '../../src/ApManBundle/Controller'
+        public: true
+        tags: ['controller.service_arguments']
 
     # add more services, or override services that need manual wiring
     # AppBundle\Service\ExampleService:
     #     arguments:
     #         $someArgument: 'some_value'
+    ApManBundle\Service\wrtJsonRpc:
+        class: ApManBundle\Service\wrtJsonRpc
+        public: true
+    apman.accesspointlistener:
+        class: ApManBundle\EventListener\AccessPointListener 
+        arguments:
+           - '@ApManBundle\Service\wrtJsonRpc'
+        tags:
+           - { name: doctrine.event_listener, event: postLoad }
     apman.accesspointservice:
         class: ApManBundle\Service\AccessPointService
-        arguments: [ '@logger' ,'@doctrine' ]
         tags:
                 - { name: apmanbundle.apservice }
         public: true

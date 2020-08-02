@@ -1,6 +1,6 @@
 <?php
 
-namespace ApManBundle\Library;
+namespace ApManBundle\Service;
 
 use Symfony\Component\Cache\Simple\FilesystemCache;
 
@@ -9,12 +9,17 @@ class wrtJsonRpcSession {
 	private $url;
 	private $user;
 	private $password;
+	private $rpcService;
 
 	public function __construct($url, $session, $user, $password) {
 		$this->url = $url;
 		$this->session = $session;
 		$this->user = $user;
 		$this->password = $password;
+	}
+
+	public function setRpcService($rpcService) {
+		$this->rpcService = $rpcService;
 	}
 
 	public function getSessionId() {
@@ -26,11 +31,11 @@ class wrtJsonRpcSession {
 	}
 
 	public function reConnect() {
-		return wrtJsonRpc::login($this->url, $this->user, $this->password);
+		return $this->rpcService->login($this->url, $this->user, $this->password);
 	}
 
 	public function call($namespace, $procedure, $arguments = null) {
-		return wrtJsonRpc::call($this->url, $this->session, $namespace, $procedure, $arguments);
+		return $this->rpcService->call($this->url, $this->session, $namespace, $procedure, $arguments);
 	}
 
 	public function callCached($namespace, $procedure, $arguments = null, $ttl = 300) {
@@ -39,7 +44,7 @@ class wrtJsonRpcSession {
 	        if ($cache->has($key)) {
 	                return $cache->get($key);
 	        }
-		$result = wrtJsonRpc::call($this->url, $this->session, $namespace, $procedure, $arguments);
+		$result = $this->rpcService->call($this->url, $this->session, $namespace, $procedure, $arguments);
 		$cache->set($key, $result, $ttl);
 		return $result;
 	}

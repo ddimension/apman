@@ -1,11 +1,15 @@
 <?php
 
-namespace ApManBundle\Library;
+namespace ApManBundle\Service;
 
 use Symfony\Component\Stopwatch\Stopwatch;
 
 
 class wrtJsonRpc {
+
+	public function __construct(\Psr\Log\LoggerInterface $logger) {
+		$this->logger = $logger;
+	}
 
 	public static function checkResult($result) {
 		if (!is_object($result)) {
@@ -26,7 +30,7 @@ class wrtJsonRpc {
 		return true;
 	}
 
-	public static function login($url, $user, $password) {
+	public function login($url, $user, $password) {
 		$stopwatch = new Stopwatch();
 		$stopwatch->start('Login '.$url);
 		$login = new \stdClass();
@@ -76,12 +80,15 @@ class wrtJsonRpc {
 		$res_grant = self::call($url, $result->result[1], 'session', 'grant', $opts);
 		$stopwatch->stop('Login '.$url);
 
-		return new wrtJsonRpcSession($url, $result->result[1], $user, $password);
+		$session = new wrtJsonRpcSession($url, $result->result[1], $user, $password);
+		$session->setRpcService($this);
+		return $session;
 	}
 
-	public static function call($url, $session, $namespace, $procedure, $arguments = null) {
+	public function call($url, $session, $namespace, $procedure, $arguments = null) {
 		$stopwatch = new Stopwatch();
 		$stopwatch->start('Call '.$url.' '.$procedure);
+		$this->logger->debug('wrtJsonRpc: Calling '.$url.' namespace '.$namespace.' procedure '.$procedure.' arguments: '.print_r($arguments,true));
 		$cmd = new \stdClass();
 		$cmd->jsonrpc = '2.0';
 		$cmd->id = 1;
@@ -111,15 +118,18 @@ class wrtJsonRpc {
 		#error_log('Duration for '.$url.' cmd '.$data_string.' took: '.($time_end-$time_start));
 		$result = json_decode($result_string);
 		if (!self::checkResult($result)) {
+			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure);
 			return false;
 		}
 		if ($result->result[0]) {
+			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.print_r($result, true));
 			/*
 			error_log("Failed to run call $url $namespace $procedure ".serialize($arguments));
 			error_log("Failed to run call: $data_string\n");
 			 */
 			return false;
 		}
+		$this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.print_r($result, true));
 		if (array_key_exists(1, $result->result))
 			return $result->result[1];
 	}

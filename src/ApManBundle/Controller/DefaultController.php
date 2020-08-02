@@ -11,7 +11,7 @@ class DefaultController extends Controller
     /**
      * @Route("/")
      */
-    public function indexAction()
+    public function indexAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
 	$logger = $this->container->get('logger');
 	$apsrv = $this->container->get('apman.accesspointservice');
@@ -42,7 +42,7 @@ class DefaultController extends Controller
 
 	if ($firewall_host) {
 		$logger->debug('Building MAC cache');
-		$session = \ApManBundle\Library\wrtJsonRpc::login($firewall_host,$firewall_user,$firewall_pwd);
+		$session = $rpc->login($firewall_host,$firewall_user,$firewall_pwd);
 		if ($session !== false) {
 			// Read dnsmasq leases
 			$opts = new \stdclass();

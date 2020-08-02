@@ -50,7 +50,8 @@ class ImportSSIDsCommand extends ContainerAwareCommand
 		return false;
 	}
 
-	$session = \ApManBundle\Library\wrtJsonRpc::login($ap->getUbusUrl(), $ap->getUsername(), $ap->getPassword());
+        $rpcService = $this->container->get('ApManBundle\Service\wrtJsonRpc');
+	$session = $rpcService->login($ap->getUbusUrl(), $ap->getUsername(), $ap->getPassword());
 	if ($session === false) {
 		$this->output->writeln("Cannot connect to AP ".$ap->getName());
 		return false;

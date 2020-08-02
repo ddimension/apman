@@ -39,6 +39,8 @@ class AccessPoint
      */
     private $radios;
 
+    private $rpcService;
+
     /**
      * Constructor
      */
@@ -55,6 +57,10 @@ class AccessPoint
 	return '-';
     }
 
+    public function setRpcService($rpcService) {
+	    $this->rpcService = $rpcService;
+    }
+
     /**
      * dfg
      */
@@ -65,7 +71,7 @@ class AccessPoint
 	if ($cache->has($key)) {
 		return $cache->get($key);
 	}
-	$session = \ApManBundle\Library\wrtJsonRpc::login($this->getUbusUrl(), $this->getUsername(), $this->getPassword());
+	$session = $this->rpcService->login($this->getUbusUrl(), $this->getUsername(), $this->getPassword());
 	if (!$session) {
 		return false;
 	}
