@@ -2,36 +2,55 @@
 
 namespace ApManBundle\Entity;
 
+use Doctrine\ORM\Mapping as ORM;
+
 /**
  * SSIDConfigFile
+ *
+ * @ORM\Table(name="ssid_config_file")
+ * @ORM\Entity
  */
 class SSIDConfigFile
 {
     /**
-     * @var integer
+     * @var int
+     *
+     * @ORM\Column(name="id", type="integer")
+     * @ORM\Id
+     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
     private $id;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="name", type="string", nullable=true)
      */
     private $name;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="filename", type="string", nullable=true)
      */
     private $filename;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="content", type="text", nullable=true)
      */
     private $content;
 
     /**
      * @var \ApManBundle\Entity\SSID
+     *
+     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\SSID", inversedBy="config_files", cascade={"persist"})
+     * @ORM\JoinColumns({
+     *   @ORM\JoinColumn(name="ssid_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
+     * })
      */
     private $ssid;
-
 
     /**
      * Get id
@@ -138,4 +157,6 @@ class SSIDConfigFile
     {
         return $this->ssid;
     }
+
+
 }

@@ -2,33 +2,56 @@
 
 namespace ApManBundle\Entity;
 
+use Doctrine\ORM\Mapping as ORM;
+
 /**
  * Device
+ *
+ * @ORM\Table(name="device")
+ * @ORM\Entity
  */
 class Device
 {
     /**
-     * @var integer
+     * @var int
+     *
+     * @ORM\Column(name="id", type="integer")
+     * @ORM\Id
+     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
     private $id;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="name", type="string", nullable=true)
      */
     private $name;
 
     /**
-     * @var array
+     * @var array|null
+     *
+     * @ORM\Column(name="config", type="array", nullable=true)
      */
     private $config;
 
     /**
      * @var \ApManBundle\Entity\Radio
+     *
+     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Radio", inversedBy="devices", cascade={"persist"})
+     * @ORM\JoinColumns({
+     *   @ORM\JoinColumn(name="radio_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
+     * })
      */
     private $radio;
 
     /**
      * @var \ApManBundle\Entity\SSID
+     *
+     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\SSID", inversedBy="devices", cascade={"persist"})
+     * @ORM\JoinColumns({
+     *   @ORM\JoinColumn(name="ssid_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
+     * })
      */
     private $ssid;
 
@@ -481,4 +504,6 @@ class Device
     {
         return $this->ssid;
     }
+
+
 }

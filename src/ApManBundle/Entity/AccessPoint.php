@@ -2,43 +2,71 @@
 
 namespace ApManBundle\Entity;
 
+use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Cache\Simple\FilesystemCache;
 
 /**
  * AccessPoint
+ *
+ * @ORM\Table(name="accesspoint")
+ * @ORM\Entity
  */
 class AccessPoint
 {
     /**
-     * @var integer
+     * @var int
+     *
+     * @ORM\Column(name="id", type="integer")
+     * @ORM\Id
+     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
     private $id;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="name", type="string", nullable=true)
      */
     private $name;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="username", type="string", nullable=true)
      */
     private $username;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="password", type="string", nullable=true)
      */
     private $password;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="ubus_url", type="string", nullable=true)
      */
     private $ubus_url;
 
     /**
+     * @var string|null
+     *
+     * @ORM\Column(name="ipv4", type="string", length=15, nullable=true)
+     */
+    private $ipv4;
+
+    /**
      * @var \Doctrine\Common\Collections\Collection
+     *
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\Radio", mappedBy="accesspoint", cascade={"persist"})
      */
     private $radios;
 
+    /**
+     * internal variable
+     */ 
     private $rpcService;
 
     /**
@@ -306,10 +334,6 @@ class AccessPoint
     {
         return $this->radios;
     }
-    /**
-     * @var string
-     */
-    private $ipv4;
 
 
     /**
@@ -335,4 +359,5 @@ class AccessPoint
     {
         return $this->ipv4;
     }
+
 }

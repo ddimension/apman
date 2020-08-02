@@ -2,28 +2,46 @@
 
 namespace ApManBundle\Entity;
 
+use Doctrine\ORM\Mapping as ORM;
+
 /**
  * SSIDConfigList
+ *
+ * @ORM\Table(name="ssid_config_list")
+ * @ORM\Entity
  */
 class SSIDConfigList
 {
     /**
-     * @var integer
+     * @var int
+     *
+     * @ORM\Column(name="id", type="integer")
+     * @ORM\Id
+     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
     private $id;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="name", type="string", nullable=true)
      */
     private $name;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
+     *
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigListOption", mappedBy="ssid_config_list")
      */
     private $options;
 
     /**
      * @var \ApManBundle\Entity\SSID
+     *
+     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\SSID", inversedBy="config_lists")
+     * @ORM\JoinColumns({
+     *   @ORM\JoinColumn(name="ssid_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
+     * })
      */
     private $ssid;
 
@@ -126,4 +144,6 @@ class SSIDConfigList
     {
         return $this->ssid;
     }
+
+
 }

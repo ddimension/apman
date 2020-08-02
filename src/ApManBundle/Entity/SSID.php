@@ -2,26 +2,69 @@
 
 namespace ApManBundle\Entity;
 
+use Doctrine\ORM\Mapping as ORM;
+
 /**
  * SSID
+ *
+ * @ORM\Table(name="ssid")
+ * @ORM\Entity
  */
 class SSID
 {
     /**
-     * @var integer
+     * @var int
+     *
+     * @ORM\Column(name="id", type="integer")
+     * @ORM\Id
+     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
     private $id;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="name", type="string", length=64, nullable=true)
      */
     private $name;
+
+    /**
+     * @var \Doctrine\Common\Collections\Collection
+     *
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigOption", mappedBy="ssid", cascade={"persist"})
+     */
+    private $config_options;
+
+    /**
+     * @var \Doctrine\Common\Collections\Collection
+     *
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigList", mappedBy="ssid", cascade={"persist"})
+     */
+    private $config_lists;
+
+    /**
+     * @var \Doctrine\Common\Collections\Collection
+     *
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigFile", mappedBy="ssid", cascade={"persist"})
+     */
+    private $config_files;
+
+    /**
+     * @var \Doctrine\Common\Collections\Collection
+     *
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\Device", mappedBy="ssid", cascade={"persist"})
+     */
+    private $devices;
 
     /**
      * Constructor
      */
     public function __construct()
     {
+        $this->config_options = new \Doctrine\Common\Collections\ArrayCollection();
+        $this->config_lists = new \Doctrine\Common\Collections\ArrayCollection();
+        $this->config_files = new \Doctrine\Common\Collections\ArrayCollection();
+        $this->devices = new \Doctrine\Common\Collections\ArrayCollection();
     }
 
     /**
@@ -193,17 +236,6 @@ class SSID
     }
 
     /**
-     * @var \Doctrine\Common\Collections\Collection
-     */
-    private $config_options;
-
-    /**
-     * @var \Doctrine\Common\Collections\Collection
-     */
-    private $config_lists;
-
-
-    /**
      * Get id
      *
      * @return integer
@@ -304,10 +336,6 @@ class SSID
     {
         return $this->config_lists;
     }
-    /**
-     * @var \Doctrine\Common\Collections\Collection
-     */
-    private $config_files;
 
 
     /**
@@ -343,11 +371,6 @@ class SSID
     {
         return $this->config_files;
     }
-    /**
-     * @var \Doctrine\Common\Collections\Collection
-     */
-    private $devices;
-
 
     /**
      * Add device
@@ -382,4 +405,6 @@ class SSID
     {
         return $this->devices;
     }
+
+
 }

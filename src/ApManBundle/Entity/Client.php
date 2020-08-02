@@ -2,31 +2,45 @@
 
 namespace ApManBundle\Entity;
 
+use Doctrine\ORM\Mapping as ORM;
+
 /**
  * Client
+ *
+ * @ORM\Table(name="client")
+ * @ORM\Entity
  */
 class Client
 {
     /**
-     * @var integer
+     * @var int
+     *
+     * @ORM\Column(name="id", type="integer")
+     * @ORM\Id
+     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
     private $id;
 
     /**
-     * @var string
+     * @var string|null
+     *
+     * @ORM\Column(name="mac", type="string", length=17, nullable=true)
      */
     private $mac;
 
     /**
-     * @var boolean
+     * @var bool|null
+     *
+     * @ORM\Column(name="mode_g", type="boolean", nullable=true)
      */
     private $mode_g = false;
 
     /**
-     * @var boolean
+     * @var bool|null
+     *
+     * @ORM\Column(name="mode_a", type="boolean", nullable=true)
      */
     private $mode_a = false;
-
 
     /**
      * Get id
@@ -109,4 +123,5 @@ class Client
     {
         return $this->mode_a;
     }
+
 }
