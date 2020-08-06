@@ -1,9 +1,0 @@
-<a target="_blank" href="{{ path("apman_default_index") }}">Status Page</a><br>
-{% autoescape false %}
-{{ msg }}
-{% endautoescape %}
-{% if wpsPendingRequests is defined %}
-There are {{ wpsPendingRequests|length }} WPS PIN Requests, 
-<a href="{{ path('apman_default_wpspinrequests') }}">details<a/> <br>
-{% endif %}
-

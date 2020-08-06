@@ -1,0 +1,115 @@
+# This file is the entry point to configure your own services.
+# Files in the packages/ subdirectory configure your dependencies.
+
+# Put parameters here that don't need to change on each machine where the app is deployed
+# https://symfony.com/doc/current/best_practices/configuration.html#application-related-configuration
+parameters:
+    syslog.bindaddr: 0.0.0.0
+    syslog.port: 9000
+    firewall_url: 'http://FIREWALL_IP/ubus'
+    firewall_user: root
+    firewall_password: PASSWORD
+
+services:
+    # default configuration for services in *this* file
+    _defaults:
+        autowire: true      # Automatically injects dependencies in your services.
+        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    # makes classes in src/ available to be used as services
+    # this creates a service per class whose id is the fully-qualified class name
+    ApManBundle\:
+        resource: '../src/'
+        exclude:
+            - '../src/DependencyInjection/'
+            - '../src/Entity/'
+            - '../src/Kernel.php'
+            - '../src/Tests/'
+
+    # controllers are imported separately to make sure services can be injected
+    # as action arguments even if you don't extend any base controller class
+    ApManBundle\Controller\:
+        resource: '../src/Controller/'
+        tags: ['controller.service_arguments']
+
+    ApManBundle\Service\wrtJsonRpc:
+        class: ApManBundle\Service\wrtJsonRpc
+        public: true
+    apman.accesspointlistener:
+        class: ApManBundle\EventListener\AccessPointListener 
+        arguments:
+           - '@ApManBundle\Service\wrtJsonRpc'
+        tags:
+           - { name: doctrine.event_listener, event: postLoad }
+    apman.accesspointservice:
+        class: ApManBundle\Service\AccessPointService
+        tags:
+                - { name: apmanbundle.apservice }
+        public: true
+    apman.ssidservice:
+        class: ApManBundle\Service\SSIDService
+        arguments: [ '@logger' ,'@doctrine', '@apman.accesspointservice' ]
+        tags:
+                - { name: apmanbundle.ssidservice }
+        public: true
+    apman.block.link_list:
+        class: ApManBundle\Block\LinkListBlock
+        arguments: [~, "@templating", "@security.token_storage", "@doctrine.orm.entity_manager", "@apman.accesspointservice" ]
+        tags:
+            - {name: sonata.block}
+        public: true
+    admin.syslogservice:
+        class: ApManBundle\Library\SyslogSocketServer
+        arguments: [ '%syslog.bindaddr%', '%syslog.port%', '@logger', '@doctrine' , '@apman.accesspointservice' ]
+        tags:
+                - { name: apmanbundle.syslogservice }
+        public: true
+    admin.accesspoint:
+        class: ApManBundle\Admin\AccessPointAdmin
+        arguments: [~, ApManBundle\Entity\AccessPoint, ApManBundle:CustomActions ]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "Access Points" }
+        public: true
+    admin.radio:
+        class: ApManBundle\Admin\RadioAdmin
+        arguments: [~, ApManBundle\Entity\Radio, ApManBundle:CustomActions]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "Radios" }
+        public: true
+    admin.device:
+        class: ApManBundle\Admin\DeviceAdmin
+        arguments: [~, ApManBundle\Entity\Device, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "Devices" }
+        public: true
+    admin.ssid:
+        class: ApManBundle\Admin\SSIDAdmin
+        arguments: [~, ApManBundle\Entity\SSID, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "SSIDs" }
+        public: true
+    admin.ssid_config_option:
+        class: ApManBundle\Admin\SSIDConfigOptionAdmin
+        arguments: [~, ApManBundle\Entity\SSIDConfigOption, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "SSID Config Option", group: "Internal" }
+        public: true
+    admin.ssid_config_file:
+        class: ApManBundle\Admin\SSIDConfigFileAdmin
+        arguments: [~, ApManBundle\Entity\SSIDConfigFile, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "SSID Config File Option", group: "Internal" }
+        public: true
+    admin.ssid_config_list:
+        class: ApManBundle\Admin\SSIDConfigListAdmin
+        arguments: [~, ApManBundle\Entity\SSIDConfigList, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "SSID Config List", group: "Internal"  }
+        public: true
+    admin.ssid_config_list_option:
+        class: ApManBundle\Admin\SSIDConfigListOptionAdmin
+        arguments: [~, ApManBundle\Entity\SSIDConfigListOption, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "SSID Config List Option", group: "Internal"  }
+        public: true
+
