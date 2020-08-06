@@ -8,13 +8,24 @@ use Symfony\Component\HttpFoundation\Request;
 
 class DefaultController extends Controller
 {
+    public function __construct(
+	    \Psr\Log\LoggerInterface $logger,
+	    \ApManBundle\Service\AccessPointService $apservice,
+	    \Doctrine\Persistence\ManagerRegistry $doctrine
+    )
+    {
+	    $this->logger = $logger;
+	    $this->apservice = $apservice;
+	    $this->doctrine = $doctrine;
+    }
+
     /**
      * @Route("/")
      */
     public function indexAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
-	$logger = $this->container->get('logger');
-	$apsrv = $this->container->get('apman.accesspointservice');
+	$logger = $this->logger;
+	$apsrv = $this->apservice;
 
 	$neighbors = array();
 	$firewall_host = $this->container->getParameter('firewall_url');
@@ -107,7 +118,7 @@ class DefaultController extends Controller
 		}
 		$logger->debug('MAC cache complete');
 	}	
-        $doc = $this->container->get('doctrine');
+        $doc = $this->doctrine;
 	$em = $doc->getManager();
 	$aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
 	$logger->debug('Logging in to all APs');
@@ -171,7 +182,7 @@ class DefaultController extends Controller
      * @Route("/disconnect")
      */
     public function disconnectAction(Request $request) {
-        $doc = $this->container->get('doctrine');
+        $doc = $this->doctrine;
 	$system = $request->query->get('system','');
 	$device = $request->query->get('device','');
 	$mac = $request->query->get('mac','');
@@ -197,7 +208,7 @@ class DefaultController extends Controller
      * @Route("/deauth")
      */
     public function deauthAction(Request $request) {
-        $doc = $this->container->get('doctrine');
+        $doc = $this->doctrine;
 	$system = $request->query->get('system','');
 	$device = $request->query->get('device','');
 	$ban_time = intval($request->query->get('ban_time',0));
@@ -224,7 +235,7 @@ class DefaultController extends Controller
      * @Route("/wnm_disassoc_imminent")
      */
     public function wnmDisassocImminent(Request $request) {
-        $doc = $this->container->get('doctrine');
+        $doc = $this->doctrine;
 	$system = $request->query->get('system','');
 	$device = $request->query->get('device','');
 	$ban_time = intval($request->query->get('ban_time',0));
@@ -250,7 +261,7 @@ class DefaultController extends Controller
      * @Route("/station")
      */
     public function stationAction(Request $request) {
-        $doc = $this->container->get('doctrine');
+        $doc = $this->doctrine;
 	$system = $request->query->get('system','');
 	$device = $request->query->get('device','');
 	$mac = $request->query->get('mac','');
@@ -309,7 +320,7 @@ class DefaultController extends Controller
      * @Route("/wps_pin_requests")
      */
     public function wpsPinRequests(Request $request) {
-	$apsrv = $this->container->get('apman.accesspointservice');
+	$apsrv = $this->apservice;
 	$wpsPendingRequests = $apsrv->getPendingWpsPinRequests();
 	return $this->render('ApManBundle:Default:wps_pin_requests.html.twig', array(
 	    'wpsPendingRequests' => $wpsPendingRequests
@@ -322,7 +333,7 @@ class DefaultController extends Controller
     public function wpsPinRequestAck(Request $request) {
 	// client_uuid=ac998afb-1cea-5cd7-a63c-2f817e3f466b&ap_id=24&ap_if=wap-knet0&wps_pin=XXXX
 	
-	$ap = $this->container->get('doctrine')->getRepository('ApManBundle:AccessPoint')->find(
+	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->find(
 		$request->query->get('ap_id')
 	);
 	$session = $ap->getSession();
