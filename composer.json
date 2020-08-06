@@ -11,6 +11,7 @@
         "doctrine/doctrine-migrations-bundle": "^3.0",
         "doctrine/orm": "^2.7",
         "phpdocumentor/reflection-docblock": "^5.2",
+        "psr/simple-cache": "^1.0",
         "sensio/framework-extra-bundle": "^5.1",
         "sonata-project/admin-bundle": "^3.73",
         "sonata-project/doctrine-orm-admin-bundle": "^3.21",
