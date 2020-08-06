@@ -1,32 +1,34 @@
 <?php
 namespace ApManBundle\Command;
- 
-use Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand;
+
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\PhpProcess;
 
 
 //declare(ticks=1);
-class DaemonCommand extends ContainerAwareCommand
+class DaemonCommand extends Command
 {
+    protected static $defaultName = 'apman:daemon'; 
     private $parentPID;
 
-    protected function initialize(InputInterface $input, OutputInterface $output)
+    public function __construct(\Doctrine\Bundle\DoctrineBundle\Registry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\SSIDService $ssidservice, $name = null)
     {
-        parent::initialize($input, $output); //initialize parent class methods
-	$this->container = $this->getContainer();
-	$this->logger = $this->container->get('logger');
-	$this->input = $input;
-	$this->output = $output;
+        parent::__construct($name);
+        $this->doctrine = $doctrine;
+	$this->logger = $logger;
+	$this->apservice = $apservice;
+	$this->ssidservice = $ssidservice;
     }
-
+ 
     protected function configure()
     {
- 
         $this
             ->setName('apman:daemon')
             ->setDescription('Poll stats in background')
@@ -37,15 +39,13 @@ class DaemonCommand extends ContainerAwareCommand
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $doc = $this->container->get('doctrine');
-        $ssidService = $this->container->get('apman.ssidservice');
-	$em = $doc->getManager();
+	$em = $this->doctrine->getManager();
 	$this->parentPID = getmypid();
 	//pcntl_signal(SIGCHLD, array($this, "childSignalHandler"));
 	$loop = true;
 	$childs = array();
 	while ($loop) {
-		$aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
+		$aps = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findAll();
 		if (!count($aps)) {
 			$this->output->writeln("No APs found..");
 			return false;
@@ -102,17 +102,20 @@ class DaemonCommand extends ContainerAwareCommand
 					$o->device = $config['ifname'];
 					$data = $session->callCached('iwinfo','info', $o , 15);
 					$data = $session->callCached('iwinfo','assoclist', $o , 15);
-#print_r($data);
+					#print_r($data);
+					/*
 					if (is_object($data) && property_exists($data, 'results') && is_array($data->results)) {
-						$ssidService->applyLocationConstraints($data->results, $device);
+						$this->ssidService->applyLocationConstraints($data->results, $device);
 						$session->invalidateCache('iwinfo','assoclist', $o , 15);
 					}
+					 */
 
 					
 				}
 			} 
 			$stop = microtime(true);
 			#echo "Polled ".$ap->getName().", took ".sprintf('%0.3f',$stop-$start)."s\n";
+			$em->getConnection()->close();
 			exit(0);
 		}
 		$em->getConnection()->connect();
@@ -141,14 +144,4 @@ class DaemonCommand extends ContainerAwareCommand
 	}
 	return true;
     }
-
-    private function logwrap($level, $message) {
-	$message = $this->getName().': '.$message;
-	$options = $this->input->getOptions();
-	if (isset($options['verbose']) && $options['verbose'] == 1) {
-		$this->output->writeln($message);
-	}
-	call_user_func(array($this->logger,$level),$message);
-    }
-
 }

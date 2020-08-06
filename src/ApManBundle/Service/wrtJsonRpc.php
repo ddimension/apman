@@ -152,10 +152,6 @@ class wrtJsonRpc {
 		}
 		if ($result->result[0]) {
 			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result));
-			/*
-			error_log("Failed to run call $url $namespace $procedure ".serialize($arguments));
-			error_log("Failed to run call: $data_string\n");
-			 */
 			return false;
 		}
 		$this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result));

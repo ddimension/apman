@@ -1,26 +1,28 @@
 <?php
 namespace ApManBundle\Command;
  
-use Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
- 
-class AssignAllNeighborsCommand extends ContainerAwareCommand
-{
+use Symfony\Component\Console\Style\SymfonyStyle;
 
-    protected function initialize(InputInterface $input, OutputInterface $output)
+
+class AssignAllNeighborsCommand extends Command
+{
+    protected static $defaultName = 'apman:assign-all-neighbors'; 
+
+    public function __construct(\Doctrine\Bundle\DoctrineBundle\Registry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
-        parent::initialize($input, $output); //initialize parent class methods
-	$this->container = $this->getContainer();
-	$this->logger = $this->container->get('logger');
-	$this->input = $input;
-	$this->output = $output;
+        parent::__construct($name);
+        $this->doctrine = $doctrine;
+	$this->logger = $logger;
+	$this->apservice = $apservice;
     }
 
     protected function configure()
     {
- 
         $this
             ->setName('apman:assign-all-neighbors')
             ->setDescription('Assign All Neighbors')
@@ -30,8 +32,7 @@ class AssignAllNeighborsCommand extends ContainerAwareCommand
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $doc = $this->container->get('doctrine');
-	$em = $doc->getManager();
+	$em = $this->doctrine->getManager();
 	$ssid = $doc->getRepository('ApManBundle:SSID')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));
@@ -100,14 +101,4 @@ class AssignAllNeighborsCommand extends ContainerAwareCommand
 	$this->output->writeln("Pushed neighbors for SSID ".$ssid->getName());
 	print_r($neighbors);
     }
-
-    private function logwrap($level, $message) {
-	$message = $this->getName().': '.$message;
-	$options = $this->input->getOptions();
-	if (isset($options['verbose']) && $options['verbose'] == 1) {
-		$this->output->writeln($message);
-	}
-	call_user_func(array($this->logger,$level),$message);
-    }
-
 }

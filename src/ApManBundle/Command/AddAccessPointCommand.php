@@ -1,21 +1,23 @@
 <?php
 namespace ApManBundle\Command;
  
-use Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
  
-class AddAccessPointCommand extends ContainerAwareCommand
+class AddAccessPointCommand extends Command
 {
+    protected static $defaultName = 'apman:add-ap'; 
 
-    protected function initialize(InputInterface $input, OutputInterface $output)
+    public function __construct(\Doctrine\Bundle\DoctrineBundle\Registry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
-        parent::initialize($input, $output); //initialize parent class methods
-	$this->container = $this->getContainer();
-	$this->logger = $this->container->get('logger');
-	$this->input = $input;
-	$this->output = $output;
+        parent::__construct($name);
+        $this->doctrine = $doctrine;
+	$this->logger = $logger;
+	$this->apservice = $apservice;
     }
 
     protected function configure()
@@ -33,8 +35,7 @@ class AddAccessPointCommand extends ContainerAwareCommand
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $doc = $this->container->get('doctrine');
-	$em = $doc->getManager();
+	$em = $this->doctrine->getManager();
 	$ap = new \ApManBundle\Entity\AccessPoint();
 	$ap->setName($input->getArgument('name'));
 	$ap->setUsername($input->getArgument('username'));
@@ -64,15 +65,6 @@ class AddAccessPointCommand extends ContainerAwareCommand
 	$em->persist($ap);
 	$em->flush();
 	$this->output->writeln("Saved AP ".$ap->getName()." with id ".$ap->getId());
-    }
-
-    private function logwrap($level, $message) {
-	$message = $this->getName().': '.$message;
-	$options = $this->input->getOptions();
-	if (isset($options['verbose']) && $options['verbose'] == 1) {
-		$this->output->writeln($message);
-	}
-	call_user_func(array($this->logger,$level),$message);
     }
 
 }

@@ -10,7 +10,7 @@ class SSIDService {
 	private $doctrine;
 	private $apservice;
 
-	function __construct($logger, $doctrine, $apservice) {
+	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Bundle\DoctrineBundle\Registry $doctrine, \ApManBundle\Service\AccessPointService $apservice) {
 		$this->logger = $logger;
 		$this->doctrine = $doctrine;
 		$this->apservice = $apservice;

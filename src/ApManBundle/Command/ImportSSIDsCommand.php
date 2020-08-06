@@ -1,21 +1,25 @@
 <?php
 namespace ApManBundle\Command;
  
-use Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
- 
-class ImportSSIDsCommand extends ContainerAwareCommand
-{
+use Symfony\Component\Console\Style\SymfonyStyle;
 
-    protected function initialize(InputInterface $input, OutputInterface $output)
+
+class ImportSSIDsCommand extends Command
+{
+    protected static $defaultName = 'apman:import-ssids'; 
+
+    public function __construct(\Doctrine\Bundle\DoctrineBundle\Registry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $jsonrpc, $name = null)
     {
-        parent::initialize($input, $output); //initialize parent class methods
-	$this->container = $this->getContainer();
-	$this->logger = $this->container->get('logger');
-	$this->input = $input;
-	$this->output = $output;
+        parent::__construct($name);
+        $this->doctrine = $doctrine;
+	$this->logger = $logger;
+	$this->apservice = $apservice;
+	$this->jsonrpc = $jsonrpc;
     }
 
     protected function configure()
@@ -31,9 +35,8 @@ class ImportSSIDsCommand extends ContainerAwareCommand
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $doc = $this->container->get('doctrine');
-	$em = $doc->getManager();
-	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
+	$em = $this->doctrine->getManager();
+	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));
 	if (is_null($ap)) {
@@ -41,7 +44,7 @@ class ImportSSIDsCommand extends ContainerAwareCommand
 		return false;
 	}
 
-	$radio = $doc->getRepository('ApManBundle:Radio')->findOneBy( array(
+	$radio = $this->doctrine->getRepository('ApManBundle:Radio')->findOneBy( array(
 		'name' => $input->getArgument('radio'),
 		'accesspoint' => $ap
 	));
@@ -50,7 +53,7 @@ class ImportSSIDsCommand extends ContainerAwareCommand
 		return false;
 	}
 
-        $rpcService = $this->container->get('ApManBundle\Service\wrtJsonRpc');
+        $rpcService = $this->jsonrpc;
 	$session = $rpcService->login($ap->getUbusUrl(), $ap->getUsername(), $ap->getPassword());
 	if ($session === false) {
 		$this->output->writeln("Cannot connect to AP ".$ap->getName());
@@ -83,7 +86,7 @@ class ImportSSIDsCommand extends ContainerAwareCommand
 		}
 		unset($cfg->device);
 
-		$device = $doc->getRepository('ApManBundle:Device')->findOneBy( array(
+		$device = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy( array(
 			'name' => $name,
 			'radio' => $radio
 		));
@@ -100,7 +103,7 @@ class ImportSSIDsCommand extends ContainerAwareCommand
 				unset($cfg->$lck);
 			}
 		}
-		$ssid = $doc->getRepository('ApManBundle:SSID')->findOneBy( array(
+		$ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy( array(
 			'name' => $cfg->ssid
 		));
 		if (is_null($ssid)) {
@@ -121,14 +124,4 @@ class ImportSSIDsCommand extends ContainerAwareCommand
 	}
 	$em->flush();
     }
-
-    private function logwrap($level, $message) {
-	$message = $this->getName().': '.$message;
-	$options = $this->input->getOptions();
-	if (isset($options['verbose']) && $options['verbose'] == 1) {
-		$this->output->writeln($message);
-	}
-	call_user_func(array($this->logger,$level),$message);
-    }
-
 }

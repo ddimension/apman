@@ -12,32 +12,36 @@ class SyslogSocketServer {
     protected $apsrv;
 	
     
-    function __construct($host = 'localhost', $port = 9000, $logger, $doctrine, $apsrv)
+    function __construct($host = 'localhost', $port = 9000, \Psr\Log\LoggerInterface $logger, \Doctrine\Bundle\DoctrineBundle\Registry $doctrine, \ApManBundle\Service\AccessPointService $apsrv)
     {
 	$this->em = $doctrine->getManager();
 	$this->logger = $logger;
 	$this->apsrv = $apsrv;
+    }
+    
+    function initialize()
+    {	    
         $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
         socket_set_option($socket, SOL_SOCKET, SO_REUSEADDR, 1);
 
         //bind socket to specified host
         socket_bind($socket, 0, $port);
         //listen to port
-        socket_listen($socket);
+	socket_listen($socket);
         $this->socket = $socket;
-	$this->logger->info('Created SyslogSockerServer on '.$host.':'.$port);
     }
-    
-    function __destruct()
+
+    function close()
     {
         foreach($this->clients as $client) {
             socket_close($client);
         }
         socket_close($this->socket);
     }
-    
+
     function run()
     {
+	$this->logger->info('Created SyslogSockerServer on '.$host.':'.$port);
 	$this->logger->info('Running SyslogSockerServer');
         while(true) {
             $this->waitForChange();

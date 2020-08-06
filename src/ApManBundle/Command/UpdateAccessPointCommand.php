@@ -1,26 +1,28 @@
 <?php
 namespace ApManBundle\Command;
  
-use Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
- 
-class UpdateAccessPointCommand extends ContainerAwareCommand
-{
+use Symfony\Component\Console\Style\SymfonyStyle;
 
-    protected function initialize(InputInterface $input, OutputInterface $output)
+
+class UpdateAccessPointCommand extends Command
+{
+    protected static $defaultName = 'apman:update-ap'; 
+
+    public function __construct(\Doctrine\Bundle\DoctrineBundle\Registry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
-        parent::initialize($input, $output); //initialize parent class methods
-	$this->container = $this->getContainer();
-	$this->logger = $this->container->get('logger');
-	$this->input = $input;
-	$this->output = $output;
+        parent::__construct($name);
+        $this->doctrine = $doctrine;
+	$this->logger = $logger;
+	$this->apservice = $apservice;
     }
 
     protected function configure()
     {
- 
         $this
             ->setName('apman:update-ap')
             ->setDescription('Reresh radio config')
@@ -30,9 +32,7 @@ class UpdateAccessPointCommand extends ContainerAwareCommand
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        #$logger = $this->container->get('logger');
-        $doc = $this->container->get('doctrine');
-	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
+	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));
 	if (is_null($ap)) {
@@ -40,16 +40,6 @@ class UpdateAccessPointCommand extends ContainerAwareCommand
 		return false;
 	}
 
-	$this->container->get('apman.accesspointservice')->refreshRadios($ap);
+	$this->apservice->refreshRadios($ap);
     }
-
-    private function logwrap($level, $message) {
-	$message = $this->getName().': '.$message;
-	$options = $this->input->getOptions();
-	if (isset($options['verbose']) && $options['verbose'] == 1) {
-		$this->output->writeln($message);
-	}
-	#call_user_func(array($this->logger,$level),$message);
-    }
-
 }
