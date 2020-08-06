@@ -14,7 +14,7 @@ class SyslogSocketServer {
     
     function __construct($host = 'localhost', $port = 9000, $logger, $doctrine, $apsrv)
     {
-	$this->em = $doctrine->getEntityManager();
+	$this->em = $doctrine->getManager();
 	$this->logger = $logger;
 	$this->apsrv = $apsrv;
         $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);

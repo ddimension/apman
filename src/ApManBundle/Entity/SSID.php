@@ -83,7 +83,7 @@ class SSID
      */
     public function importConfig($doctrine , $config) {
 	    $foundKeys = array();
-	    $em = $doctrine->getEntityManager();
+	    $em = $doctrine->getManager();
 
 	    // File
 
