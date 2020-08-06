@@ -21,6 +21,9 @@ services:
     #    # you can exclude directories or files
     #    # but if a service is unused, it's removed anyway
     #    exclude: '../../src/AppBundle/{Entity,Repository,Tests}'
+    ApManBundle\:
+        resource: '../../src/ApManBundle/*'
+        exclude: '../../src/ApManBundle/{DependencyInjection,Entity,Migrations,Tests,Kernel.php}'
 
     # controllers are imported separately to make sure they're public
     # and have a tag that allows actions to type-hint services
