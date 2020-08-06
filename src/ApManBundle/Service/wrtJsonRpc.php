@@ -30,6 +30,35 @@ class wrtJsonRpc {
 		return true;
 	}
 
+	private function getHandle($url) {
+		if (array_key_exists('curl_cache', $GLOBALS)) {
+			return $GLOBALS['curl_cache'];
+		}
+		$GLOBALS['curl_cache'] = \curl_init();
+		return $GLOBALS['curl_cache'];
+/*
+		$parts = parse_url($url);
+		if (!is_array($parts)) {
+			return false;
+		}
+		if (!array_key_exists('host', $parts)) {
+			return false;
+		}
+		$ref = $parts['scheme'].$parts['host'];
+		if (array_key_exists('port', $parts)) {
+			$ref.= $parts['port'];
+		}
+		if (!is_array($GLOBALS['curl_cache'])) {
+			$GLOBALS['curl_cache'] = array();
+		}
+		if (array_key_exists($ref, $GLOBALS['curl_cache'])) {
+			return $GLOBALS['curl_cache'][ $ref ];
+		}
+		$GLOBALS['curl_cache'][ $ref ] = \curl_init($url);
+		return $GLOBALS['curl_cache'][ $ref ];
+ */
+	}
+
 	public function login($url, $user, $password) {
 		$stopwatch = new Stopwatch();
 		$stopwatch->start('Login '.$url);
@@ -46,20 +75,20 @@ class wrtJsonRpc {
 		$login->params['3']->password = $password;
 
 		$data_string = json_encode($login);                                                                                   
-		$ch = \curl_init($url);
-		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");                                                                     
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); 
-		curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);                                                                  
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);                                                                      
-		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1000); 
+		$ch = $this->getHandle($url);
+		curl_setopt($ch, CURLOPT_URL, $url);
+		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1000);
 		curl_setopt($ch, CURLOPT_TIMEOUT_MS, 2000);
-		curl_setopt($ch, CURLOPT_HTTPHEADER, array(                                                                          
-			    'Content-Type: application/json',                                                                                
-			        'Content-Length: ' . strlen($data_string))                                                                       
+		curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+			    'Content-Type: application/json',
+			    'Content-Length: ' . strlen($data_string))
 		);
 		$result_string = curl_exec($ch);
-		curl_close($ch);
 		$result = json_decode($result_string);
 		if (!self::checkResult($result)) {
 			return false;
@@ -88,7 +117,7 @@ class wrtJsonRpc {
 	public function call($url, $session, $namespace, $procedure, $arguments = null) {
 		$stopwatch = new Stopwatch();
 		$stopwatch->start('Call '.$url.' '.$procedure);
-		$this->logger->debug('wrtJsonRpc: Calling '.$url.' namespace '.$namespace.' procedure '.$procedure.' arguments: '.print_r($arguments,true));
+		$this->logger->debug('wrtJsonRpc: Calling '.$url.' namespace '.$namespace.' procedure '.$procedure.' arguments: '.json_encode($arguments));
 		$cmd = new \stdClass();
 		$cmd->jsonrpc = '2.0';
 		$cmd->id = 1;
@@ -103,33 +132,33 @@ class wrtJsonRpc {
 			$cmd->params['3'] = new \stdClass();
 		}
 		$data_string = json_encode($cmd);                                                                                   
-		$ch = curl_init($url);
-		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");                                                                     
-		curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);                                                                  
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);                                                                      
-		curl_setopt($ch, CURLOPT_HTTPHEADER, array(                                                                          
-			    'Content-Type: application/json',                                                                                
-			        'Content-Length: ' . strlen($data_string))                                                                       
+		$ch = $this->getHandle($url);
+		curl_setopt($ch, CURLOPT_URL, $url);
+		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+			    'Content-Type: application/json',
+ 		            'Content-Length: ' . strlen($data_string))
 		);
 		$time_start = time();
 		$result_string = curl_exec($ch);
 		$time_end = time();
 		$stopwatch->stop('Call '.$url.' '.$procedure);
-		#error_log('Duration for '.$url.' cmd '.$data_string.' took: '.($time_end-$time_start));
 		$result = json_decode($result_string);
 		if (!self::checkResult($result)) {
 			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure);
 			return false;
 		}
 		if ($result->result[0]) {
-			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.print_r($result, true));
+			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result));
 			/*
 			error_log("Failed to run call $url $namespace $procedure ".serialize($arguments));
 			error_log("Failed to run call: $data_string\n");
 			 */
 			return false;
 		}
-		$this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.print_r($result, true));
+		$this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result));
 		if (array_key_exists(1, $result->result))
 			return $result->result[1];
 	}
