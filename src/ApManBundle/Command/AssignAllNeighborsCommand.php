@@ -31,7 +31,7 @@ class AssignAllNeighborsCommand extends ContainerAwareCommand
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $doc = $this->container->get('doctrine');
-	$em = $doc->getEntityManager();
+	$em = $doc->getManager();
 	$ssid = $doc->getRepository('ApManBundle:SSID')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));

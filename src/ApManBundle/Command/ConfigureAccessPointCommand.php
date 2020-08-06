@@ -32,7 +32,7 @@ class ConfigureAccessPointCommand extends ContainerAwareCommand
     {
         #$logger = $this->container->get('logger');
         $doc = $this->container->get('doctrine');
-	$em = $doc->getEntityManager();
+	$em = $doc->getManager();
 	$this->container->get('apman.accesspointservice');
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $input->getArgument('name')

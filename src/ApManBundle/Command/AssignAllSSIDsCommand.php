@@ -31,7 +31,7 @@ class AssignAllSSIDsCommand extends ContainerAwareCommand
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $doc = $this->container->get('doctrine');
-	$em = $doc->getEntityManager();
+	$em = $doc->getManager();
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));

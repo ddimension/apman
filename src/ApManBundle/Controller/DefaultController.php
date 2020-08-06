@@ -108,7 +108,7 @@ class DefaultController extends Controller
 		$logger->debug('MAC cache complete');
 	}	
         $doc = $this->container->get('doctrine');
-	$em = $doc->getEntityManager();
+	$em = $doc->getManager();
 	$aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
 	$logger->debug('Logging in to all APs');
 	$sessions = array();

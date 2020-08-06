@@ -32,7 +32,7 @@ class ImportSSIDsCommand extends ContainerAwareCommand
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $doc = $this->container->get('doctrine');
-	$em = $doc->getEntityManager();
+	$em = $doc->getManager();
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));
@@ -63,7 +63,7 @@ class ImportSSIDsCommand extends ContainerAwareCommand
 	#$opts->match = array('device' => $input->getArgument('radio'), 'mode' => 'ap');
 	$opts->match = array('device' => $input->getArgument('radio'));
 	$stat = $session->call('uci','get', $opts);
-	if (!count($stat->values)) {
+	if (!count(get_object_vars($stat->values))) {
 		$this->output->writeln("No SSIDs/Devices found on AP ".$ap->getName());
 		return false;
 	}

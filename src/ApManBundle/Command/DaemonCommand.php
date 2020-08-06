@@ -39,7 +39,7 @@ class DaemonCommand extends ContainerAwareCommand
     {
         $doc = $this->container->get('doctrine');
         $ssidService = $this->container->get('apman.ssidservice');
-	$em = $doc->getEntityManager();
+	$em = $doc->getManager();
 	$this->parentPID = getmypid();
 	//pcntl_signal(SIGCHLD, array($this, "childSignalHandler"));
 	$loop = true;

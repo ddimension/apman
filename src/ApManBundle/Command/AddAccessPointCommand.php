@@ -34,7 +34,7 @@ class AddAccessPointCommand extends ContainerAwareCommand
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $doc = $this->container->get('doctrine');
-	$em = $doc->getEntityManager();
+	$em = $doc->getManager();
 	$ap = new \ApManBundle\Entity\AccessPoint();
 	$ap->setName($input->getArgument('name'));
 	$ap->setUsername($input->getArgument('username'));
