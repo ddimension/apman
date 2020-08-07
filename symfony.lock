@@ -185,6 +185,9 @@
             "config/packages/sonata_form.yaml"
         ]
     },
+    "sonata-project/intl-bundle": {
+        "version": "2.8.0"
+    },
     "sonata-project/twig-extensions": {
         "version": "1.3.1"
     },

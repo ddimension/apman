@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f8f021a9a69c7dec9fd763f458c13cd5",
+    "content-hash": "3d817e040090e49c3f47d6b9411876be",
     "packages": [
         {
             "name": "composer/package-versions-deprecated",
@@ -2779,6 +2779,74 @@
                 "symfony"
             ],
             "time": "2020-08-05T19:56:22+00:00"
+        },
+        {
+            "name": "sonata-project/intl-bundle",
+            "version": "2.8.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/sonata-project/SonataIntlBundle.git",
+                "reference": "0f3d62350924442b9af8de0e306070df6eebb800"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/sonata-project/SonataIntlBundle/zipball/0f3d62350924442b9af8de0e306070df6eebb800",
+                "reference": "0f3d62350924442b9af8de0e306070df6eebb800",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^7.2",
+                "symfony/config": "^4.4 || ^5.1",
+                "symfony/dependency-injection": "^4.4 || ^5.1",
+                "symfony/http-foundation": "^4.4 || ^5.1",
+                "symfony/http-kernel": "^4.4 || ^5.1",
+                "symfony/intl": "^4.4 || ^5.1",
+                "symfony/templating": "^4.4",
+                "twig/twig": "^2.9 || ^3.0"
+            },
+            "conflict": {
+                "sonata-project/user-bundle": "<3.6"
+            },
+            "require-dev": {
+                "matthiasnoback/symfony-dependency-injection-test": "^4.0",
+                "symfony/phpunit-bridge": "^5.1",
+                "symfony/security-core": "^4.4 || ^5.1"
+            },
+            "type": "symfony-bundle",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "2.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Sonata\\IntlBundle\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Thomas Rabaix",
+                    "email": "thomas.rabaix@sonata-project.org"
+                },
+                {
+                    "name": "Sonata Community",
+                    "homepage": "https://github.com/sonata-project/SonataIntlBundle/contributors"
+                }
+            ],
+            "description": "Symfony SonataIntlBundle",
+            "homepage": "https://sonata-project.org/bundles/intl",
+            "keywords": [
+                "date",
+                "intl",
+                "number",
+                "sonata",
+                "time"
+            ],
+            "time": "2020-07-30T17:06:49+00:00"
         },
         {
             "name": "sonata-project/twig-extensions",
