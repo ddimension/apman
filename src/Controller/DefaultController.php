@@ -174,7 +174,7 @@ class DefaultController extends Controller
 	        $data[$sessionId][$device]['clientstats'] = $apsrv->getDeviceClientStats($ap, $device);
 	    }
 	}
-	return $this->render('ApManBundle:Default:clients.html.twig', array('data' => $data, 'neighbors' => $neighbors, 'apsrv' => $apsrv));
+	return $this->render('default/clients.html.twig', array('data' => $data, 'neighbors' => $neighbors, 'apsrv' => $apsrv));
 
     }
 
