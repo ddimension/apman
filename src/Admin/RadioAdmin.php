@@ -7,12 +7,14 @@ use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
+
 
 class RadioAdmin extends AbstractAdmin
 {
     protected function configureFormFields(FormMapper $formMapper)
     {
-        $formMapper->add('name', 'text');
+        $formMapper->add('name', TextType::class);
         $formMapper->add('config_type');
         $formMapper->add('config_path');
         $formMapper->add('config_disabled');
@@ -61,10 +63,10 @@ class RadioAdmin extends AbstractAdmin
 	$listMapper->addIdentifier('_action', null, array(
 		'actions' => array(
 			'radio_status' => array(
-				'template' => 'ApManBundle:CRUD:list__action_radio_status.html.twig'
+				'template' => 'CRUD/list__action_radio_status.html.twig'
 			),
 			'radio_neighbors' => array(
-				'template' => 'ApManBundle:CRUD:list__action_radio_neighbors.html.twig'
+				'template' => 'CRUD/list__action_radio_neighbors.html.twig'
 			)
 		)
 	));

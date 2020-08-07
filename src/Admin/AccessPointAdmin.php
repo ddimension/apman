@@ -7,16 +7,18 @@ use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
+use Symfony\Component\Form\Extension\Core\Type\UrlType;
 
 class AccessPointAdmin extends AbstractAdmin
 {
     protected function configureFormFields(FormMapper $formMapper)
     {
-        $formMapper->add('name', 'text')
-            ->add('username', 'text')
-            ->add('password', 'text')
-            ->add('ubus_url', 'url')
-            ->add('ipv4', 'text');
+        $formMapper->add('name', TextType::class)
+            ->add('username', TextType::class)
+            ->add('password', TextType::class)
+	    ->add('ubus_url', UrlType::class)
+            ->add('ipv4', TextType::class);
     }
 
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
@@ -38,13 +40,13 @@ class AccessPointAdmin extends AbstractAdmin
 	$listMapper->addIdentifier('_action', null, array(
 		'actions' => array(
 			'syslog' => array(
-				'template' => 'ApManBundle:CRUD:list__action_syslog.html.twig'
+				'template' => 'CRUD/list__action_syslog.html.twig'
 			),
 			'login' => array(
-				'template' => 'ApManBundle:CRUD:list__action_login.html.twig'
+				'template' => 'CRUD/list__action_login.html.twig'
 			),
 			'lldp' => array(
-				'template' => 'ApManBundle:CRUD:list__action_lldp.html.twig'
+				'template' => 'CRUD/list__action_lldp.html.twig'
 			)
 		)
 	));

@@ -66,13 +66,13 @@ services:
         public: true
     admin.accesspoint:
         class: ApManBundle\Admin\AccessPointAdmin
-        arguments: [~, ApManBundle\Entity\AccessPoint, ApManBundle:CustomActions ]
+        arguments: [~, ApManBundle\Entity\AccessPoint, ApManBundle\Controller\CustomActionsController ]
         tags:
             - { name: sonata.admin, manager_type: orm, label: "Access Points" }
         public: true
     admin.radio:
         class: ApManBundle\Admin\RadioAdmin
-        arguments: [~, ApManBundle\Entity\Radio, ApManBundle:CustomActions]
+        arguments: [~, ApManBundle\Entity\Radio, ApManBundle\Controller\CustomActionsController ]
         tags:
             - { name: sonata.admin, manager_type: orm, label: "Radios" }
         public: true
