@@ -3,7 +3,7 @@
 namespace ApManBundle\Service;
 
 use Symfony\Component\Stopwatch\Stopwatch;
-
+use Symfony\Component\Cache\Simple\FilesystemCache;
 
 class wrtJsonRpc {
 
@@ -157,5 +157,19 @@ class wrtJsonRpc {
 		$this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result));
 		if (array_key_exists(1, $result->result))
 			return $result->result[1];
+	}
+
+	public function getSession(\ApManBundle\Entity\AccessPoint $ap) {
+		$cache = new FilesystemCache();
+		$key = 'session_'.$ap->getName();
+		if ($cache->has($key)) {
+			return $cache->get($key);
+		}
+		$session = $this->login($ap->getUbusUrl(), $ap->getUsername(), $ap->getPassword());
+		if (!$session) {
+			return false;
+		}
+		$cache->set($key, $session, $session->getExpires()-1);
+		return $session;
 	}
 }

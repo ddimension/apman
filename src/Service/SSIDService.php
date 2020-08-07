@@ -9,11 +9,13 @@ class SSIDService {
 	private $logger;
 	private $doctrine;
 	private $apservice;
+	private $rpcService;
 
-	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, \ApManBundle\Service\AccessPointService $apservice) {
+	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService) {
 		$this->logger = $logger;
 		$this->doctrine = $doctrine;
 		$this->apservice = $apservice;
+		$this->rpcService = $rpcService;
 	}
 
     /**
@@ -24,7 +26,7 @@ class SSIDService {
      */
     public function applyLocationConstraints($assocList, $device) {
 
-	$session = $device->getRadio()->getAccesspoint()->getSession();
+	$session = $this->rpcService->getSession($device->getRadio()->getAccesspoint());
 	if (!$session) {
 		$this->logger->error('Failed to establish session');
 		return null;
@@ -150,7 +152,7 @@ class SSIDService {
 		return;
 	}
 	$cache->set($cacheKey, true, 30+$timeout/10);
-	$session = $device->getRadio()->getAccesspoint()->getSession();
+	$session = $this->rpcService->getSession($device->getRadio()->getAccesspoint());
 	if (!$session) {
 		$this->logger->info('Failed to establish session to '.$device->getRadio()->getAccesspoint()->getName());
 		return false;

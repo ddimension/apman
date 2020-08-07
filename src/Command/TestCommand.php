@@ -13,12 +13,13 @@ class TestCommand extends Command
 {
     protected static $defaultName = 'apman:test'; 
 
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
+    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
 	$this->logger = $logger;
 	$this->apservice = $apservice;
+	$this->rpcService = $rpcService;
     }
 
     protected function configure()
@@ -40,7 +41,7 @@ class TestCommand extends Command
 		$this->output->writeln("Add this accesspoint. Cannot find it.");
 		return false;
 	}
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		$this->output->writeln("Failed to get session.");
 		return false;
@@ -67,7 +68,7 @@ class TestCommand extends Command
 	}
 	$em->flush();
 	exit;
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	print_r($session);
 	$sid = $session->getSessionId();
 	echo "SID $sid\n";

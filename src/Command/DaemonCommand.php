@@ -18,13 +18,14 @@ class DaemonCommand extends Command
     protected static $defaultName = 'apman:daemon'; 
     private $parentPID;
 
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\SSIDService $ssidservice, $name = null)
+    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\SSIDService $ssidservice,  \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
 	$this->logger = $logger;
 	$this->apservice = $apservice;
 	$this->ssidservice = $ssidservice;
+	$this->rpcService = $rpcService;
     }
  
     protected function configure()
@@ -80,7 +81,7 @@ class DaemonCommand extends Command
 			$query->setFetchMode("ApManBundle\AccessPoint", "ap", "EAGER");
 			$query->setParameter('id', $apId);
 			$ap = $query->getSingleResult();
-			$session = $ap->getSession();
+			$session = $this->rpcService->getSession($ap);
 			$opts = new \stdclass();
 			$opts->command = 'ip';
 			$opts->params = array('-s', 'link', 'show');

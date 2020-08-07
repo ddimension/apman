@@ -12,12 +12,13 @@ class AddAccessPointCommand extends Command
 {
     protected static $defaultName = 'apman:add-ap'; 
 
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
+    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
 	$this->logger = $logger;
 	$this->apservice = $apservice;
+	$this->rpcService = $rpcService;
     }
 
     protected function configure()
@@ -41,7 +42,7 @@ class AddAccessPointCommand extends Command
 	$ap->setUsername($input->getArgument('username'));
 	$ap->setPassword($input->getArgument('password'));
 	$ap->setUbusUrl($input->getArgument('ubus_url'));
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		$this->output->writeln("Cannot connect to AP ".$ap->getName());
 		return false;

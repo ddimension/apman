@@ -10,6 +10,12 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
 class CustomActionsController extends CRUDController
 {
+    private $rpcService;
+
+    function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService) {
+	$this->rpcService = $rpcService;
+    }
+    
 
     public function batchActionConfigure(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
@@ -66,7 +72,7 @@ class CustomActionsController extends CRUDController
 
 	$selectedModels = $selectedModelQuery->execute();
         foreach ($selectedModels as $ap) {
-		$session = $ap->getSession();
+		$session = $this->rpcService->getSession($ap);
 		if ($session === false) {
 			$this->addFlash('sonata_flash_error', "Cannot connect to AP ".$ap->getName());
 			return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
@@ -85,7 +91,7 @@ class CustomActionsController extends CRUDController
 
 	$selectedModels = $selectedModelQuery->execute();
         foreach ($selectedModels as $ap) {
-		$session = $ap->getSession();
+		$session = $this->rpcService->getSession($ap);
 		if ($session === false) {
 			$this->addFlash('sonata_flash_error', "Cannot connect to AP ".$ap->getName());
 			return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
@@ -123,7 +129,7 @@ class CustomActionsController extends CRUDController
         }
 	$ap = $object;
 	header('Content-Type: text/plain');
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		$this->addFlash('sonata_flash_error', 'Failed to get session.');
 		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
@@ -150,7 +156,7 @@ class CustomActionsController extends CRUDController
             throw new NotFoundHttpException(sprintf('unable to find the object with id : %s', $id));
         }
 	$ap = $object;
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		$this->addFlash('sonata_flash_error', 'Failed to get session.');
 		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
@@ -178,7 +184,7 @@ class CustomActionsController extends CRUDController
         }
 	$ap = $object;
 	header('Content-Type: text/plain');
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		$this->addFlash('sonata_flash_error', 'Failed to get session.');
 		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
@@ -205,7 +211,7 @@ class CustomActionsController extends CRUDController
             throw new NotFoundHttpException(sprintf('unable to find the object with id : %s', $id));
         }
 	header('Content-Type: text/plain');
-	$session = $object->getAccessPoint()->getSession();
+	$session = $this->rpcService->getSession($object->getAccessPoint());
 	if ($session === false) {
 		$this->addFlash('sonata_flash_error', 'Failed to get session.');
 		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
@@ -240,7 +246,7 @@ class CustomActionsController extends CRUDController
             throw new NotFoundHttpException(sprintf('unable to find the object with id : %s', $id));
         }
 	header('Content-Type: text/plain');
-	$session = $object->getAccessPoint()->getSession();
+	$session = $this->rpcService->getSession($object->getAccessPoint());
 	if ($session === false) {
 		$this->addFlash('sonata_flash_error', 'Failed to get session.');
 		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));

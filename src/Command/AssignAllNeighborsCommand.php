@@ -13,12 +13,13 @@ class AssignAllNeighborsCommand extends Command
 {
     protected static $defaultName = 'apman:assign-all-neighbors'; 
 
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
+    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
 	$this->logger = $logger;
 	$this->apservice = $apservice;
+	$this->rpcService = $rpcService;
     }
 
     protected function configure()
@@ -46,7 +47,7 @@ class AssignAllNeighborsCommand extends Command
 			$this->output->writeln("ifname missing for ".$ap->getName().":".$radio->getName().":".$device->getName());
 			continue;
 		}
-		$session = $ap->getSession();
+		$session = $this->rpcService->getSession($ap);
 		if ($session === false) {
 			$this->output->writeln("Cannot connect to AP ".$ap->getName());
 			continue;
@@ -69,7 +70,7 @@ class AssignAllNeighborsCommand extends Command
 			$this->output->writeln("ifname missing for ".$ap->getName().":".$radio->getName().":".$device->getName());
 			continue;
 		}
-		$session = $ap->getSession();
+		$session = $this->rpcService->getSession($ap);
 		if ($session === false) {
 			$this->output->writeln("Cannot connect to AP ".$ap->getName());
 			continue;

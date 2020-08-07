@@ -8,15 +8,22 @@ use Symfony\Component\HttpFoundation\Request;
 
 class DefaultController extends Controller
 {
+    private $logger;
+    private $apservice;
+    private $doctrine;
+    private $rpcService;
+
     public function __construct(
 	    \Psr\Log\LoggerInterface $logger,
 	    \ApManBundle\Service\AccessPointService $apservice,
-	    \Doctrine\Persistence\ManagerRegistry $doctrine
+	    \Doctrine\Persistence\ManagerRegistry $doctrine,
+	    \ApManBundle\Service\wrtJsonRpc $rpcService
     )
     {
 	    $this->logger = $logger;
 	    $this->apservice = $apservice;
 	    $this->doctrine = $doctrine;
+	    $this->rpcService = $rpcService;
     }
 
     /**
@@ -125,7 +132,7 @@ class DefaultController extends Controller
 	$sessions = array();
 	$data = array();
 	foreach ($aps as $ap) {
-	    $session = $ap->getSession();
+	    $session = $this->rpcService->getSession($ap);	
 	    if ($session === false) {
 	    	$logger->debug('Failed to log in to: '.$ap->getName());
 		    continue;
@@ -189,7 +196,7 @@ class DefaultController extends Controller
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $system
 	));
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
 	    print_r($session);
 	    exit();
@@ -216,7 +223,7 @@ class DefaultController extends Controller
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $system
 	));
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
 	    print_r($session);
 	    exit();
@@ -243,7 +250,7 @@ class DefaultController extends Controller
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $system
 	));
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
 	    print_r($session);
 	    exit();
@@ -270,7 +277,7 @@ class DefaultController extends Controller
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $system
 	));
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
 	    print_r($session);
 	    exit();
@@ -336,7 +343,7 @@ class DefaultController extends Controller
 	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->find(
 		$request->query->get('ap_id')
 	);
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
 	    	$logger->debug('Failed to log in to: '.$ap->getName());
 		return false;

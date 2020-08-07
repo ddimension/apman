@@ -8,10 +8,12 @@ class AccessPointService {
 
 	private $logger;
 	private $doctrine;
+	private $rpcService;
 
-	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine) {
+	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, \ApManBundle\Service\wrtJsonRpc $rpcService) {
 		$this->logger = $logger;
 		$this->doctrine = $doctrine;
+		$this->rpcService = $rpcService;
 	}
 
     /**
@@ -22,7 +24,7 @@ class AccessPointService {
     {
     	$logger = $this->logger;	    
 	$changed = false;
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 
 	// total clean up	
 	$opts = new \stdClass();
@@ -103,7 +105,7 @@ class AccessPointService {
     {
         $doc = $this->doctrine;
 	$em = $this->doctrine->getManager();
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		$this->logger->error("Cannot connect to AP ".$ap->getName());
 		return false;
@@ -164,7 +166,7 @@ class AccessPointService {
 	
     	$logger = $this->logger;	    
 	$changed = false;
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 
 	// total clean up	
 	$opts = new \stdClass();
@@ -186,7 +188,7 @@ class AccessPointService {
 	
     	$logger = $this->logger;	    
 	$changed = false;
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 
 	// total clean up	
 	$opts = new \stdClass();
@@ -241,7 +243,7 @@ class AccessPointService {
      */
     public function getDeviceClientStats($ap, $deviceName)
     {
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		return '-';
 	}
@@ -361,7 +363,7 @@ class AccessPointService {
 	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'ipv4' => $syslog->getSource()
 	));
-	$session = $ap->getSession();
+	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
 		$logger->debug('Failed to log in to: '.$ap->getName());
 		return false;
@@ -442,7 +444,7 @@ class AccessPointService {
 	$em->flush();
 
 	foreach ($dev->getSSID()->getDevices() as $device) {
-		$session = $device->getRadio()->getAccesspoint()->getSession();
+		$session = $this->rpcService->getSession($device->getRadio()->getAccesspoint());
 		if ($session === false) {
 			continue;
 		}
