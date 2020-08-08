@@ -160,4 +160,23 @@ class Device extends \ApManBundle\DynamicEntity\Device
     {
         return $this->ssid;
     }
+
+    /**
+     * get IsEnabled
+     * @return \boolean
+     */
+    public function getIsEnabled()
+    {
+	if (!$this->getSSID()->getIsEnabled()) {
+		return false;
+	}
+	$config = $this->getConfig();
+	if (!isset($config['disabled'])) {
+	    	return true;
+	}
+	if (intval($config['disabled'])) {
+		return false;
+	}
+	return true;
+    }
 }

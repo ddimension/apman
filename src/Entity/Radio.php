@@ -755,4 +755,23 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
 	}
 	return $res;
     }
+    
+    /**
+     * Get fullname
+     *
+     * @return string
+     */
+    public function getFullName()
+    {
+        return $this->getAccessPoint()->getName().' '.$this->getName();
+    }
+
+    /**
+     * get IsEnabled
+     * @return \boolean
+     */
+    public function getIsEnabled()
+    {
+	return intval($this->getConfigDisabled())<1;
+    }
 }

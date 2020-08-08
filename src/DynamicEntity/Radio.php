@@ -5,35 +5,6 @@ namespace ApManBundle\DynamicEntity;
 class Radio
 {
     /**
-     * Get fullname
-     *
-     * @return string
-     */
-    public function getFullName()
-    {
-        return $this->getAccessPoint()->getName().' '.$this->getName();
-    }
-
-    /**
-     * Get cfg
-     *
-     * @return string
-     */
-    public function getCfg()
-    {
-        return print_r($this->getConfig(),true);
-    }
-
-    /**
-     * get IsEnabled
-     * @return \boolean
-     */
-    public function getIsEnabled()
-    {
-	return intval($this->getConfigDisabled())<1;
-    }
-
-    /**
      * Get HwMode
      *
      * @return \string
