@@ -487,7 +487,6 @@ class AccessPointService {
 		foreach ($ssid->getDevices() as $device) {
 			$radio = $device->getRadio();
 			$ap = $radio->getAccesspoint();
-			$cfg = $device->getConfig();
 			if (empty($device->getIfname())) {
 				$this->logger->error("assignAllNeighbors: ifname missing for ".$ap->getName().":".$radio->getName().":".$device->getName());
 				continue;
@@ -509,7 +508,6 @@ class AccessPointService {
 		foreach ($ssid->getDevices() as $device) {
 			$radio = $device->getRadio();
 			$ap = $radio->getAccesspoint();
-			$cfg = $device->getConfig();
 			if (empty($device->getIfname())) {
 				$this->logger->error("assignAllNeighbors(): ifname missing for ".$ap->getName().":".$radio->getName().":".$device->getName()."\n");
 				continue;
@@ -541,7 +539,7 @@ class AccessPointService {
 			$opts = new \stdClass();
 			$opts->list = $own_neighbors;
 
-			$stat = $session->call('hostapd.'.$device->getIfname,'rrm_nr_set', $opts);
+			$stat = $session->call('hostapd.'.$device->getIfname(),'rrm_nr_set', $opts);
 		}
 		//print_r($neighbors);
 	}
