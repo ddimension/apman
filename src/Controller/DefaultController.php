@@ -5,6 +5,8 @@ namespace ApManBundle\Controller;
 use Symfony\Bundle\FrameworkBundle\Controller\Controller;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class DefaultController extends Controller
 {
@@ -132,57 +134,53 @@ class DefaultController extends Controller
 	$sessions = array();
 	$data = array();
 	foreach ($aps as $ap) {
-	    $session = $this->rpcService->getSession($ap);	
-	    if ($session === false) {
-	    	$logger->debug('Failed to log in to: '.$ap->getName());
-		    continue;
-	    }
-	    $sessionId = $ap->getName();
-	    $logger->debug('Logged in to: '.$ap->getName());
+		$sessionId = $ap->getName();
+		$data[$sessionId] = array();
+		foreach ($ap->getRadios() as $radio) {
+			foreach ($radio->getDevices() as $device) {
+				$status = $device->getStatus();
+				$ifname = $device->getIfname();
+				if ($status === NULL) continue;
 
-	    if (!array_key_exists($sessionId, $data)) 
-		    $data[$sessionId] = array();
-	    $logger->debug('Gathering from '.$sessionId.' '.time());
-	    $res = $session->callCached('system','board', null, 30);
-	    $board = null;
-            if (is_object($res) && property_exists($res, 'model')) {
-		    $board = $res;
-	    }
-
-	    $res = $session->callCached('iwinfo','devices', null, 10);
-	    foreach ($res->devices as $device) {
-		if (!array_key_exists($device, $data[$sessionId]))
-			$data[$sessionId][$device] = array('board' => $board);
-	     	
-		$data[$sessionId][$device]['info'] = new \stdClass;
-		$opts = new \stdClass();
-		$opts->device = $device;
-		$stat = $session->callCached('iwinfo','info', $opts, 5);
-		if ($stat !== false)
-			$data[$sessionId][$device]['info'] = $stat;
-
-		$data[$sessionId][$device]['assoclist'] = array();
-		$stat = $session->call('iwinfo','assoclist', $opts);
-		if ($stat !== false && property_exists($stat, 'results')) {
-			foreach ($stat->results as $entry) {
-				if (!property_exists($entry, 'mac')) {
-					continue;
+				$data[$sessionId][$ifname] = array();
+				$data[$sessionId][$ifname]['board'] = $ap->getStatus();
+				$data[$sessionId][$ifname]['info'] = $status['info'];
+				$data[$sessionId][$ifname]['assoclist'] = array();
+				foreach ($status['assoclist']['results'] as $entry) {
+					$mac = strtolower($entry['mac']);
+					$data[$sessionId][$ifname]['assoclist'][$mac] = $entry;
 				}
-				$data[$sessionId][$device]['assoclist'][ strtolower($entry->mac) ] = $entry;
-			}	
-		}
-		$data[$sessionId][$device]['clients'] = array();
-		$stat = $session->call('hostapd.'.$device, 'get_clients');
-		if ($stat !== false && property_exists($stat, 'clients')) {
-			foreach ((array) $stat->clients as $clientName => $clientValue) {
-				$data[$sessionId][$device]['clients'][$clientName] = $clientValue;
+				$data[$sessionId][$ifname]['clients'] = array();
+				if (array_key_exists('clients', $status)) {
+					if (array_key_exists('clients', $status['clients'])) {
+						$data[$sessionId][$ifname]['clients'] = $status['clients']['clients'];
+					}
+				}
+				$data[$sessionId][$ifname]['clientstats'] = $status['stations'];
 			}
 		}
-	        $data[$sessionId][$device]['clientstats'] = $apsrv->getDeviceClientStats($ap, $device);
-	    }
 	}
-	return $this->render('default/clients.html.twig', array('data' => $data, 'neighbors' => $neighbors, 'apsrv' => $apsrv));
-
+	$query = $em->createQuery("SELECT h FROM ApManBundle\Entity\ClientHeatMap h
+		LEFT JOIN h.device d
+		LEFT JOIN d.radio r
+		LEFT JOIN r.accesspoint a
+		ORDER by h.signalstr DESC
+	");
+	$hm = $query->getResult();
+	$heatmap = [];
+	foreach ($hm as $entry) {
+		$address = $entry->getAddress();
+		if (!array_key_exists($address, $heatmap)) {
+			$heatmap[ $address ] = array();
+		}
+		$heatmap[ $address ][] = $entry;
+	}
+	return $this->render('default/clients.html.twig', array(
+		'data' => $data,
+		'neighbors' => $neighbors,
+		'apsrv' => $apsrv,
+		'heatmap' => $heatmap
+	));
     }
 
     /**
@@ -198,9 +196,7 @@ class DefaultController extends Controller
 	));
 	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
-	    print_r($session);
-	    exit();
-	    return $this->redirect('/');
+		return $this->redirect($this->generateUrl('apman_default_index'));
 	}
 	$opts = new \stdClass();
 	$opts->addr = $mac;
@@ -225,9 +221,7 @@ class DefaultController extends Controller
 	));
 	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
-	    print_r($session);
-	    exit();
-	    return $this->redirect('/');
+		return $this->redirect($this->generateUrl('apman_default_index'));
 	}
 	$opts = new \stdClass();
 	$opts->addr = $mac;
@@ -239,29 +233,73 @@ class DefaultController extends Controller
     }
 
     /**
+     * @Route("/wnm_disassoc_imminent_prepare")
+     */
+    public function wnmDisassocImminentPrepare(Request $request) {
+	if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
+		return $this->redirect($this->generateUrl('apman_default_index'));
+	}
+	$ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy( array(
+		'name' => $request->get('ssid')
+	));
+
+	return $this->render('default/wnm_disassoc_imminent.html.twig', 
+		array(
+			'devices' => $ssid->getDevices(),
+			'mac' => $request->get('mac'),
+			'system' => $request->get('system'),
+			'device' => $request->get('device'),
+			'ssid' => $request->get('ssid')
+		)
+	);
+    }	    
+
+    /**
      * @Route("/wnm_disassoc_imminent")
      */
     public function wnmDisassocImminent(Request $request) {
-        $doc = $this->doctrine;
-	$system = $request->query->get('system','');
-	$device = $request->query->get('device','');
-	$ban_time = intval($request->query->get('ban_time',0));
-	$mac = $request->query->get('mac','');
-	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
-		'name' => $system
+	if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
+		echo "Params missing.\n";
+		exit();
+		return $this->redirect($this->generateUrl('apman_default_index'));
+	}
+	$opts = new \stdClass();
+	$opts->addr = $request->get('mac');
+	$opts->duration = 1*1000;
+	$opts->abridged = false;
+	$opts->neighbors = array();
+
+	if ($request->get('target') > 0) {
+		$targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy( array(
+			'id' => $request->get('target')
+		));
+		$sessionTarget = $this->rpcService->getSession($targetDev->getRadio()->getAccesspoint());
+		if ($sessionTarget === false) {
+			return $this->redirect($this->generateUrl('apman_default_index'));
+		}
+		$rrm = $sessionTarget->call('hostapd.'.$targetDev->getIfname(), 'rrm_nr_get_own');
+
+		if (!is_object($rrm) || !property_exists($rrm, 'value') || !is_array($rrm->value)) {
+			return $this->redirect($this->generateUrl('apman_default_index'));
+		}
+		$opts->neighbors = array($rrm->value[2]);
+		$opts->abridged = true;
+	}
+
+	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
+		'name' => $request->get('system')
 	));
 	$session = $this->rpcService->getSession($ap);	
 	if ($session === false) {
-	    print_r($session);
-	    exit();
-	    return $this->redirect('/');
+		echo "Failed to load session.\n";
+		exit();
+		return $this->redirect($this->generateUrl('apman_default_index'));
 	}
-	$opts = new \stdClass();
-	$opts->addr = $mac;
-	$opts->duration = 10;
-	$opts->neighbors = array();
-	$stat = $session->call('hostapd.'.$device, 'wnm_disassoc_imminent', $opts);
-	return $this->redirect('/');
+
+	$stat = $session->call('hostapd.'.$request->get('device'), 'wnm_disassoc_imminent', $opts);
+	var_dump($stat);
+	exit();
+	return $this->redirect($this->generateUrl('apman_default_index'));
     }	    
 
     /**
@@ -282,6 +320,7 @@ class DefaultController extends Controller
 	    print_r($session);
 	    exit();
 	    return $this->redirect('/');
+		return $this->redirect($this->generateUrl('apman_default_index'));
 	}
 	$opts = new \stdClass();
 	$opts->command = 'iw';
@@ -320,7 +359,6 @@ class DefaultController extends Controller
 	}
 	print_r($client);
 	exit;
-	return $this->redirect('/');
     }	    
 
     /**
@@ -333,8 +371,210 @@ class DefaultController extends Controller
 	    'wpsPendingRequests' => $wpsPendingRequests
         ));
     }
+
+    /**
+     * @Route("/event")
+     */
+    public function eventHandlerOld(Request $request) {
+	$em = $this->doctrine->getManager();
+	$event = json_decode($request->get('event'));
+	$host = $request->get('host');
+	$instance = $request->get('instance');
+	if ($event === NULL || empty($host) || empty($instance)) {
+            return new Response();
+	}
+
+	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
+		LEFT JOIN d.radio r
+		LEFT JOIN r.accesspoint a
+		WHERE d.ifname = :ifname
+		AND (a.name = :apname OR a.name = :apname_short)
+	");
+	$query->setParameter('apname', $host);
+	$query->setParameter('apname_short', substr($host, 0, strpos($host, '.')));
+	$query->setParameter('ifname', $instance);
+	try {
+		$device = $query->getSingleResult();
+	} catch (Exception $e) {
+		throw $this->createNotFoundException('The AP name or device is unknown.');
+        }
+
+	$list = get_object_vars($event);
+	foreach ($list as $key => $ev) {
+		if ($key == 'probe') {
+			$che = new \ApManBundle\Entity\ClientHeatMap();
+			$che->setAddress($ev->address);
+			$che->setDevice($device);
+			$che->setTs(new \DateTime('now'));
+			$che->setEvent(json_encode($ev));
+			if (property_exists($ev, 'signal')) {
+				$che->setSignalstr($ev->signal);
+			}
+			$em->merge($che);
+		} else {
+			$devent = new \ApManBundle\Entity\Event();
+			$devent->setTs(new \DateTime('now'));
+			$devent->setType($key);
+			$devent->setAddress($ev->address);
+			$devent->setEvent(json_encode($ev));
+			$devent->setDevice($device);
+			if (property_exists($ev, 'signal')) {
+				$devent->setSignalstr($ev->signal);
+			}
+			$em->persist($devent);
+		}
+	}
+	$em->flush();
+        return new Response();
+    }
+
+    /**
+     * @Route("/event-lua")
+     */
+    public function eventHandler(Request $request) {
+	$em = $this->doctrine->getManager();
+	$message = json_decode($request->get('message'));
+	$method = $request->get('method');
+	$host = trim($request->get('hostname'));
+	$instance = $request->get('instance');
+	$instance = str_replace('hostapd.','', $instance);
+	if ($message === NULL) {
+            return new Response('Empty Message');
+	}
+	if (empty($host)) {
+            return new Response('Empty hostname');
+	}
+	if (empty($instance)) {
+            return new Response('Empty instance');
+	}
+	if (empty($method)) {
+            return new Response('Empty method');
+	}
+
+	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
+		LEFT JOIN d.radio r
+		LEFT JOIN r.accesspoint a
+		WHERE d.ifname = :ifname
+		AND (a.name = :apname OR a.name = :apname_short)
+	");
+	$query->setParameter('apname', $host);
+	$query->setParameter('apname_short', substr($host, 0, strpos($host, '.')));
+	$query->setParameter('ifname', $instance);
+	$device = $query->getOneOrNullResult();
+	if ($device === NULL) {
+		throw $this->createNotFoundException('The AP name or device is unknown.');
+        }
+
+	if ($method == 'probe') {
+		$che = new \ApManBundle\Entity\ClientHeatMap();
+		$che->setAddress($message->address);
+		$che->setDevice($device);
+		$che->setTs(new \DateTime('now'));
+		$che->setEvent(json_encode($message));
+		if (property_exists($message, 'signal')) {
+			$che->setSignalstr($message->signal);
+		}
+		$em->merge($che);
+	} else {
+		$devent = new \ApManBundle\Entity\Event();
+		$devent->setTs(new \DateTime('now'));
+		$devent->setType($method);
+		$devent->setAddress($message->address);
+		$devent->setEvent(json_encode($message));
+		$devent->setDevice($device);
+		if (property_exists($message, 'signal')) {
+			$devent->setSignalstr($message->signal);
+		}
+		$em->persist($devent);
+	}
+	$em->flush();
+        return new Response();
+    }
+
+    /**
+     * @Route("/status-lua")
+     */
+    public function statusHandler(Request $request) {
+	$em = $this->doctrine->getManager();
+	$message = json_decode($request->get('message'));
+	$host = trim($request->get('hostname'));
+	if ($message === NULL) {
+            return new Response('Empty Message');
+	}
+	if (empty($host)) {
+            return new Response('Empty hostname');
+	}
+
+	$query = $em->createQuery("SELECT a FROM ApManBundle\Entity\AccessPoint a
+		WHERE a.name = :apname OR a.name = :apname_short
+	");
+	$query->setParameter('apname', $host);
+	$query->setParameter('apname_short', substr($host, 0, strpos($host, '.')));
+	$ap = $query->getOneOrNullResult();
+	if ($ap === NULL) {
+		$this->logger->error('AP '.$host.' not found.');
+		throw $this->createNotFoundException('The AP '.$host.' is unknown.');
+	}
+	if (property_exists($message, 'booted')) {
+		$this->apservice->assignAllNeighbors();
+		return;
+	}
+
+	if (property_exists($message, 'board')) {
+		$ap->setStatus(json_decode(json_encode($message->board), true));
+		$em->persist($ap);
+	}
+
+	if (property_exists($message, 'devices')) {
+		foreach ($message->devices as $name => $device) {
+			$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
+				LEFT JOIN d.radio r
+				LEFT JOIN r.accesspoint a
+				WHERE d.ifname = :ifname
+				AND a.id = :aid
+			");
+			$query->setParameter('aid', $ap->getId());
+			$query->setParameter('ifname', $name);
+			$dev = $query->getOneOrNullResult();
+			if ($dev === NULL) {
+				$this->logger->error('AP '.$host.', device '.$name.' not found.');
+				continue;
+			}
+			$stations = array();
+			$record = false;
+			if (property_exists($device, 'stations')) {
+				foreach (explode("\n", $device->stations) as $value) {
+					$line = trim($value);
+					$search = strtolower('station ');
+					if (substr(strtolower($line),0,strlen($search)) == $search) {
+						$record = true;
+						$mac = substr($line,strlen($search),17);
+						continue;
+					}
+					if (!$record) continue;
+					if ($line == '') {
+						continue;
+					}
+					list($key, $val) = explode(':', $line);
+					$key = trim($key);
+					$key = str_replace(array(' ',',','.','-','/'),'_', $key);
+					$val = trim($val);
+					if (!array_key_exists($mac, $stations)) {
+						$stations[$mac] = array();
+					}
+					$stations[$mac][$key] = $val;
+				}
+			}
+			$device->stations = $stations;
+			$dev->setStatus(json_decode(json_encode($device), true));
+			$em->persist($dev);
+		}
+	}
+	$em->flush();
+        return new Response();
+    }
     
-/**
+   /**
      * @Route("/wps_pin_requests_ack")
      */
     public function wpsPinRequestAck(Request $request) {

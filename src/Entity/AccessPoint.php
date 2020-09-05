@@ -64,6 +64,11 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     private $radios;
 
     /**
+     * @ORM\Column(type="json", nullable=true)
+     */
+    private $status = [];
+
+    /**
      * Constructor
      */
     public function __construct()
@@ -242,6 +247,18 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     public function getIpv4()
     {
         return $this->ipv4;
+    }
+
+    public function getStatus(): ?array
+    {
+        return $this->status;
+    }
+
+    public function setStatus(?array $status): self
+    {
+        $this->status = $status;
+
+        return $this;
     }
 
 }

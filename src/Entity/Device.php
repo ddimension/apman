@@ -56,6 +56,26 @@ class Device extends \ApManBundle\DynamicEntity\Device
     private $ssid;
 
     /**
+     * @var string|null
+     *
+     * @ORM\Column(name="ifname", type="string", nullable=true)
+     */
+    private $ifname;
+
+    /**
+     * @var string
+     *
+     * @ORM\Column(name="address", type="string", length=17, nullable=true)
+     */
+    private $address;
+
+    /**
+     * @ORM\Column(type="json", nullable=true)
+     */
+    private $status = [];
+
+
+    /**
      * Get id
      *
      * @return integer
@@ -162,21 +182,81 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
+     * Set ifname
+     *
+     * @param string $ifname
+     *
+     * @return Device
+     */
+    public function setIfname($ifname)
+    {
+        $this->ifname = $ifname;
+
+        return $this;
+    }
+
+    /**
+     * Get ifname
+     *
+     * @return string
+     */
+    public function getIfname()
+    {
+        return $this->ifname;
+    }
+
+    /**
+     * Set address
+     *
+     * @param string $address
+     *
+     * @return Event
+     */
+    public function setAddress($address)
+    {
+        $this->address = $address;
+
+        return $this;
+    }
+
+    /**
+     * Get address
+     *
+     * @return string
+     */
+    public function getAddress()
+    {
+        return $this->address;
+    }
+
+    /**
      * get IsEnabled
      * @return \boolean
      */
     public function getIsEnabled()
     {
 	if (!$this->getSSID()->getIsEnabled()) {
-		return false;
-	}
+         		return false;
+         	}
 	$config = $this->getConfig();
 	if (!isset($config['disabled'])) {
-	    	return true;
-	}
+         	    	return true;
+         	}
 	if (intval($config['disabled'])) {
-		return false;
-	}
+         		return false;
+         	}
 	return true;
+    }
+
+    public function getStatus(): ?array
+    {
+        return $this->status;
+    }
+
+    public function setStatus(?array $status): self
+    {
+        $this->status = $status;
+
+        return $this;
     }
 }

@@ -11,17 +11,17 @@ class Device
     public function getStatus()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 	    	return 'No ifname';
 		return;
 	}
-	$ifname = $config['ifname'];
+	$ifname = $this->getIfname();
 	$session = $this->getRadio()->getAccessPoint()->getSession();
 	if ($session === false) {
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->name = $config['ifname'];
+	$opts->name = $this->getIfname();
 	$data = $session->callCached('network.device','status', null, 2);
 	if ($data === false) {
 		return 'AP Offline';
@@ -59,17 +59,17 @@ class Device
     public function getStatisticsTransmit()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 	    	return 'No ifname';
 		return;
 	}
-	$ifname = $config['ifname'];
+	$ifname = $this->getIfname();
 	$session = $this->getRadio()->getAccessPoint()->getSession();
 	if ($session === false) {
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->name = $config['ifname'];
+	$opts->name = $this->getIfname();
 	$data = $session->callCached('network.device','status', null, 2);
 	if ($data === false) {
 		return 'AP Offline';
@@ -114,17 +114,17 @@ class Device
     public function getStatisticsReceive()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 	    	return 'No ifname';
 		return;
 	}
-	$ifname = $config['ifname'];
+	$ifname = $this->getIfname();
 	$session = $this->getRadio()->getAccessPoint()->getSession();
 	if ($session === false) {
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->name = $config['ifname'];
+	$opts->name = $this->getIfname();
 	$data = $session->callCached('network.device','status', null, 2);
 	if ($data === false) {
 		return 'AP Offline';
@@ -166,19 +166,19 @@ class Device
     public function getClients($useArray = false)
     {
         $config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 		if ($useArray) return array();
 	    	return 'No ifname';
 		return;
 	}
-	$ifname = $config['ifname'];
+	$ifname = $this->getIfname();
 	$session = $this->getRadio()->getAccessPoint()->getSession();
 	if ($session === false) {
 		if ($useArray) return array();
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->device = $config['ifname'];
+	$opts->device = $this->getIfname();
 	$data = $session->callCached('iwinfo','assoclist', $opts , 2);
 	if ($data === false) {
 		if ($useArray) return array();
@@ -208,7 +208,7 @@ class Device
     public function getChannel()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 	    	return 'No ifname';
 		return;
 	}
@@ -217,7 +217,7 @@ class Device
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->device = $config['ifname'];
+	$opts->device = $this->getIfname();
 	$data = $session->callCached('iwinfo','info', $opts, 4);
 	if ($data === false) {
 		return '-';
@@ -234,7 +234,7 @@ class Device
     public function getTxPower()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 	    	return 'No ifname';
 		return;
 	}
@@ -243,7 +243,7 @@ class Device
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->device = $config['ifname'];
+	$opts->device = $this->getIfname();
 	$data = $session->callCached('iwinfo','info', $opts, 4);
 	if ($data === false) {
 		return '-';
@@ -260,7 +260,7 @@ class Device
     public function getHwMode()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 	    	return 'No ifname';
 		return;
 	}
@@ -269,7 +269,7 @@ class Device
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->device = $config['ifname'];
+	$opts->device = $this->getIfname();
 	$data = $session->callCached('iwinfo','info', $opts, 4);
 	if ($data === false) {
 		return '-';
@@ -286,7 +286,7 @@ class Device
     public function getHtMode()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 	    	return 'No ifname';
 		return;
 	}
@@ -295,7 +295,7 @@ class Device
 		return '-';
 	}
 	$opts = new \stdClass();
-	$opts->device = $config['ifname'];
+	$opts->device = $this->getIfname();
 	$data = $session->callCached('iwinfo','info', $opts, 4);
 	if ($data === false) {
 		return '-';
@@ -312,14 +312,14 @@ class Device
     public function getRrmOwn()
     {
 	$config = $this->getConfig();
-	if (!isset($config['ifname'])) {
+	if (empty($this->getIfname())) {
 		return;
 	}
 	$session = $this->getRadio()->getAccessPoint()->getSession();
 	if ($session === false) {
 		return null;
 	}
-	$data = $session->callCached('hostapd.'.$config['ifname'], 'rrm_nr_get_own', null);
+	$data = $session->callCached('hostapd.'.$this->getIfname(), 'rrm_nr_get_own', null);
 	if ($data === false) {
 		return null;
 	}

@@ -83,7 +83,7 @@ class wrtJsonRpc {
 		curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1000);
-		curl_setopt($ch, CURLOPT_TIMEOUT_MS, 2000);
+		curl_setopt($ch, CURLOPT_TIMEOUT_MS, 20000);
 		curl_setopt($ch, CURLOPT_HTTPHEADER, array(
 			    'Content-Type: application/json',
 			    'Content-Length: ' . strlen($data_string))
@@ -115,6 +115,7 @@ class wrtJsonRpc {
 	}
 
 	public function call($url, $session, $namespace, $procedure, $arguments = null) {
+		$start = microtime(true);
 		$stopwatch = new Stopwatch();
 		$stopwatch->start('Call '.$url.' '.$procedure);
 		$this->logger->debug('wrtJsonRpc: Calling '.$url.' namespace '.$namespace.' procedure '.$procedure.' arguments: '.json_encode($arguments));
@@ -147,14 +148,14 @@ class wrtJsonRpc {
 		$stopwatch->stop('Call '.$url.' '.$procedure);
 		$result = json_decode($result_string);
 		if (!self::checkResult($result)) {
-			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure);
+			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure, ['duration' => microtime(true)-$start]);
 			return false;
 		}
 		if ($result->result[0]) {
-			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result));
+			$this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result), ['duration' => microtime(true)-$start]);
 			return false;
 		}
-		$this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result));
+		$this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result), ['duration' => microtime(true)-$start]);
 		if (array_key_exists(1, $result->result))
 			return $result->result[1];
 	}

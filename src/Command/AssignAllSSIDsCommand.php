@@ -90,7 +90,7 @@ class AssignAllSSIDsCommand extends Command
 				$deviceConfig['r1_key_holder'] = str_replace(':', '', $deviceConfig['macaddr']);
 			}
 			if (isset($ssidConfig->ifname) && !empty($ssidConfig->ifname)) {
-				$deviceConfig['ifname'] = $ssidConfig->ifname.$i;
+				$device->setIfname($ssidConfig->ifname.$i);
 			}
 			$device->setConfig($deviceConfig);
 			$em->persist($device);

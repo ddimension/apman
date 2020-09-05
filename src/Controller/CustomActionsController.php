@@ -258,7 +258,7 @@ class CustomActionsController extends CRUDController
 		$this->addFlash('sonata_flash_error', 'Failed to scan.: '.print_r($stat,true));
 		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
 	}
-	return $this->render('ApManBundle:Default:neighbors.html.twig', array('neighbors' => $stat->results));
+	return $this->render('default/neighbors.html.twig', array('neighbors' => $stat->results));
     }
 
 }

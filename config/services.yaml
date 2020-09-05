@@ -6,9 +6,9 @@
 parameters:
     syslog.bindaddr: 0.0.0.0
     syslog.port: 9000
-    firewall_url: 'http://FIREWALL_IP/ubus'
-    firewall_user: root
-    firewall_password: PASSWORD
+    firewall_url: '%env(resolve:FIREWALL_URL)%'
+    firewall_user: '%env(resolve:FIREWALL_USER)%'
+    firewall_password: '%env(resolve:FIREWALL_PASSWORD)%'
 
 services:
     # default configuration for services in *this* file

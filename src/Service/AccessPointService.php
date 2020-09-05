@@ -238,54 +238,6 @@ class AccessPointService {
     }
 
     /**
-     * get DeviceClientStats
-     * @return \string|\null 
-     */
-    public function getDeviceClientStats($ap, $deviceName)
-    {
-	$session = $this->rpcService->getSession($ap);
-	if ($session === false) {
-		return '-';
-	}
-	$opts = new \stdClass();
-	$opts->command = 'iw';
-	$opts->params = array('dev',$deviceName,"station","dump");
-	$stat = $session->callCached('file','exec', $opts, 1);
-	if (!$stat) {
-		return false;
-	}
-	if (!property_exists($stat, 'stdout')) {
-		return false;
-	}
-	$record = false;
-	$clients = array();
-	$mac = '';
-	foreach (explode("\n", $stat->stdout) as $value) {
-		$line = trim($value);
-		$search = strtolower('station ');
-		if (substr(strtolower($line),0,strlen($search)) == $search) {
-			#echo "FXXXX\n";
-			$record = true;
-			$mac = substr($line,strlen($search),17);
-			continue;
-		}
-		if (!$record) continue;
-		if ($line == '') {
-			continue;
-		}
-		list($key, $val) = explode(':', $line);
-		$key = trim($key);
-		$key = str_replace(array(' ',',','.','-','/'),'_', $key);
-		$val = trim($val);
-		if (!array_key_exists($mac, $clients)) {
-			$clients[$mac] = array();
-		}
-		$clients[$mac][$key] = $val;
-	}
-	return $clients;
-    }
-
-    /**
      * get Pending WPS PIN Requests
      * @return \array|\boolean
      */
@@ -412,8 +364,8 @@ class AccessPointService {
 		echo $device->getId()."\n";
 		print_r($device->getConfig());
 		$cfg = $device->getConfig();
-		if (!isset($cfg['ifname'])) continue;
-		if ($cfg['ifname'] == $if) {
+		if (empty($device->getIfname())) continue;
+		if ($device->getIfname() == $if) {
 			$dev = $device;
 		}
 	}
@@ -475,4 +427,123 @@ class AccessPointService {
 
     }
 
+    public function fetchDynamicProperties(\ApManBundle\Entity\AccessPoint $ap) 
+    {
+	$em = $this->doctrine->getManager();
+	$qb = $em->createQueryBuilder();
+	$query = $em->createQuery(
+	    'SELECT ap
+	     FROM ApManBundle:AccessPoint ap
+	     WHERE
+	     ap.id = :id'
+	);
+	$query->setFetchMode("ApManBundle\AccessPoint", "ap", "EAGER");
+	$query->setParameter('id', $apId);
+	$ap = $query->getSingleResult();
+	$session = $this->rpcService->getSession($ap);
+	$opts = new \stdclass();
+	$opts->command = 'ip';
+	$opts->params = array('-s', 'link', 'show');
+	$opts->env = array('LC_ALL' => 'C');
+	$stat = $session->callCached('file','exec', $opts, 15);
+
+	$data = $session->callCached('network.device','status', null, 15);
+	$data = $session->callCached('iwinfo','devices', null, 15);
+	$data = $session->callCached('system','info', null, 15);
+	$data = $session->callCached('system','board', null, 15);
+	foreach ($ap->getRadios() as $radio) {
+		$p = new \stdClass();
+		$p->device = $radio->getName();
+		$data = $session->callCached('iwinfo','info', $p , 15);
+		foreach ($radio->getDevices() as $device) {
+			$config = $device->getConfig();
+			if (empty($device->getIfname())) continue;
+			$o = new \stdClass();
+			$o->device = $device->getIfname();
+			$data = $session->callCached('iwinfo','info', $o , 15);
+			$data = $session->callCached('iwinfo','assoclist', $o , 15);
+			#print_r($data);
+			/*
+			if (is_object($data) && property_exists($data, 'results') && is_array($data->results)) {
+				$this->ssidService->applyLocationConstraints($data->results, $device);
+				$session->invalidateCache('iwinfo','assoclist', $o , 15);
+			}
+			 */
+
+
+		}
+	}
+	#$stop = microtime(true);
+	#echo "Polled ".$ap->getName().", took ".sprintf('%0.3f',$stop-$start)."s\n";
+    }
+
+    public function assignAllNeighbors()
+    {
+	$em = $this->doctrine->getManager();
+
+	$ssids = $this->doctrine->getRepository('ApManBundle:SSID')->findall();
+	foreach ($ssids as $ssid) {
+		$neighors = array();
+		foreach ($ssid->getDevices() as $device) {
+			$radio = $device->getRadio();
+			$ap = $radio->getAccesspoint();
+			$cfg = $device->getConfig();
+			if (empty($device->getIfname())) {
+				$this->logger->error("assignAllNeighbors: ifname missing for ".$ap->getName().":".$radio->getName().":".$device->getName());
+				continue;
+			}
+			$session = $this->rpcService->getSession($ap);
+			if ($session === false) {
+				$this->logger->error("assignAllNeighbors(): Cannot connect to AP ".$ap->getName());
+				continue;
+			}
+
+			$nr_own = $session->call('hostapd.'.$device->getIfname(),'rrm_nr_get_own');
+			if (is_object($nr_own) && property_exists($nr_own, 'value')) {
+				$neighbors[] = $nr_own->value;
+			}
+		}
+		if (!count($neighbors)) {
+			continue;
+		}
+		foreach ($ssid->getDevices() as $device) {
+			$radio = $device->getRadio();
+			$ap = $radio->getAccesspoint();
+			$cfg = $device->getConfig();
+			if (empty($device->getIfname())) {
+				$this->logger->error("assignAllNeighbors(): ifname missing for ".$ap->getName().":".$radio->getName().":".$device->getName()."\n");
+				continue;
+			}
+			$session = $this->rpcService->getSession($ap);
+			if ($session === false) {
+				$this->logger->error("assignAllNeighbors(): Cannot connect to AP ".$ap->getName()."\n");
+				continue;
+			}
+
+			$opts = new \stdClass();
+			$opts->neighbor_report = true;
+			$opts->beacon_report = true;
+			$opts->bss_transition = true;
+			$stat = $session->call('hostapd.'.$device->getIfname(),'bss_mgmt_enable', $opts);
+
+			$nr_own = $session->call('hostapd.'.$device->getIfname(),'rrm_nr_get_own');
+			if (!(is_object($nr_own) && property_exists($nr_own, 'value'))) {
+				continue;
+			}
+
+			$own_neighbors = array();
+			foreach ($neighbors as $neighbor) {
+				if ($neighbor[0] == $nr_own->value[0]) {
+					continue;
+				}
+				$own_neighbors[] = $neighbor;
+			}
+			$opts = new \stdClass();
+			$opts->list = $own_neighbors;
+
+			$stat = $session->call('hostapd.'.$device->getIfname,'rrm_nr_set', $opts);
+		}
+		//print_r($neighbors);
+	}
+    }
 }

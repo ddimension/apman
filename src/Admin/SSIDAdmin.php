@@ -6,6 +6,7 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Form\FormMapper;
+use Sonata\Form\Type\CollectionType;
 
 class SSIDAdmin extends AbstractAdmin
 {
@@ -13,7 +14,7 @@ class SSIDAdmin extends AbstractAdmin
     {
         $formMapper->with('Basics')
 		->add('name')
-		->add('config_options', 'sonata_type_collection', array(
+		->add('config_options', CollectionType::class, array(
                 // Prevents the "Delete" option from being displayed
 			'type_options' => array('delete' => true)
 		    ), array(
@@ -21,7 +22,7 @@ class SSIDAdmin extends AbstractAdmin
 			'inline' => 'table',
 			'sortable' => 'position',
 		    ))
-		->add('config_lists', 'sonata_type_collection', array(
+		->add('config_lists', CollectionType::class, array(
                 // Prevents the "Delete" option from being displayed
 			'type_options' => array('delete' => true)
 		    ), array(
@@ -29,7 +30,7 @@ class SSIDAdmin extends AbstractAdmin
 			'inline' => 'table',
 			'sortable' => 'position',
 		    ))
-		->add('config_files', 'sonata_type_collection', array(
+		->add('config_files', CollectionType::class, array(
                 // Prevents the "Delete" option from being displayed
 			'type_options' => array('delete' => true)
 		    ), array(

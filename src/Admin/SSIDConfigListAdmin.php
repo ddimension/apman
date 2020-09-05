@@ -6,13 +6,14 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Form\FormMapper;
+use Sonata\Form\Type\CollectionType;
 
 class SSIDConfigListAdmin extends AbstractAdmin
 {
     protected function configureFormFields(FormMapper $formMapper)
     {
         $formMapper->add('name');
-	$formMapper->add('options', 'sonata_type_collection', array(
+	$formMapper->add('options', CollectionType::class, array(
                 // Prevents the "Delete" option from being displayed
 			'type_options' => array('delete' => true)
 		    ), array(

@@ -130,13 +130,13 @@
 				{% endif %}
 			</td>
 			<td>
-				{% if data[system][device]['clientstats'][client].authenticated is defined %}
-					{{ data[system][device]['clientstats'][client].authenticated }}
+				{% if data[system][device]['clientstats'][client]['authenticated'] is defined %}
+					{{ data[system][device]['clientstats'][client]['authenticated'] }}
 				{% endif %}
 			</td>
 			<td>
-				{% if data[system][device]['clientstats'][client].associated is defined %}
-					{{ data[system][device]['clientstats'][client].associated }}
+				{% if data[system][device]['clientstats'][client]['associated'] is defined %}
+					{{ data[system][device]['clientstats'][client]['associated'] }}
 				{% endif %}
 			</td>
 			<td>
@@ -160,13 +160,13 @@
 				{% endif %}
 			</td>
 			<td>
-				{% if data[system][device]['clients'][client].ht is defined %}
-					{{ data[system][device]['clients'][client].ht }}
+				{% if data[system][device]['assoclist'][client]['tx'].ht is defined %}
+					{{ data[system][device]['assoclist'][client]['tx'].ht }}
 				{% endif %}
 			</td>
 			<td>
-				{% if data[system][device]['clients'][client].vht is defined %}
-					{{ data[system][device]['clients'][client].vht }}
+				{% if data[system][device]['assoclist'][client]['tx'].vht is defined %}
+					{{ data[system][device]['assoclist'][client]['tx'].vht }}
 				{% endif %}
 			</td>
 			<td>
@@ -220,11 +220,22 @@
 				{% endif %}
 			</td>
 			<td align="center">
-				<a href="disconnect?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">DisAssoc.</a><br />
-				<a href="deauth?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">DeAuth</a><br />
-				<a href="deauth?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ban_time=30">DeAuth+Ban (30s)</a><br />
-				<a href="wnm_disassoc_imminent?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ban_time=30">WNM Disassoc</a><br />
-				<a href="station?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">Info</a>
+				<a href="{{ path('apman_default_disconnect') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">DisAssoc.</a><br />
+				<a href="{{ path('apman_default_deauth') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">DeAuth</a><br />
+				<a href="{{ path('apman_default_deauth') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ban_time=30">DeAuth+Ban (30s)</a><br />
+				{% if data[system][device]['info'].ssid is defined %}
+					<a href="{{ path('apman_default_wnmdisassocimminentprepare') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ssid={{ data[system][device]['info'].ssid|url_encode }}">WNM Disassoc</a><br />
+				{% endif %}
+				<a href="{{ path('apman_default_station') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">Info</a>
+			</td>
+			<td align="right">
+				{% if heatmap[client]  is defined %}
+					{% for probe in heatmap[client] %}
+						{% if data[system][device]['info'].ssid is defined and probe.device.ssid.getName() == data[system][device]['info'].ssid %}
+							<span title="{{ probe.getTs()|date }}">{{ probe.device.radio.accesspoint.name }}/{{ probe.device.radio.configHwmode }} {{ probe.signalstr }}</span><br />
+						{% endif %}
+					{% endfor %}
+				{% endif %}
 			</td>
 			</tr>
 		{% endfor %}

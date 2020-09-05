@@ -1,0 +1,26 @@
+{% extends 'frontend.html.twig' %}
+
+{% block body %}
+Move Client to: <br />
+<form method="post" action="{{ path('apman_default_wnmdisassocimminent') }}">
+<input type="hidden" name="mac" value="{{ mac }}" />
+<input type="hidden" name="system" value="{{ system }}" />
+<input type="hidden" name="device" value="{{ device }}" />
+<input type="hidden" name="ssid" value="{{ ssid }}" />
+<select name="target" />
+	<option value="0">device decides</option>
+{% for device in devices %}
+	<option value="{{device.id}}">{{ device.radio.accesspoint.name }}/{{ device.radio.name }} {{ device.radio.configHwmode }}</option>
+{% endfor %}
+</select>
+<br />
+<input type="submit" name="submit" value="Absenden" />
+</form>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+
+</style>
+{% endblock %}
+
