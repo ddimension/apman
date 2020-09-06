@@ -68,20 +68,29 @@ class DeviceApiController extends Controller
 
 	$updated = [];
 	if (property_exists($data->message, 'devices')) {
+		$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
+			LEFT JOIN d.radio r
+			LEFT JOIN r.accesspoint a
+			WHERE d.ifname IN(:ifname)
+			AND a.id = :aid
+		");
+		$query->setParameter('aid', $ap->getId());
+		$query->setParameter('ifname', array_keys(get_object_vars($data->message->devices)));
+		$devs = $query->getResult();
+		if (!count($devs)) {
+			$this->logger->error('AP '.$host.', devices not found.');
+        		return new Response(json_encode(['status' => 1]));
+		}
+		$devs_indexed = [];
+		foreach ($devs as $device) {
+			$devs_indexed [$device->getIfname()] = $device;
+		}
 		foreach ($data->message->devices as $name => $device) {
-			$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
-				LEFT JOIN d.radio r
-				LEFT JOIN r.accesspoint a
-				WHERE d.ifname = :ifname
-				AND a.id = :aid
-			");
-			$query->setParameter('aid', $ap->getId());
-			$query->setParameter('ifname', $name);
-			$dev = $query->getOneOrNullResult();
-			if ($dev === NULL) {
+			if (!array_key_exists($name, $devs_indexed)) {
 				$this->logger->error('AP '.$host.', device '.$name.' not found.');
 				continue;
 			}
+			$dev = $devs_indexed[$name];
 			$stations = array();
 			$record = false;
 			if (property_exists($device, 'stations')) {
