@@ -29,162 +29,46 @@ class DeviceApiController extends Controller
     }
 
     /**
-     * @Route("/event")
-     */
-    public function eventHandlerOld(Request $request) {
-	$em = $this->doctrine->getManager();
-	$event = json_decode($request->get('event'));
-	$host = $request->get('host');
-	$instance = $request->get('instance');
-	if ($event === NULL || empty($host) || empty($instance)) {
-            return new Response();
-	}
-
-	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
-		LEFT JOIN d.radio r
-		LEFT JOIN r.accesspoint a
-		WHERE d.ifname = :ifname
-		AND (a.name = :apname OR a.name = :apname_short)
-	");
-	$query->setParameter('apname', $host);
-	$query->setParameter('apname_short', substr($host, 0, strpos($host, '.')));
-	$query->setParameter('ifname', $instance);
-	try {
-		$device = $query->getSingleResult();
-	} catch (Exception $e) {
-		throw $this->createNotFoundException('The AP name or device is unknown.');
-        }
-
-	$list = get_object_vars($event);
-	foreach ($list as $key => $ev) {
-		if ($key == 'probe') {
-			$che = new \ApManBundle\Entity\ClientHeatMap();
-			$che->setAddress($ev->address);
-			$che->setDevice($device);
-			$che->setTs(new \DateTime('now'));
-			$che->setEvent(json_encode($ev));
-			if (property_exists($ev, 'signal')) {
-				$che->setSignalstr($ev->signal);
-			}
-			$em->merge($che);
-		} else {
-			$devent = new \ApManBundle\Entity\Event();
-			$devent->setTs(new \DateTime('now'));
-			$devent->setType($key);
-			$devent->setAddress($ev->address);
-			$devent->setEvent(json_encode($ev));
-			$devent->setDevice($device);
-			if (property_exists($ev, 'signal')) {
-				$devent->setSignalstr($ev->signal);
-			}
-			$em->persist($devent);
-		}
-	}
-	$em->flush();
-        return new Response();
-    }
-
-    /**
-     * @Route("/event-lua")
-     */
-    public function eventHandler(Request $request) {
-	$em = $this->doctrine->getManager();
-	$message = json_decode($request->get('message'));
-	$method = $request->get('method');
-	$host = trim($request->get('hostname'));
-	$instance = $request->get('instance');
-	$instance = str_replace('hostapd.','', $instance);
-	if ($message === NULL) {
-            return new Response('Empty Message');
-	}
-	if (empty($host)) {
-            return new Response('Empty hostname');
-	}
-	if (empty($instance)) {
-            return new Response('Empty instance');
-	}
-	if (empty($method)) {
-            return new Response('Empty method');
-	}
-
-	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
-		LEFT JOIN d.radio r
-		LEFT JOIN r.accesspoint a
-		WHERE d.ifname = :ifname
-		AND (a.name = :apname OR a.name = :apname_short)
-	");
-	$query->setParameter('apname', $host);
-	$query->setParameter('apname_short', substr($host, 0, strpos($host, '.')));
-	$query->setParameter('ifname', $instance);
-	$device = $query->getOneOrNullResult();
-	if ($device === NULL) {
-		throw $this->createNotFoundException('The AP name or device is unknown.');
-        }
-
-	if ($method == 'probe') {
-		$che = new \ApManBundle\Entity\ClientHeatMap();
-		$che->setAddress($message->address);
-		$che->setDevice($device);
-		$che->setTs(new \DateTime('now'));
-		$che->setEvent(json_encode($message));
-		if (property_exists($message, 'signal')) {
-			$che->setSignalstr($message->signal);
-		}
-		$em->merge($che);
-	} else {
-		$devent = new \ApManBundle\Entity\Event();
-		$devent->setTs(new \DateTime('now'));
-		$devent->setType($method);
-		$devent->setAddress($message->address);
-		$devent->setEvent(json_encode($message));
-		$devent->setDevice($device);
-		if (property_exists($message, 'signal')) {
-			$devent->setSignalstr($message->signal);
-		}
-		$em->persist($devent);
-	}
-	$em->flush();
-        return new Response();
-    }
-
-    /**
-     * @Route("/status-lua")
+     * @Route("/api/device/status")
      */
     public function statusHandler(Request $request) {
 	$em = $this->doctrine->getManager();
-	$message = json_decode($request->get('message'));
-	$host = trim($request->get('hostname'));
-	if ($message === NULL) {
+	$data = json_decode($request->getContent());
+	if ($data === NULL) {
+            return new Response('Invalid json');
+	}
+	if (!property_exists($data, 'message') || empty($data->message)) {
             return new Response('Empty Message');
 	}
-	if (empty($host)) {
+	if (!property_exists($data, 'hostname',) || empty($data->hostname)) {
             return new Response('Empty hostname');
 	}
 
 	$query = $em->createQuery("SELECT a FROM ApManBundle\Entity\AccessPoint a
 		WHERE a.name = :apname OR a.name = :apname_short
 	");
-	$query->setParameter('apname', $host);
-	$query->setParameter('apname_short', substr($host, 0, strpos($host, '.')));
+	$query->setParameter('apname', $data->hostname);
+	$query->setParameter('apname_short', substr($data->hostname, 0, strpos($data->hostname, '.')));
 	$ap = $query->getOneOrNullResult();
 	if ($ap === NULL) {
-		$this->logger->error('AP '.$host.' not found.');
-		throw $this->createNotFoundException('The AP '.$host.' is unknown.');
+		$this->logger->error('AP '.$data->hostname.' not found.');
+		throw $this->createNotFoundException('The AP '.$data->hostname.' is unknown.');
 	}
-	if (property_exists($message, 'booted')) {
-		if ($message->booted) {
+	if (property_exists($data->message, 'booted')) {
+		if ($data->message->booted) {
 			$this->apservice->assignAllNeighbors();
-			return;
+			return new Response(json_encode(['status' => 0, 'message' => 'Sent neighbor data']));
 		}
 	}
 
-	if (property_exists($message, 'board')) {
-		$ap->setStatus(json_decode(json_encode($message->board), true));
+	if (property_exists($data->message, 'board')) {
+		$ap->setStatus(json_decode(json_encode($data->message->board), true));
 		$em->persist($ap);
 	}
 
-	if (property_exists($message, 'devices')) {
-		foreach ($message->devices as $name => $device) {
+	$updated = [];
+	if (property_exists($data->message, 'devices')) {
+		foreach ($data->message->devices as $name => $device) {
 			$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
 				LEFT JOIN d.radio r
 				LEFT JOIN r.accesspoint a
@@ -226,9 +110,72 @@ class DeviceApiController extends Controller
 			$device->stations = $stations;
 			$dev->setStatus(json_decode(json_encode($device), true));
 			$em->persist($dev);
+			$updated[] = $dev->getIfname();
 		}
 	}
 	$em->flush();
-        return new Response();
+        return new Response(json_encode(['status' => 0, 'devices_updated' => $updated]));
+    }
+
+    /**
+     * @Route("/api/device/event")
+     */
+    public function eventHandler(Request $request) {
+	$em = $this->doctrine->getManager();
+	$data = json_decode($request->getContent());
+	if ($data === NULL) {
+            return new Response('Empty Message');
+	}
+	if (!property_exists($data, 'message') || empty($data->message)) {
+            return new Response('Empty Message');
+	}
+	if (!property_exists($data, 'hostname') || empty($data->hostname)) {
+            return new Response('Empty hostname');
+	}
+	if (!property_exists($data, 'instance') || empty($data->instance)) {
+            return new Response('Empty instance');
+	}
+	if (!property_exists($data, 'method') || empty($data->method)) {
+            return new Response('Empty method');
+	}
+	$ifname = substr($data->instance, strpos($data->instance, '.')+1);
+	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
+		LEFT JOIN d.radio r
+		LEFT JOIN r.accesspoint a
+		WHERE d.ifname = :ifname
+		AND (a.name = :apname OR a.name = :apname_short)
+	");
+	$query->setParameter('apname', $data->hostname);
+	$query->setParameter('apname_short', substr($data->hostname, 0, strpos($data->hostname, '.')));
+	$query->setParameter('ifname', $ifname);
+	$device = $query->getOneOrNullResult();
+	if ($device === NULL) {
+		throw $this->createNotFoundException('The AP name or device is unknown.');
+        }
+
+	if ($data->method == 'probe') {
+		$che = new \ApManBundle\Entity\ClientHeatMap();
+		$che->setAddress($data->message->address);
+		$che->setDevice($device);
+		$che->setTs(new \DateTime('now'));
+		$che->setEvent(json_encode($data->message, true));
+		if (property_exists($data->message, 'signal')) {
+			$che->setSignalstr($data->message->signal);
+		}
+		$em->merge($che);
+	} else {
+		$devent = new \ApManBundle\Entity\Event();
+		$devent->setTs(new \DateTime('now'));
+		$devent->setType($data->method);
+		$devent->setAddress($data->message->address);
+		$devent->setEvent(json_encode($data->message, true));
+		$devent->setDevice($device);
+		if (property_exists($data->message, 'signal')) {
+			$devent->setSignalstr($data->message->signal);
+		}
+		$em->persist($devent);
+	}
+	$em->flush();
+        return new Response(json_encode(['status' => 0]));
     }
 }
