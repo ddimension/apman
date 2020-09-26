@@ -1,4 +1,7 @@
 {
+    "cboden/ratchet": {
+        "version": "v0.4.3"
+    },
     "composer/package-versions-deprecated": {
         "version": "1.10.99"
     },
@@ -84,6 +87,12 @@
     "egulias/email-validator": {
         "version": "2.1.18"
     },
+    "evenement/evenement": {
+        "version": "v3.0.1"
+    },
+    "guzzlehttp/psr7": {
+        "version": "1.6.1"
+    },
     "jms/metadata": {
         "version": "2.3.0"
     },
@@ -123,6 +132,9 @@
     "psr/container": {
         "version": "1.0.0"
     },
+    "psr/http-message": {
+        "version": "1.0.1"
+    },
     "psr/link": {
         "version": "1.0.0"
     },
@@ -131,6 +143,33 @@
     },
     "psr/simple-cache": {
         "version": "1.0.1"
+    },
+    "ralouphie/getallheaders": {
+        "version": "3.0.3"
+    },
+    "ratchet/rfc6455": {
+        "version": "v0.3"
+    },
+    "react/cache": {
+        "version": "v1.1.0"
+    },
+    "react/dns": {
+        "version": "v1.4.0"
+    },
+    "react/event-loop": {
+        "version": "v1.1.1"
+    },
+    "react/promise": {
+        "version": "v2.8.0"
+    },
+    "react/promise-timer": {
+        "version": "v1.6.0"
+    },
+    "react/socket": {
+        "version": "v1.6.0"
+    },
+    "react/stream": {
+        "version": "v1.1.1"
     },
     "sensio/framework-extra-bundle": {
         "version": "5.2",
