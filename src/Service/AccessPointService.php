@@ -483,7 +483,7 @@ class AccessPointService {
 
 	$ssids = $this->doctrine->getRepository('ApManBundle:SSID')->findall();
 	foreach ($ssids as $ssid) {
-		$neighors = array();
+		$neighbors = array();
 		foreach ($ssid->getDevices() as $device) {
 			$radio = $device->getRadio();
 			$ap = $radio->getAccesspoint();

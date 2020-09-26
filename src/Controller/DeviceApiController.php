@@ -56,7 +56,7 @@ class DeviceApiController extends Controller
 	}
 	if (property_exists($data->message, 'booted')) {
 		if ($data->message->booted) {
-			$this->apservice->assignAllNeighbors();
+			#$this->apservice->assignAllNeighbors();
 			return new Response(json_encode(['status' => 0, 'message' => 'Sent neighbor data']));
 		}
 	}

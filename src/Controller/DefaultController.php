@@ -407,4 +407,18 @@ class DefaultController extends Controller
 //	    'wpsPendingRequests' => $wpsPendingRequests
         ));
     }
+ 
+    /**
+     * @Route("/chtest")
+     */
+    public function chtest(Request $request) {
+	$stdin = fopen('php://stdin', 'r');
+	while(!feof($stdin)) {
+		$buffer = fgets($stdin,4096);
+		print("B: $buffer\n");
+		ob_flush();
+	}
+	exit();
+   }
+
 }
