@@ -30,7 +30,7 @@ class wrtJsonRpc {
 		return true;
 	}
 
-	private function getHandle($url) {
+	public function getHandle($url) {
 		if (array_key_exists('curl_cache', $GLOBALS)) {
 			return $GLOBALS['curl_cache'];
 		}
@@ -84,6 +84,7 @@ class wrtJsonRpc {
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1000);
 		curl_setopt($ch, CURLOPT_TIMEOUT_MS, 20000);
+		curl_setopt($ch, CURLOPT_VERBOSE, 0);
 		curl_setopt($ch, CURLOPT_HTTPHEADER, array(
 			    'Content-Type: application/json',
 			    'Content-Length: ' . strlen($data_string))
@@ -160,17 +161,42 @@ class wrtJsonRpc {
 			return $result->result[1];
 	}
 
-	public function getSession(\ApManBundle\Entity\AccessPoint $ap) {
-		$cache = new FilesystemCache();
-		$key = 'session_'.$ap->getName();
-		if ($cache->has($key)) {
-			return $cache->get($key);
+	public function createRpcRequest($id, $rpcMethod, $session = null, $namespace, $procedure, $arguments = null ) {
+		$cmd = new \stdClass();
+		$cmd->jsonrpc = '2.0';
+		$cmd->id = $id;
+		$cmd->method = $rpcMethod;
+		$cmd->params = array();
+		if (is_null($session)) {
+			$cmd->params['0'] = '00000000000000000000000000000000';
+		} else {
+			$cmd->params['0'] = $session;
+		}
+		$cmd->params['1'] = $namespace;
+		$cmd->params['2'] = $procedure;
+		if (is_object($arguments)) {
+			$cmd->params['3'] = $arguments;
+		} else {
+			$cmd->params['3'] = new \stdClass();
+		}
+		return $cmd;
+	}
+
+	public function getSession(\ApManBundle\Entity\AccessPoint $ap, $cached = true) {
+		if ($cached) {
+			$cache = new FilesystemCache();
+			$key = 'session_'.$ap->getName();
+			if ($cache->has($key)) {
+				return $cache->get($key);
+			}
 		}
 		$session = $this->login($ap->getUbusUrl(), $ap->getUsername(), $ap->getPassword());
 		if (!$session) {
 			return false;
 		}
-		$cache->set($key, $session, $session->getExpires()-1);
+		if ($cached) {
+			$cache->set($key, $session, $session->getExpires()-1);
+		}
 		return $session;
 	}
 }
