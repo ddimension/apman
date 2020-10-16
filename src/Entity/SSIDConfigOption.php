@@ -45,6 +45,11 @@ class SSIDConfigOption
      */
     private $ssid;
 
+    public function __clone() {
+	    $this->id = null;
+	    $this->ssid = null;
+    }
+
     public function __toString()
     {
         return $this->name;

@@ -38,36 +38,42 @@ class AccessPoint
      */
     public function getModel()
     {
-        if (!($session = $this->getSession())) {
-		return '-';
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('board', $status)) {
+	    return null;
 	}
-	$data = $session->callCached('system','board', null, 10);
-	if (!$data || !isset($data->model)) return '-';
-	return $data->model;
-    }
-    /**
-     * get model
-     */
-    public function getSystem()
-    {
-        if (!($session = $this->getSession())) {
-		return '-';
+	if (!is_array($status['board'])) {
+	    return null;
 	}
-	$data = $session->callCached('system','board', null, 10);
-	if (!$data || !isset($data->model)) return '-';
-	return $data->system;
+        if (!array_key_exists('model', $status['board'])) {
+            return null;
+            return '';
+        }
+	return $status['board']['model'];
     }
+    
     /**
      * get model
      */
     public function getKernel()
     {
-        if (!($session = $this->getSession())) {
-		return '-';
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('board', $status)) {
+	    return null;
 	}
-	$data = $session->callCached('system','board', null, 10);
-	if (!$data || !isset($data->model)) return '-';
-	return $data->kernel;
+	if (!is_array($status['board'])) {
+	    return null;
+	}
+        if (!array_key_exists('kernel', $status['board'])) {
+            return null;
+        }
+	return $status['board']['kernel'];
     }
 
     /**
@@ -75,12 +81,41 @@ class AccessPoint
      */
     public function getCodeName()
     {
-        if (!($session = $this->getSession())) {
-		return '-';
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('board', $status)) {
+	    return null;
 	}
-	$data = $session->callCached('system','board', null, 10);
-	if (!$data || !isset($data->model)) return '-';
-	return $data->release->version;
+	if (!is_array($status['board'])) {
+	    return null;
+	}
+        if (!array_key_exists('release', $status['board'])) {
+            return null;
+        }
+	return $status['board']['release']['version'];
+    }
+
+    /**
+     * get system
+     */
+    public function getSystem()
+    {
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('board', $status)) {
+	    return null;
+	}
+	if (!is_array($status['board'])) {
+	    return null;
+	}
+        if (!array_key_exists('system', $status['board'])) {
+            return null;
+        }
+	return $status['board']['system'];
     }
 
     /**
@@ -89,18 +124,22 @@ class AccessPoint
      */
     public function getUptime()
     {
-        if (!($session = $this->getSession())) {
-		$date = new \DateTime();
-		$date->setTimestamp(0);
-		return $date;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('info', $status)) {
+	    return null;
 	}
-	$data = $session->callCached('system','info', null, 10);
-	if (!$data || !isset($data->uptime)) return '0';
+	if (!is_array($status['info'])) {
+	    return null;
+	}
+        if (!array_key_exists('uptime', $status['info'])) {
+            return null;
+        }
 	$date = new \DateTime();
-	$date->setTimestamp(time()-$data->uptime);
+	$date->setTimestamp(time()-$status['info']['uptime']);
 	return $date;
-
-	#return $data->uptime;
     }
 
     /**
@@ -109,16 +148,23 @@ class AccessPoint
      */
     public function getLoad()
     {
-        if (!($session = $this->getSession())) {
-		return '-';
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('info', $status)) {
+	    return null;
 	}
-	$data = $session->callCached('system','info', null, 10);
-	if (!$data || !isset($data->load)) return '0';
+	if (!is_array($status['info'])) {
+	    return null;
+	}
+        if (!array_key_exists('uptime', $status['info'])) {
+            return null;
+        }
 	$d = array();
-	foreach ($data->load as $load) {
+	foreach ($status['info']['load'] as $load) {
 		$d[] = sprintf('%0.02f', $load/100000);
 	}
 	return join(', ', $d);
     }
-    
 }

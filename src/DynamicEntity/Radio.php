@@ -24,6 +24,23 @@ class Radio
 	if (!property_exists($data, 'hwmodes')) 
 		return '-';
 	return join(', ', $data->hwmodes);
+/*	
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+        if (!array_key_exists('board', $status)) {
+            return null;
+        }
+        if (!is_array($status['board'])) {
+            return null;
+        }
+        if (!array_key_exists('model', $status['board'])) {
+            return null;
+            return '';
+        }
+        return $status['board']['model'];
+*/	
     }
 
     /**

@@ -74,6 +74,11 @@ class Device extends \ApManBundle\DynamicEntity\Device
      */
     private $status = [];
 
+    /**
+     * @ORM\Column(type="json", nullable=true)
+     */
+    private $rrm = [];
+
 
     /**
      * Get id
@@ -118,9 +123,11 @@ class Device extends \ApManBundle\DynamicEntity\Device
      */
     public function setConfig($config)
     {
-        $this->config = $config;
+	unset($config['ifname']);
+	unset($config['macaddr']);
+	$this->config = $config;
 
-        return $this;
+	return $this;
     }
 
     /**
@@ -130,7 +137,10 @@ class Device extends \ApManBundle\DynamicEntity\Device
      */
     public function getConfig()
     {
-        return $this->config;
+        $config = $this->config;
+	if (!empty($this->ifname)) $config['ifname'] = $this->ifname;
+	if (!empty($this->address)) $config['macaddress'] = $this->address;
+        return $config;
     }
 
     /**
@@ -259,4 +269,34 @@ class Device extends \ApManBundle\DynamicEntity\Device
 
         return $this;
     }
+
+    public function getRrm(): ?array
+    {
+        return $this->rrm;
+    }
+
+    public function setRrm(?array $rrm): self
+    {
+        $this->rrm = $rrm;
+
+        return $this;
+    }
+
+
+    /*
+     *
+     *
+     *
+     *
+     *
+     *
+     * ! Virtual Properties start here !
+     *
+     *
+     *
+     *
+     *
+     *
+     */
+
 }

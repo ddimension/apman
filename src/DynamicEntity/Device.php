@@ -10,46 +10,21 @@ class Device
      */
     public function getStatus()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('status', $status)) {
+	    return null;
 	}
-	$ifname = $this->getIfname();
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return '-';
+	if (!is_array($status['status'])) {
+	    return null;
 	}
-	$opts = new \stdClass();
-	$opts->name = $this->getIfname();
-	$data = $session->callCached('network.device','status', null, 2);
-	if ($data === false) {
-		return 'AP Offline';
-	}
-	if (isset($data->$ifname)) {
-		$res = 'Up: '.$data->$ifname->up?'Up':'Down';
-		return $res;
-	}
-
-	$opts = new \stdclass();
-	$opts->command = 'ip';
-	$opts->params = array('-s', 'link', 'show');
-	$opts->env = array('LC_ALL' => 'C');
-	$stat = $session->callCached('file','exec', $opts, 5);
-	if (isset($stat->code) && $stat->code) {
-		return '-';
-	}
-	$lines = explode("\n", $stat->stdout);
-	foreach ($lines as $id => $line) {
-		$line = trim($line);
-		if (strpos($line, ' '.$ifname.':')!== false) {
-			if (strpos($line, ',UP')!== false) {
-				return 'Up';
-			}
-			return 'Down';
-		}
-	}
-	return 'Down';
+        if (!array_key_exists('up', $status['status'])) {
+            return null;
+        }
+	$res = 'Up: '.$status['status']['up']?'Up':'Down';
+	return $res;
     }
 
     /**
@@ -58,53 +33,26 @@ class Device
      */
     public function getStatisticsTransmit()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('status', $status)) {
+	    return null;
 	}
-	$ifname = $this->getIfname();
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return '-';
+	if (!is_array($status['status'])) {
+	    return null;
 	}
-	$opts = new \stdClass();
-	$opts->name = $this->getIfname();
-	$data = $session->callCached('network.device','status', null, 2);
-	if ($data === false) {
-		return 'AP Offline';
+        if (!array_key_exists('statistics', $status['status'])) {
+            return null;
+        }
+	if (!is_array($status['status']['statistics'])) {
+	    return null;
 	}
-	if (isset($data->$ifname->statistics)) {
-		return sprintf('%d',$data->$ifname->statistics->tx_bytes);
+        if (!array_key_exists('tx_bytes', $status['status']['statistics'])) {
+            return null;
 	}
-
-	$opts = new \stdclass();
-	$opts->command = 'ip';
-	$opts->params = array('-s', 'link', 'show');
-	$opts->env = array('LC_ALL' => 'C');
-	$stat = $session->callCached('file','exec', $opts, 5);
-	if (isset($stat->code) && $stat->code) {
-		return '-';
-	}
-	$lines = explode("\n", $stat->stdout);
-	$found = false;
-	$foundHead = false;
-	foreach ($lines as $id => $line) {
-		$line = trim($line);
-		if (strpos($line, ' '.$ifname.':')!== false) {
-			$found = true;
-			continue;
-		}
-		if (!$found) continue;
-		if (substr($line,0,9)  == 'TX: bytes') {
-			$foundHead = true;
-			continue;
-		}
-		if (!$foundHead) continue;
-		$x = explode(' ', $line);
-		return sprintf('%d',$x[0]);
-	}
-	return '-';
+	return $status['status']['statistics']['tx_bytes'];
     }
 
     /**
@@ -113,85 +61,47 @@ class Device
      */
     public function getStatisticsReceive()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('status', $status)) {
+	    return null;
 	}
-	$ifname = $this->getIfname();
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return '-';
+	if (!is_array($status['status'])) {
+	    return null;
 	}
-	$opts = new \stdClass();
-	$opts->name = $this->getIfname();
-	$data = $session->callCached('network.device','status', null, 2);
-	if ($data === false) {
-		return 'AP Offline';
+        if (!array_key_exists('statistics', $status['status'])) {
+            return null;
+        }
+	if (!is_array($status['status']['statistics'])) {
+	    return null;
 	}
-	if (isset($data->$ifname->statistics)) {
-		return sprintf('%d',$data->$ifname->statistics->rx_bytes);
+        if (!array_key_exists('rx_bytes', $status['status']['statistics'])) {
+            return null;
 	}
-
-	$opts = new \stdclass();
-	$opts->command = 'ip';
-	$opts->params = array('-s', 'link', 'show');
-	$opts->env = array('LC_ALL' => 'C');
-	$stat = $session->callCached('file','exec', $opts, 2);
-	if (isset($stat->code) && $stat->code) {
-		return '-';
-	}
-	$lines = explode("\n", $stat->stdout);
-	$found = false;
-	$foundHead = false;
-	foreach ($lines as $id => $line) {
-		$line = trim($line);
-		if (empty($line)) continue;
-		if (strpos($line, ' '.$ifname.':')!== false) {
-			$found = true;
-			continue;
-		}
-		if (!$found) continue;
-		if (substr($line,0,9)  == 'RX: bytes') {
-			$foundHead = true;
-			continue;
-		}
-		if (!$foundHead) continue;
-		$x = explode(' ', $line);
-		return sprintf('%d',$x[0]);
-	}
-	return '-';
+	return $status['status']['statistics']['rx_bytes'];
     }
 
     public function getClients($useArray = false)
     {
-        $config = $this->getConfig();
-	if (empty($this->getIfname())) {
-		if ($useArray) return array();
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+	    if ($useArray) return array();
+            return null;
+        }
+	if (!array_key_exists('stations', $status)) {
+	    if ($useArray) return array();
+	    return null;
 	}
-	$ifname = $this->getIfname();
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		if ($useArray) return array();
-		return '-';
-	}
-	$opts = new \stdClass();
-	$opts->device = $this->getIfname();
-	$data = $session->callCached('iwinfo','assoclist', $opts , 2);
-	if ($data === false) {
-		if ($useArray) return array();
-		return '-';
-	}
-	if (!isset($data->results)) {
-		if ($useArray) return array();
-		return '-';
+	if (!is_array($status['stations'])) {
+	    if ($useArray) return array();
+	    return null;
 	}
 	$res = array();
-	foreach ($data->results as $client) {
-		if (isset($client->mac)) {
-			$res[] = $client->mac;
+	foreach ($status['stations'] as $mac => $client) {
+		if (isset($mac)) {
+			$res[] = $mac;
 		}
 	}
 	if (!count($res)) {
@@ -207,25 +117,20 @@ class Device
      */
     public function getChannel()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('info', $status)) {
+	    return null;
 	}
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return '-';
+	if (!is_array($status['info'])) {
+	    return null;
 	}
-	$opts = new \stdClass();
-	$opts->device = $this->getIfname();
-	$data = $session->callCached('iwinfo','info', $opts, 4);
-	if ($data === false) {
-		return '-';
-	}
-	if (!isset($data->channel)) {
-		return 'No Channel';
-	}
-	return $data->channel;
+        if (!array_key_exists('channel', $status['info'])) {
+            return null;
+        }
+	return $status['info']['channel'];
     }
 
     /**
@@ -233,25 +138,20 @@ class Device
      */
     public function getTxPower()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('info', $status)) {
+	    return null;
 	}
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return '-';
+	if (!is_array($status['info'])) {
+	    return null;
 	}
-	$opts = new \stdClass();
-	$opts->device = $this->getIfname();
-	$data = $session->callCached('iwinfo','info', $opts, 4);
-	if ($data === false) {
-		return '-';
-	}
-	if (!isset($data->txpower)) {
-		return 'No TX Power';
-	}
-	return $data->txpower;
+        if (!array_key_exists('txpower', $status['info'])) {
+            return null;
+        }
+	return $status['info']['txpower'];
     }
 
     /**
@@ -259,25 +159,20 @@ class Device
      */
     public function getHwMode()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('info', $status)) {
+	    return null;
 	}
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return '-';
+	if (!is_array($status['info'])) {
+	    return null;
 	}
-	$opts = new \stdClass();
-	$opts->device = $this->getIfname();
-	$data = $session->callCached('iwinfo','info', $opts, 4);
-	if ($data === false) {
-		return '-';
-	}
-	if (!isset($data->hwmodes)) {
-		return 'No hwmodes';
-	}
-	return join('', $data->hwmodes);
+        if (!array_key_exists('hwmodes', $status['info'])) {
+            return null;
+        }
+	return join('', $status['info']['hwmodes']);
     }
 
     /**
@@ -285,25 +180,20 @@ class Device
      */
     public function getHtMode()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-	    	return 'No ifname';
-		return;
+        $status = $this->getStatus();
+        if (!is_array($status)) {
+            return null;
+        }
+	if (!array_key_exists('info', $status)) {
+	    return null;
 	}
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return '-';
+	if (!is_array($status['info'])) {
+	    return null;
 	}
-	$opts = new \stdClass();
-	$opts->device = $this->getIfname();
-	$data = $session->callCached('iwinfo','info', $opts, 4);
-	if ($data === false) {
-		return '-';
-	}
-	if (!isset($data->hwmodes)) {
-		return 'No hwmodes';
-	}
-	return join(', ', $data->htmodes);
+        if (!array_key_exists('htmodes', $status['info'])) {
+            return null;
+        }
+	return join(', ', $status['info']['htmodes']);
     }
 
     /**
@@ -311,21 +201,6 @@ class Device
      */
     public function getRrmOwn()
     {
-	$config = $this->getConfig();
-	if (empty($this->getIfname())) {
-		return;
-	}
-	$session = $this->getRadio()->getAccessPoint()->getSession();
-	if ($session === false) {
-		return null;
-	}
-	$data = $session->callCached('hostapd.'.$this->getIfname(), 'rrm_nr_get_own', null);
-	if ($data === false) {
-		return null;
-	}
-	if (is_object($data) && property_exists($data, 'value')) {
-		return $data->value;
-	}
-	return null;
+	$this->getRrm();
     }
 }

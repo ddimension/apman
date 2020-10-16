@@ -27,13 +27,24 @@ class TestCommand extends Command
         $this
             ->setName('apman:test')
             ->setDescription('Test')
-            ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
+//            ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ;
     }
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-	$em = $this->doctrine->getManager();
+        $em = $this->doctrine->getManager();
+	$devices = $this->doctrine->getRepository('ApManBundle:Device')->findAll();
+	foreach ($devices as $device) {
+		$cfg = $device->getConfig();
+		unset($cfg['nasid']);
+		unset($cfg['r1_key_holder']);
+		$device->setConfig($cfg);
+		$em->persist($device);
+	}
+	$em->flush();
+	exit;
+
 	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));

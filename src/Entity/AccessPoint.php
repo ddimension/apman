@@ -260,5 +260,4 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
 
         return $this;
     }
-
 }

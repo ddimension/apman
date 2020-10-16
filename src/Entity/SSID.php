@@ -57,6 +57,13 @@ class SSID
     private $devices;
 
     /**
+     * @var \Doctrine\Common\Collections\Collection
+     *
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDFeatureMap", mappedBy="ssid", cascade={"persist"})
+     */
+    private $feature_maps;
+
+    /**
      * Constructor
      */
     public function __construct()
@@ -65,6 +72,7 @@ class SSID
         $this->config_lists = new \Doctrine\Common\Collections\ArrayCollection();
         $this->config_files = new \Doctrine\Common\Collections\ArrayCollection();
         $this->devices = new \Doctrine\Common\Collections\ArrayCollection();
+        $this->feature_maps = new \Doctrine\Common\Collections\ArrayCollection();
     }
 
     /**
@@ -73,6 +81,15 @@ class SSID
     public function __toString() {
 	    return (string)$this->getName();
     }	    
+
+    public function __clone() {
+    	$this->id = null;
+	$this->config_options = new \Doctrine\Common\Collections\ArrayCollection();
+	$this->config_lists = new \Doctrine\Common\Collections\ArrayCollection();
+	$this->config_files = new \Doctrine\Common\Collections\ArrayCollection();
+	$this->devices = new \Doctrine\Common\Collections\ArrayCollection();
+	$this->feature_maps = new \Doctrine\Common\Collections\ArrayCollection();
+    }
 
     /**
      * Import Config
@@ -192,17 +209,25 @@ class SSID
      */
     public function exportConfig() {
 	    $res = new \stdClass();
-	    foreach ($this->config_options as $cfg) {
+	    foreach ($this->getConfigOptions() as $cfg) {
 		    $name = $cfg->getName();
 		    if (empty($name)) continue;
-		    $res->$name = $cfg->getValue();
+		    $value = $cfg->getValue();
+		    if (is_null($value)) {
+			    $value = '';
+		    }
+		    $res->$name = $value;
 	    }
 	    foreach ($this->config_lists as $cfg) {
 		    $name = $cfg->getName();
 		    $res->$name = array();
 		    foreach ($cfg->getOptions() as $element) {
-		    	$res->$name[] = $element->getValue();
-		    }
+			    $value = $element->getValue();
+			    if (is_null($value)) {
+				    $value = '';
+			    }
+			    $res->$name[] = $value;
+	            }
 	    }
 	    return $res;
     }
@@ -406,5 +431,37 @@ class SSID
         return $this->devices;
     }
 
+    /**
+     * Add SSIDFeatureMap
+     *
+     * @param \ApManBundle\Entity\SSIDFeatureMap $featuremap
+     *
+     * @return SSID
+     */
+    public function addSSIDFeatureMap(\ApManBundle\Entity\SSIDFeatureMap $featuremap)
+    {
+        $this->feature_maps[] = $featuremap;
 
+        return $this;
+    }
+
+    /**
+     * Remove SSIDFeatureMap
+     *
+     * @param \ApManBundle\Entity\SSIDFeatureMap $feature
+     */
+    public function removeSSIDFeatureMap(\ApManBundle\Entity\SSIDFeatureMap $feature)
+    {
+        $this->feature_maps->removeElement($feature);
+    }
+
+    /**
+     * Get SSIDFeatureMap
+     *
+     * @return \Doctrine\Common\Collections\Collection
+     */
+    public function getSSIDFeatureMaps()
+    {
+        return $this->feature_maps;
+    }
 }

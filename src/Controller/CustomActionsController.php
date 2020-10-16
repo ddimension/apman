@@ -12,8 +12,10 @@ class CustomActionsController extends CRUDController
 {
     private $rpcService;
 
-    function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService) {
-	$this->rpcService = $rpcService;
+    function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService, \ApManBundle\Service\SubscriptionService $ssrv, \Psr\Log\LoggerInterface $logger) {
+	    $this->rpcService = $rpcService;
+	    $this->ssrv = $ssrv;
+	    $this->logger = $logger;
     }
     
 
@@ -88,20 +90,24 @@ class CustomActionsController extends CRUDController
    
     public function batchActionReboot(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
+	$client = $this->ssrv->getMqttClient();
+	if (!$client) {
+		$this->logger->error($ap->getName().': Failed to get mqtt client.');
+		$this->addFlash('sonata_flash_error', "Cannot connect to mqtt for ".$ap->getName());
+		return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
+	}
 
 	$selectedModels = $selectedModelQuery->execute();
-        foreach ($selectedModels as $ap) {
-		$session = $this->rpcService->getSession($ap);
-		if ($session === false) {
-			$this->addFlash('sonata_flash_error', "Cannot connect to AP ".$ap->getName());
-			return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
-		}
+	foreach ($selectedModels as $ap) {
+		$topic = 'apman/ap/'.$ap->getName().'/command';
 		$opts = new \stdClass();
-		$opts->command = 'reboot';
-		$opts->params = array();
-		$stat = $session->call('file','exec', $opts);
+	        $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'reboot', $opts);
+		$this->logger->info($ap->getName().': Sent reboot command.');
+        	$res = $client->publish($topic, json_encode($cmd));
+	        $client->loop(1);
 	}
 	$this->addFlash('sonata_flash_success', 'Reboot initiated.');
+	$client->disconnect();
 	return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
     }	    
 

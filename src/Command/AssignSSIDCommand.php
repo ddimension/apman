@@ -38,7 +38,7 @@ class AssignSSIDCommand extends Command
 		'name' => $input->getArgument('name')
 	));
 	if (is_null($ap)) {
-		$this->output->writeln("Add this accesspoint. Cannot find it.");
+		print("Add this accesspoint. Cannot find it.");
 		return false;
 	}
 
@@ -46,14 +46,14 @@ class AssignSSIDCommand extends Command
 		'accesspoint' => $ap
 	));
 	if (!is_array($radios) or !count($radios)) {
-		$this->output->writeln("Readd this accesspoint. No radios found");
+		print("Readd this accesspoint. No radios found");
 		return false;
 	}
 	$ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy( array(
 		'name' => $input->getArgument('ssid')
 	));
 	if (is_null($ssid)) {
-		$this->output->writeln("SSID not found.");
+		print("SSID not found.");
 		return false;
 	}
 
@@ -74,7 +74,7 @@ class AssignSSIDCommand extends Command
 				'radio' => $radio
 			));
 			if (!is_null($device)) {
-				$this->output->writeln("Radio Device ".$device->getName()." for SSID ".$ssid->getName().' already exists.');
+				print("Radio Device ".$device->getName()." for SSID ".$ssid->getName().' already exists.');
 				continue;
 
 			}
@@ -85,21 +85,25 @@ class AssignSSIDCommand extends Command
 			$device->setSSID($ssid);
 
 			$deviceConfig = array();
+/*			
 			$deviceConfig['macaddr'] = exec($this->container->get('kernel')->getRootDir().'/../bin/randmac.pl');
 			if (!$deviceConfig['macaddr']) {
 				return false;
 			}
+ */			
 			$ssidConfig = $ssid->exportConfig();
 			if (isset($ssidConfig->ieee80211r) && $ssidConfig->ieee80211r==1) {
+/*				
 				$deviceConfig['nasid'] = str_replace(':', '', $deviceConfig['macaddr']);
 				$deviceConfig['r1_key_holder'] = str_replace(':', '', $deviceConfig['macaddr']);
+ */
 			}
 			if (isset($ssidConfig->ifname) && !empty($ssidConfig->ifname)) {
 				$device->setIfname($ssidConfig->ifname.$i);
 			}
 			$device->setConfig($deviceConfig);
 			$em->persist($device);
-			$this->output->writeln("Added Radio Device ".$device->getName()." for SSID ".$ssid->getName());
+			print("Added Radio Device ".$device->getName()." for SSID ".$ssid->getName());
 		}
 	}
 	$em->flush();

@@ -14,18 +14,21 @@ class DefaultController extends Controller
     private $apservice;
     private $doctrine;
     private $rpcService;
+    private $ssrv;
 
     public function __construct(
 	    \Psr\Log\LoggerInterface $logger,
 	    \ApManBundle\Service\AccessPointService $apservice,
 	    \Doctrine\Persistence\ManagerRegistry $doctrine,
-	    \ApManBundle\Service\wrtJsonRpc $rpcService
+	    \ApManBundle\Service\wrtJsonRpc $rpcService,
+	    \ApManBundle\Service\SubscriptionService $ssrv
     )
     {
 	    $this->logger = $logger;
 	    $this->apservice = $apservice;
 	    $this->doctrine = $doctrine;
 	    $this->rpcService = $rpcService;
+	    $this->ssrv = $ssrv;
     }
 
     /**
@@ -133,22 +136,28 @@ class DefaultController extends Controller
 	$logger->debug('Logging in to all APs');
 	$sessions = array();
 	$data = array();
+	$history = array();
 	foreach ($aps as $ap) {
 		$sessionId = $ap->getName();
 		$data[$sessionId] = array();
+		$history[$sessionId] = array();
 		foreach ($ap->getRadios() as $radio) {
 			foreach ($radio->getDevices() as $device) {
+				$delat = 0;
 				$status = $device->getStatus();
 				$ifname = $device->getIfname();
 				if ($status === NULL) continue;
+				if (!isset($status['info'])) continue;
 
 				$data[$sessionId][$ifname] = array();
 				$data[$sessionId][$ifname]['board'] = $ap->getStatus();
 				$data[$sessionId][$ifname]['info'] = $status['info'];
 				$data[$sessionId][$ifname]['assoclist'] = array();
-				foreach ($status['assoclist']['results'] as $entry) {
-					$mac = strtolower($entry['mac']);
-					$data[$sessionId][$ifname]['assoclist'][$mac] = $entry;
+				if (array_key_exists('assoclist', $status)) {
+					foreach ($status['assoclist']['results'] as $entry) {
+						$mac = strtolower($entry['mac']);
+						$data[$sessionId][$ifname]['assoclist'][$mac] = $entry;
+					}
 				}
 				$data[$sessionId][$ifname]['clients'] = array();
 				if (array_key_exists('clients', $status)) {
@@ -157,6 +166,33 @@ class DefaultController extends Controller
 					}
 				}
 				$data[$sessionId][$ifname]['clientstats'] = $status['stations'];
+
+				if (array_key_exists('history', $status) and is_array($status['history']) and array_key_exists(0, $status['history'])) {
+					$currentStatus = $status;
+					$status = $currentStatus['history'][0];
+					if ($status === NULL) continue;
+					
+
+					$history[$sessionId][$ifname] = array();
+					$history[$sessionId][$ifname]['board'] = $ap->getStatus();
+					$history[$sessionId][$ifname]['info'] = $status['info'];
+					$history[$sessionId][$ifname]['assoclist'] = array();
+					if (array_key_exists('timestamp', $status) && array_key_exists('timestamp', $currentStatus)) {
+						$deltat = $currentStatus['timestamp']-$status['timestamp'];
+						$history[$sessionId][$ifname]['timedelta'] = $deltat;
+					}
+					foreach ($status['assoclist']['results'] as $entry) {
+						$mac = strtolower($entry['mac']);
+						$history[$sessionId][$ifname]['assoclist'][$mac] = $entry;
+					}
+					$history[$sessionId][$ifname]['clients'] = array();
+					if (array_key_exists('clients', $status)) {
+						if (array_key_exists('clients', $status['clients'])) {
+							$history[$sessionId][$ifname]['clients'] = $status['clients']['clients'];
+						}
+					}
+					$history[$sessionId][$ifname]['clientstats'] = $status['stations'];
+				}
 			}
 		}
 	}
@@ -177,9 +213,11 @@ class DefaultController extends Controller
 	}
 	return $this->render('default/clients.html.twig', array(
 		'data' => $data,
+		'historical_data' => $history,
 		'neighbors' => $neighbors,
 		'apsrv' => $apsrv,
-		'heatmap' => $heatmap
+		'heatmap' => $heatmap,
+		'number_format_bps'
 	));
     }
 
@@ -194,17 +232,25 @@ class DefaultController extends Controller
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $system
 	));
-	$session = $this->rpcService->getSession($ap);	
-	if ($session === false) {
-		return $this->redirect($this->generateUrl('apman_default_index'));
-	}
 	$opts = new \stdClass();
 	$opts->addr = $mac;
 	$opts->reason = 5;
 	$opts->deauth = false;
 	$opts->ban_time = 10;
-	$stat = $session->call('hostapd.'.$device, 'del_client', $opts);
-	return $this->redirect('/');
+        $client = $this->ssrv->getMqttClient();
+        if (!$client) {
+                $this->logger->error($ap->getName().': Failed to get mqtt client.');
+		return $this->redirect($this->generateUrl('apman_default_index'));
+        }
+
+        $topic = 'apman/ap/'.$ap->getName().'/command';
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
+	$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+	$res = $client->publish($topic, json_encode($cmd));
+	$client->loop(1);
+        $client->disconnect();
+	
+	return $this->redirect($this->generateUrl('apman_default_index'));
     }	    
 
     /**
@@ -219,17 +265,24 @@ class DefaultController extends Controller
 	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $system
 	));
-	$session = $this->rpcService->getSession($ap);	
-	if ($session === false) {
-		return $this->redirect($this->generateUrl('apman_default_index'));
-	}
 	$opts = new \stdClass();
 	$opts->addr = $mac;
 	$opts->reason = 3;
 	$opts->deauth = true;
 	$opts->ban_time = $ban_time;
-	$stat = $session->call('hostapd.'.$device, 'del_client', $opts);
-	return $this->redirect('/');
+        $client = $this->ssrv->getMqttClient();
+        if (!$client) {
+                $this->logger->error($ap->getName().': Failed to get mqtt client.');
+		return $this->redirect($this->generateUrl('apman_default_index'));
+        }
+
+        $topic = 'apman/ap/'.$ap->getName().'/command';
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
+	$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+	$res = $client->publish($topic, json_encode($cmd));
+	$client->loop(1);
+        $client->disconnect();
+	return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
     /**
@@ -265,7 +318,7 @@ class DefaultController extends Controller
 	}
 	$opts = new \stdClass();
 	$opts->addr = $request->get('mac');
-	$opts->duration = 1*1000;
+	$opts->duration = 1*20;
 	$opts->abridged = false;
 	$opts->neighbors = array();
 
@@ -273,13 +326,10 @@ class DefaultController extends Controller
 		$targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy( array(
 			'id' => $request->get('target')
 		));
-		$sessionTarget = $this->rpcService->getSession($targetDev->getRadio()->getAccesspoint());
-		if ($sessionTarget === false) {
-			return $this->redirect($this->generateUrl('apman_default_index'));
-		}
-		$rrm = $sessionTarget->call('hostapd.'.$targetDev->getIfname(), 'rrm_nr_get_own');
-
+		$rrm = $targetDev->getRrm();
+		$rrm = json_decode(json_encode($rrm));
 		if (!is_object($rrm) || !property_exists($rrm, 'value') || !is_array($rrm->value)) {
+                	$this->logger->error('wndDisassocImminent(): Failed to get rrm.');
 			return $this->redirect($this->generateUrl('apman_default_index'));
 		}
 		$opts->neighbors = array($rrm->value[2]);
@@ -289,16 +339,19 @@ class DefaultController extends Controller
 	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $request->get('system')
 	));
-	$session = $this->rpcService->getSession($ap);	
-	if ($session === false) {
-		echo "Failed to load session.\n";
-		exit();
-		return $this->redirect($this->generateUrl('apman_default_index'));
-	}
 
-	$stat = $session->call('hostapd.'.$request->get('device'), 'wnm_disassoc_imminent', $opts);
-	var_dump($stat);
-	exit();
+        $client = $this->ssrv->getMqttClient();
+        if (!$client) {
+                $this->logger->error($ap->getName().': Failed to get mqtt client.');
+		return $this->redirect($this->generateUrl('apman_default_index'));
+        }
+
+        $topic = 'apman/ap/'.$ap->getName().'/command';
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'wnm_disassoc_imminent', $opts);
+	$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+	$res = $client->publish($topic, json_encode($cmd));
+	$client->loop(1);
+        $client->disconnect();
 	return $this->redirect($this->generateUrl('apman_default_index'));
     }	    
 

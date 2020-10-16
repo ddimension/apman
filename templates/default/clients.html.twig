@@ -1,6 +1,6 @@
 {% extends 'frontend.html.twig' %}
 {% block header %}
-<meta http-equiv="refresh" content="30">
+<meta http-equiv="refresh" content="5">
 {% endblock %}
 
 {% block body %}
@@ -67,10 +67,14 @@
 	(MBit/s)
 </th>
 <th>
+	RX Rate
+	<br />
 	RX Bytes
 	(B)
 </th>
 <th>
+	TX Rate
+	<br />
 	TX Bytes
 	(B)
 </th>
@@ -201,11 +205,47 @@
 			</td>
 			<td align="right">
 				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].rx_bytes is defined %}
+					{% if historical_data is defined 
+	and historical_data[system] is defined 
+	and historical_data[system][device] is defined 
+	and historical_data[system][device]['clientstats'] is defined 
+	and historical_data[system][device]['clientstats'][client] is defined
+	and data is defined 
+	and data[system] is defined 
+	and data[system][device] is defined 
+	and data[system][device]['clientstats'] is defined 
+	and data[system][device]['clientstats'][client] is defined
+	and data[system][device]['clientstats'][client].rx_bytes is defined
+	and historical_data[system][device]['timedelta'] is defined %}
+<br />
+						{{ 
+((data[system][device]['clientstats'][client].rx_bytes - historical_data[system][device]['clientstats'][client].rx_bytes) / historical_data[system][device]['timedelta'])|number_format_decimal({FRACTION_DIGITS:0}) 
+}}&nbsp;B/s
+<br />
+					{% endif %}
 					{{ data[system][device]['clientstats'][client].rx_bytes|number_format_decimal }}
 				{% endif %}
 			</td>
 			<td align="right">
 				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].tx_bytes is defined %}
+					{% if historical_data is defined 
+	and historical_data[system] is defined 
+	and historical_data[system][device] is defined 
+	and historical_data[system][device]['clientstats'] is defined 
+	and historical_data[system][device]['clientstats'][client] is defined
+	and data is defined 
+	and data[system] is defined 
+	and data[system][device] is defined 
+	and data[system][device]['clientstats'] is defined 
+	and data[system][device]['clientstats'][client] is defined
+	and data[system][device]['clientstats'][client].tx_bytes is defined
+	and historical_data[system][device]['timedelta'] is defined %}
+<br />
+{{ 
+((data[system][device]['clientstats'][client].tx_bytes - historical_data[system][device]['clientstats'][client].tx_bytes) / historical_data[system][device]['timedelta'])|number_format_decimal({FRACTION_DIGITS:0}) 
+}}&nbsp;B/s
+<br />
+					{% endif %}
 					{{ data[system][device]['clientstats'][client].tx_bytes|number_format_decimal }}
 				{% endif %}
 			</td>

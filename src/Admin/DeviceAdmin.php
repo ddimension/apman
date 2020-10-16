@@ -39,6 +39,6 @@ class DeviceAdmin extends AbstractAdmin
         $listMapper->addIdentifier('channel');
         $listMapper->addIdentifier('tx_power');
         $listMapper->addIdentifier('hw_mode');
-        $listMapper->addIdentifier('clients');
+	$listMapper->addIdentifier('clients');
     }
 }

@@ -749,6 +749,12 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
 	$cfgVars = get_class_vars(get_class($this));
         $res = new \stdClass();
 	foreach ($cfgVars as $key => $value) {
+		if (is_null($this->$key)) {
+			continue;
+		}
+		if (is_array($this->$key) and !count($this->$key)) {
+			continue;
+		}
 		if (substr($key,0,7) != 'config_') continue;
 		$cfgVar = substr($key,7);
 		$res->$cfgVar = $this->$key;

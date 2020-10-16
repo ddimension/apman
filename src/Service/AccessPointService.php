@@ -9,12 +9,91 @@ class AccessPointService {
 	private $logger;
 	private $doctrine;
 	private $rpcService;
+	private $kernel;
 
-	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, \ApManBundle\Service\wrtJsonRpc $rpcService) {
+	function __construct(
+		\Psr\Log\LoggerInterface $logger,
+		\Doctrine\Persistence\ManagerRegistry $doctrine,
+		\ApManBundle\Service\wrtJsonRpc $rpcService,
+		\ApManBundle\Service\SubscriptionService $ssrv,
+		\Symfony\Component\HttpKernel\KernelInterface $kernel
+	) {
 		$this->logger = $logger;
 		$this->doctrine = $doctrine;
 		$this->rpcService = $rpcService;
+		$this->ssrv = $ssrv;
+		$this->kernel = $kernel;
 	}
+    
+	/**
+	* get Configuration for a device
+	* @return string|\null 
+	*/
+	public function getDeviceConfig(\ApManBundle\Entity\Device $device) {
+		$this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Configuring device '.$device->getName());
+		
+		$config = $device->getSsid()->exportConfig();
+		foreach ($device->getConfig() as $n => $v) {
+			$config->$n = $v;
+		}
+		$ifname = $device->getIfname();
+		if (!empty($ifname)) {
+			$config->ifname = $ifname;
+		}
+		$address = $device->getAddress();
+		if (!empty($address)) {
+			$config->macaddr = $address;
+		}
+		$config->device = $device->getRadio()->getName();
+
+		if (false and count($device->getSsid()->getConfigFiles())) {
+			foreach ($device->getSsid()->getConfigFiles() as $configFile) {
+				$name = $configFile->getName();
+				$content = $configFile->getContent()."\n";
+				$content = str_replace("\r\n", "\n", $content);
+				$md5 = hash('md5', $content);
+
+				/*
+				$logger->debug($ap->getName().': Verifying hash of file '.$configFile->getFileName());
+				$o = new \stdClass();
+				$o->path = $configFile->getFileName();
+				$stat = $session->call('file','md5', $o);
+
+				if (!$stat || !isset($stat->md5) || ($stat->md5 != $md5)) {
+				*/
+					$logger->debug('AccessPointService:getDeviceConfig('.$device->getName().'): Uploading file '.$configFile->getFileName());
+					$o = new \stdClass();
+					$o->path = $configFile->getFileName();
+					$o->append = false;
+					$o->base64 = false;
+					$o->data = $content;
+					//$stat = $session->call('file','write', $o);
+					$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'file', 'write', $o);
+				/*
+				}
+				*/
+				$config->$name = $configFile->getFileName();
+			}
+		}
+		$maps = $device->getSsid()->getSSIDFeatureMaps();
+		$this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): SSIDFeatureMap count: '.count($maps));
+		// transform to array
+		$cfg = json_decode(json_encode($config),true);
+		foreach ($maps as $map) {
+			$feature = $map->getFeature();
+			$implementation = $feature->getImplementation();
+			$this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Implementation '.$implementation);
+			$instance = new $implementation();
+			$instance->setServices($this->logger, $this->doctrine, $this->rpcService, $this->ssrv, $this->kernel);
+			$instance->setSsid($device->getSsid());
+			$instance->setDevice($device);
+			$instance->setSSIDFeatureMap($map);
+			$instance->applyConstraints();
+			$this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Implementation '.$implementation.' instance created.');
+			$cfg = $instance->getConfig($cfg);
+		}
+		return json_decode(json_encode($cfg));
+    }
 
     /**
      * publish config
@@ -24,23 +103,44 @@ class AccessPointService {
     {
     	$logger = $this->logger;	    
 	$changed = false;
-	$session = $this->rpcService->getSession($ap);
+	$client = $this->ssrv->getMqttClient();
+	$topic = 'apman/ap/'.$ap->getName().'/command/bulk';
+	if (!$client) {
+		$logger->debug($ap->getName().': Failed to get mqtt client.');
+		return false;
+	}
 
+	$commands = [ 
+		'list' => [],
+		'options' => [ 
+			'cancel_on_error' => false 
+		]
+	];
 	// total clean up	
 	$opts = new \stdClass();
 	$opts->config = 'wireless';
 	$opts->type = 'wifi-iface';
 	// $opts->section = $device->getName();
-	$session->call('uci','delete', $opts);
+	$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+	$opts = new \stdClass();
+	$opts->config = 'wireless';
+	$opts->type = 'wifi-device';
+	// $opts->section = $device->getName();
+	$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+	#$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
+	$client->loop(1);
 
 	foreach ($ap->getRadios() as $radio ) {
 		$logger->debug($ap->getName().': Configuring radio '.$radio->getName());
 		$opts = new \stdClass();
 		$opts->config = 'wireless';
 		$opts->section = $radio->getName();
+		$opts->name = $radio->getName();
 		$opts->type = 'wifi-device';
 		$opts->values = $radio->exportConfig();
-		$stat = $session->call('uci','set', $opts);
+		$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
+		#$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'set', $opts);
+
 
 		foreach ($radio->getDevices() as $device) {
 			$logger->debug($ap->getName().': Configuring device '.$device->getName());
@@ -50,39 +150,10 @@ class AccessPointService {
 			$opts->type = 'wifi-iface';
 			$opts->name = $device->getName();
 
-			$config = $device->getSsid()->exportConfig();
-			foreach ($device->getConfig() as $n => $v) {
-				$config->$n = $v;
-			}
-
-			if (count($device->getSsid()->getConfigFiles())) {
-				foreach ($device->getSsid()->getConfigFiles() as $configFile) {
-					$name = $configFile->getName();
-					$content = $configFile->getContent()."\n";
-					$content = str_replace("\r\n", "\n", $content);
-					$md5 = hash('md5', $content);
-
-					$logger->debug($ap->getName().': Verifying hash of file '.$configFile->getFileName());
-					$o = new \stdClass();
-					$o->path = $configFile->getFileName();
-					$stat = $session->call('file','md5', $o);
-
-					if (!$stat || !isset($stat->md5) || ($stat->md5 != $md5)) {
-						$logger->debug($ap->getName().': Uploading file '.$configFile->getFileName());
-						$o = new \stdClass();
-						$o->path = $configFile->getFileName();
-						$o->append = false;
-						$o->base64 = false;
-						$o->data = $content;
-						$stat = $session->call('file','write', $o);
-					}
-					$config->$name = $configFile->getFileName();
-				}
-			}
-
-			$config->device = $radio->getName();
+			$config = $this->getDeviceConfig($device);;
 			$opts->values = $config;
-			$stat = $session->call('uci','add', $opts);
+			$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
+			#$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'set', $opts);
 			
 			$changed = true;
 			$logger->debug($ap->getName().': Configured device '.$device->getName());
@@ -93,7 +164,15 @@ class AccessPointService {
 	$logger->debug($ap->getName().': Committing changes');
 	$opts = new \stdClass();
 	$opts->config = 'wireless';
-	$stat = $session->call('uci','commit', $opts);
+
+	$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'changes', $opts);
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'commit', $opts);
+
+	$commands['list'][] = $cmd;
+	$res = $client->publish($topic, json_encode($commands));
+	$logger->debug($ap->getName().': '.$res.' Configuring radio, publishing to topic '.$topic.': '.json_encode($commands));
+
+	$client->loop(1);
 	return true;
     }
     
@@ -166,17 +245,17 @@ class AccessPointService {
 	
     	$logger = $this->logger;	    
 	$changed = false;
-	$session = $this->rpcService->getSession($ap);
-
-	// total clean up	
-	$opts = new \stdClass();
-	$opts->config = 'wireless';
-	$opts->type = 'wifi-iface';
-	// $opts->section = $device->getName();
-	if ($session->call('network.wireless','down')) {
-		return true;
+	$client = $this->ssrv->getMqttClient();
+	$topic = 'apman/ap/'.$ap->getName().'/command';
+	if (!$client) {
+		$logger->debug($ap->getName().': Failed to get mqtt client.');
+		return false;
 	}
-	return false;
+	$opts = array();
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'network.wireless', 'down', $opts);
+	$client->publish($topic, json_encode($cmd));
+	$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
+	return true;
     }
 
     /**
@@ -188,17 +267,17 @@ class AccessPointService {
 	
     	$logger = $this->logger;	    
 	$changed = false;
-	$session = $this->rpcService->getSession($ap);
-
-	// total clean up	
-	$opts = new \stdClass();
-	$opts->config = 'wireless';
-	$opts->type = 'wifi-iface';
-	// $opts->section = $device->getName();
-	if ($session->call('network.wireless','up')) {
-		return true;
+	$client = $this->ssrv->getMqttClient();
+	$topic = 'apman/ap/'.$ap->getName().'/command';
+	if (!$client) {
+		$logger->debug($ap->getName().': Failed to get mqtt client.');
+		return false;
 	}
-	return false;
+	$opts = array();
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'network.wireless', 'up', $opts);
+	$client->publish($topic, json_encode($cmd));
+	$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
+	return true;
     }
 
     /**
