@@ -88,6 +88,12 @@ services:
         tags:
             - { name: sonata.admin, manager_type: orm, label: "SSIDs" }
         public: true
+    admin.client:
+        class: ApManBundle\Admin\ClientAdmin
+        arguments: [~, ApManBundle\Entity\Client, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "Clients" }
+        public: true
     admin.ssid_config_option:
         class: ApManBundle\Admin\SSIDConfigOptionAdmin
         arguments: [~, ApManBundle\Entity\SSIDConfigOption, ~]
@@ -111,5 +117,19 @@ services:
         arguments: [~, ApManBundle\Entity\SSIDConfigListOption, ~]
         tags:
             - { name: sonata.admin, manager_type: orm, label: "SSID Config List Option", group: "Internal"  }
+        public: true
+
+    admin.feature:
+        class: ApManBundle\Admin\FeatureAdmin
+        arguments: [~, ApManBundle\Entity\Feature, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "Features" }
+        public: true
+
+    admin.ssid_feature_map:
+        class: ApManBundle\Admin\SSIDFeatureMapAdmin
+        arguments: [~, ApManBundle\Entity\SSIDFeatureMap, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "Feature SSID Mapping" }
         public: true
 

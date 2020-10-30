@@ -89,10 +89,8 @@ class OweFeatureService implements iFeatureService {
 		$query->setParameter('did', $devmap[ $this->device->getId() ]);;
 		$other_device = $query->getSingleResult();
 		$other_ssid_cfg = $other_device->getSsid()->exportConfig();
-		print($other_device->getSsid()->getId()."\n");
-		print_r($other_ssid_cfg);
 		$config['owe_transition_ssid'] = $other_ssid_cfg->ssid;
-		$config['owe_transition_bssid'] = $other_device->getAddress();;
+		$config['owe_transition_bssid'] = $other_device->getAddress();
 		return $config;
 	}
 

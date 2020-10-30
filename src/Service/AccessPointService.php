@@ -31,6 +31,7 @@ class AccessPointService {
 	*/
 	public function getDeviceConfig(\ApManBundle\Entity\Device $device) {
 		$this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Configuring device '.$device->getName());
+		$em = $this->doctrine->getManager();
 		
 		$config = $device->getSsid()->exportConfig();
 		foreach ($device->getConfig() as $n => $v) {
@@ -76,6 +77,16 @@ class AccessPointService {
 			}
 		}
 		$maps = $device->getSsid()->getSSIDFeatureMaps();
+		$qb = $em->createQueryBuilder();
+		$query = $em->createQuery(
+			    'SELECT fm
+			     FROM ApManBundle:SSIDFeatureMap fm
+			     WHERE fm.ssid = :ssid
+			     AND fm.enabled = true
+			     ORDER by fm.priority ASC, fm.id ASC'
+		);
+		$query->setParameter('ssid', $device->getSsid() );
+		$maps = $query->getResult();
 		$this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): SSIDFeatureMap count: '.count($maps));
 		// transform to array
 		$cfg = json_decode(json_encode($config),true);

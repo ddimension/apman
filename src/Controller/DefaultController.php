@@ -38,6 +38,8 @@ class DefaultController extends Controller
     {
 	$logger = $this->logger;
 	$apsrv = $this->apservice;
+        $doc = $this->doctrine;
+	$em = $doc->getManager();
 
 	$neighbors = array();
 	$firewall_host = $this->container->getParameter('firewall_url');
@@ -61,6 +63,14 @@ class DefaultController extends Controller
 				$neighbors[ $data[1] ]['name'] = $name;
 			}
 		}
+	}
+
+	$query = $em->createQuery("SELECT c FROM ApManBundle\Entity\Client c");
+	$result = $query->getResult();
+	foreach ($result as $client) {
+		$mac = $client->getMac();
+		$neighbors[ $mac ] = array();
+		$neighbors[ $mac ]['name'] = $client->getName();
 	}
 
 	if ($firewall_host) {
@@ -130,8 +140,6 @@ class DefaultController extends Controller
 		}
 		$logger->debug('MAC cache complete');
 	}	
-        $doc = $this->doctrine;
-	$em = $doc->getManager();
 	$aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
 	$logger->debug('Logging in to all APs');
 	$sessions = array();

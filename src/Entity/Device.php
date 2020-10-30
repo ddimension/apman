@@ -125,6 +125,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     {
 	unset($config['ifname']);
 	unset($config['macaddr']);
+	unset($config['macaddress']);
 	$this->config = $config;
 
 	return $this;

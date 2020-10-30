@@ -103,7 +103,7 @@ class AssignSSIDCommand extends Command
 			}
 			$device->setConfig($deviceConfig);
 			$em->persist($device);
-			print("Added Radio Device ".$device->getName()." for SSID ".$ssid->getName());
+			print("Added Radio Device ".$device->getName()." for SSID ".$ssid->getName()."\n");
 		}
 	}
 	$em->flush();

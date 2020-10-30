@@ -61,6 +61,13 @@ class SSIDFeatureMap
      * @ORM\Column(name="priority", type="integer", length=64, nullable=false)
      */
     private $priority = 0;
+    
+    /**
+     * @var boolean|null
+     *
+     * @ORM\Column(name="enabled", type="boolean", nullable=true)
+     */
+    private $enabled = true;
 
 
     /**
@@ -205,5 +212,29 @@ class SSIDFeatureMap
     public function getPriority()
     {
         return $this->priority;
+    }
+
+    /**
+     * Set enabled
+     *
+     * @param integer $enabled
+     *
+     * @return SSIDFeatureMap
+     */
+    public function setEnabled($enabled)
+    {
+        $this->enabled = $enabled;
+
+        return $this;
+    }
+
+    /**
+     * Get enabled
+     *
+     * @return boolean
+     */
+    public function getEnabled()
+    {
+        return $this->enabled;
     }
 }

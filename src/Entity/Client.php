@@ -43,6 +43,13 @@ class Client
     private $mode_a = false;
 
     /**
+     * @var string|null
+     *
+     * @ORM\Column(name="name", type="string", length=255, nullable=true)
+     */
+    private $name;
+
+    /**
      * Get id
      *
      * @return integer
@@ -124,4 +131,27 @@ class Client
         return $this->mode_a;
     }
 
+    /**
+     * Set name
+     *
+     * @param string $name
+     *
+     * @return Client
+     */
+    public function setName($name)
+    {
+        $this->name = $name;
+
+        return $this;
+    }
+
+    /**
+     * Get name
+     *
+     * @return string
+     */
+    public function getName()
+    {
+        return $this->name;
+    }
 }

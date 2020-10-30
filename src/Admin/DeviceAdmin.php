@@ -15,6 +15,7 @@ class DeviceAdmin extends AbstractAdmin
     {
         $formMapper->add('name', TextType::class);
         $formMapper->add('ifname', TextType::class);
+        $formMapper->add('address');
         $formMapper->add('config');
     }
 
@@ -23,6 +24,7 @@ class DeviceAdmin extends AbstractAdmin
         $datagridMapper->add('radio.accesspoint.name');
         $datagridMapper->add('ssid');
         $datagridMapper->add('name');
+        $datagridMapper->add('address');
         $datagridMapper->add('ifname');
     }
 
@@ -32,6 +34,7 @@ class DeviceAdmin extends AbstractAdmin
         $listMapper->addIdentifier('radio.name');
         $listMapper->addIdentifier('name');
         $listMapper->addIdentifier('ifname');
+        $listMapper->addIdentifier('address');
         $listMapper->addIdentifier('ssid.name');
         $listMapper->addIdentifier('is_enabled','boolean');
         $listMapper->addIdentifier('statistics_transmit','decimal', array('label' => 'Transmit (B)'));

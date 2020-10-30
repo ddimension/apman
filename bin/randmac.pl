@@ -46,13 +46,21 @@ my $multicast = $type eq "multicast";
 ### Generate the address
 
 my ( @bytes, @address, $warning, $oui );
-$oui  = "";
+if (defined $ARGV[0]) {
+	$oui  = $ARGV[0];
+	$local = "";
+	$global = "global";
+}
+	
+print("oui $oui\n");
+
 if ($local) {
     @bytes = map { int( rand(256) ) } ( 0 .. 5 );
 
     #$warning = sprintf( "<tt>%#08b</tt>", $bytes[0] );
 }
 elsif ($global) {
+print("oui $oui\n");
     if ( defined $oui ) {
         @bytes = ( 0, 0, 0 );
         push @bytes, map { int( rand(256) ) } ( 0 .. 2 );
