@@ -6,6 +6,7 @@
         "ext-ctype": "*",
         "ext-iconv": "*",
         "ext-mosquitto": "*",
+        "ext-memcached": "*",
         "cboden/ratchet": "^0.4.3",
         "composer/package-versions-deprecated": "^1.10",
         "doctrine/annotations": "^1.0",

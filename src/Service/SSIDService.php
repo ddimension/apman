@@ -184,4 +184,3 @@ class SSIDService {
 	$session->call('hostapd.'.$device->getIfname(),'wnm_disassoc_imminent', $opts);
     }
 }
-

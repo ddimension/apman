@@ -3,6 +3,7 @@
 namespace ApManBundle\Service;
 
 use Symfony\Component\Cache\Simple\FilesystemCache;
+use Symfony\Component\Cache\Adapter\MemcachedAdapter;
 use karpy47\PhpMqttClient\MQTTClient;
 
 class SubscriptionService {
@@ -12,6 +13,7 @@ class SubscriptionService {
 	private $rpcService;
 	private $ch;
 	private $device;
+	private $cache;
 
 	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, \ApManBundle\Service\wrtJsonRpc $rpcService) {
 		$this->logger = $logger;
@@ -57,6 +59,7 @@ class SubscriptionService {
 
     public function runMqttLoop() {
 	$this->logger->info('Starting MqttLoop');
+	$this->cache = $this->getCache();
         $loop = true;
 	while ($loop) {
 		$srv = $this;
@@ -152,14 +155,9 @@ class SubscriptionService {
             }
 	    if ($tp[3] == 'properties' && $tp[4] == 'system') {
 	                $this->logger->info('handleMoqsquittoMessage(): saved system.'.$tp[5].' for '.$hostname);
-		        $data = $ap->getStatus();
-		        if (!is_array($data)) {
-				$data = array();
-			}
+			$data = array();
 			$data[ $tp[5] ] = json_decode($message->payload, true);
-			$ap->setStatus($data);
-			$em->persist($ap);
-			$em->flush();
+			$this->addCacheItem('status.ap.'.$ap->getId(), $data);
 			return true; 
 	    } elseif ($tp[3] == 'properties' && $tp[4] == 'session' && $tp[5] == 'create') {
 	                $this->logger->info('handleMoqsquittoMessage(): save session for '.$hostname);
@@ -192,22 +190,16 @@ class SubscriptionService {
 		$event = $tp[5];
 		$data = json_decode($message->payload);
 		if ($event == 'probe') {
-			$conn = $em->getConnection();
-			if (property_exists($data, 'signal')) {
-				$signal = $data->signal;
-			}
-			$ts = date('Y-m-d H:i:s');
-			$sql = 'REPLACE INTO client_heatmap 
-				(`address`,`device_id`,`ts`,`event`,`signalstr`) 
-				VALUES
-				(:address, :device_id, :ts, :event, :signal)';
-			$conn->executeUpdate($sql, array (
-				'address' => $data->address,
-				'device_id' => $device->getId(),
-				'ts' => $ts,
-				'event' => json_encode($data,true),
-				'signal' => $signal
-			));
+			$obj = new \stdClass();
+			$obj->ts = new \DateTime('now');
+			$obj->address = $data->address;
+			$obj->device = $device->getId();
+			$obj->event = $data;
+                        if (property_exists($data, 'signal')) {
+				$obj->signalstr = $data->signal;
+                        }
+
+			$this->addCacheItem('status.device['.$device->getId().'].probe.'.$data->address, $obj, 86400);
 			$this->logger->info("handleMoqsquittoMessage(): saved $event as ClindHeatMap.", 
 				[       
 					'data' => json_encode($data),
@@ -215,7 +207,6 @@ class SubscriptionService {
 					'ifName' => $device->getIfname()
 				]
 			);
-			$em->flush();
 			return true;
 		} else {
 			$devent = new \ApManBundle\Entity\Event();
@@ -288,16 +279,16 @@ class SubscriptionService {
 	}
 	$data->stations = $stations;
 	$data->history = array();
-	$last_status = $device->getStatus();
+	$key = 'status.device.'.$device->getId();
+	$last_status = $this->getCacheItemValue($key);
 	if (is_array($last_status)) {
 		$last_status['history'] = array();
 		$data->history = array();
 		$data->history[0] = $last_status;
 	}
-	$device->setStatus(json_decode(json_encode($data), true));
-	$em->persist($device);
+	$data = json_decode(json_encode($data), true);
+	$this->addCacheItem($key, $data, 30);
 	$updated[] = $ap->getName().' '.$device->getIfname();
-	$em->flush();
         $this->logger->info('Updated status.', ['status' => 0, 'devices_updated' => $updated]);
 	return true;
     }
@@ -365,6 +356,78 @@ class SubscriptionService {
 		}
 		//print_r($neighbors);
 	}
+    }
+
+    /**
+     * get CacheClientInstance
+     * @return Memcached
+     */
+    private function getCacheClient() {
+	$client = MemcachedAdapter::createConnection(
+	    $_SERVER['MEMCACHE']
+	);
+	return $client;
+    }
+
+    /**
+     * get Cache
+     * @return MemcachedAdapter
+     */
+    private function getCache() {
+	$client = $this->getCacheClient();
+	return new MemcachedAdapter($client, 'apman', 87600);
+    }
+
+    private function addCacheItem($key, $data, $expires = null) {
+	if (is_null($this->cache)) {
+		$this->cache = $this->getCache();
+	}
+
+	$key = str_replace(':', '', $key);
+	$item = $this->cache->getItem($key);
+	if (!is_null($expires)) {
+		$item->expiresAfter($expires);
+	} else {
+		$item->expiresAfter(30);
+	}
+	$item->set($data);
+	$this->cache->save($item);
+    }
+
+    public function getCacheItemValue($key) {
+	if (is_null($this->cache)) {
+		$this->cache = $this->getCache();
+	}
+
+	$key = str_replace(':', '', $key);
+	if (is_null($this->cache)) {
+		$this->cache = $this->getCache();
+        }
+
+	$item = $this->cache->getItem($key);
+	$value = $item->get();
+	return $value;
+    }
+
+    public function getMultipleCacheItemValues($keys) {
+	if (is_null($this->cache)) {
+		$this->cache = $this->getCache();
+	}
+
+	$tkeys = [];
+	$ti = [];
+	foreach ($keys as $key) {
+		$nkey = str_replace(':', '', $key);
+		$tkeys[] = $nkey;
+		$ti[ $nkey ] = $key;
+	}
+	$items = $this->cache->getItems($tkeys);
+	$res = [];
+	foreach ($items as $key => $item) {
+		$value = $item->get();
+		$res[ $ti[ $key ] ] = $value;
+	}
+	return $res;
     }
 
 }

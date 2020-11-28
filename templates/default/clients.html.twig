@@ -124,7 +124,9 @@
 			<td>
 				{{ client }}
 				{% if neighbors[client] is defined %}
+					{% if neighbors[client]['ip'] is defined %}
 					<br />{{ neighbors[client]['ip'] }}
+					{% endif %}
 					{% if neighbors[client]['name'] is defined %}
 						<br />{{ neighbors[client]['name'] }}
 					{% endif %}

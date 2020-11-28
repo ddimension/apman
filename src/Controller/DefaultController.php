@@ -145,6 +145,7 @@ class DefaultController extends Controller
 	$sessions = array();
 	$data = array();
 	$history = array();
+	$macs = array();
 	foreach ($aps as $ap) {
 		$sessionId = $ap->getName();
 		$data[$sessionId] = array();
@@ -152,19 +153,20 @@ class DefaultController extends Controller
 		foreach ($ap->getRadios() as $radio) {
 			foreach ($radio->getDevices() as $device) {
 				$delat = 0;
-				$status = $device->getStatus();
+				$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
 				$ifname = $device->getIfname();
 				if ($status === NULL) continue;
 				if (!isset($status['info'])) continue;
 
 				$data[$sessionId][$ifname] = array();
-				$data[$sessionId][$ifname]['board'] = $ap->getStatus();
+				$data[$sessionId][$ifname]['board'] = $this->ssrv->getCacheItemValue('status.ap.'.$ap->getId());
 				$data[$sessionId][$ifname]['info'] = $status['info'];
 				$data[$sessionId][$ifname]['assoclist'] = array();
 				if (array_key_exists('assoclist', $status)) {
 					foreach ($status['assoclist']['results'] as $entry) {
 						$mac = strtolower($entry['mac']);
 						$data[$sessionId][$ifname]['assoclist'][$mac] = $entry;
+						$macs[$mac] = true;
 					}
 				}
 				$data[$sessionId][$ifname]['clients'] = array();
@@ -204,21 +206,42 @@ class DefaultController extends Controller
 			}
 		}
 	}
-	$query = $em->createQuery("SELECT h FROM ApManBundle\Entity\ClientHeatMap h
-		LEFT JOIN h.device d
+	$heatmap = [];
+	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
 		LEFT JOIN d.radio r
 		LEFT JOIN r.accesspoint a
-		ORDER by h.signalstr DESC
+		ORDER by d.id DESC
 	");
-	$hm = $query->getResult();
-	$heatmap = [];
-	foreach ($hm as $entry) {
-		$address = $entry->getAddress();
-		if (!array_key_exists($address, $heatmap)) {
-			$heatmap[ $address ] = array();
+	$devices = $query->getResult();
+	$keys = [];
+	$devById = [];
+	foreach ($devices as $device) {
+		$devById[ $device->getId() ] = $device;
+		foreach ($macs as $mac => $v) {
+			$keys[] = 'status.device['.$device->getId().'].probe.'.$mac;
 		}
-		$heatmap[ $address ][] = $entry;
 	}
+
+	$probes = $this->ssrv->getMultipleCacheItemValues($keys);
+	foreach ($probes as $key => $probe) {
+		if (is_null($probe) or !is_object($probe)) {
+			continue;
+		}
+		if (!array_key_exists($probe->address, $heatmap)) {
+			$heatmap[ $probe->address ] = array();
+		}
+
+		$hme = new \ApManBundle\Entity\ClientHeatMap();
+		$hme->setTs($probe->ts);
+		$hme->setAddress($probe->address);
+		$hme->setDevice($devById[ $probe->device ]);
+		$hme->setEvent($probe->event);
+		if (property_exists($probe, 'signalstr')) {
+			$hme->setSignalstr($probe->signalstr);
+		}
+		$heatmap[ $probe->address ][] = $hme;
+	}
+
 	return $this->render('default/clients.html.twig', array(
 		'data' => $data,
 		'historical_data' => $history,

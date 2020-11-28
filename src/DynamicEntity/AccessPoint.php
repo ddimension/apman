@@ -7,12 +7,19 @@ use Symfony\Component\Cache\Simple\FilesystemCache;
 class AccessPoint
 {
     /**
-     * internal variable
+     * internal variables
      */ 
+    private $stateCache = null;
     private $rpcService;
 
     public function setRpcService($rpcService) {
 	    $this->rpcService = $rpcService;
+    }
+
+    private $cache;
+
+    public function setCache($cache) {
+	    $this->cache = $cache;
     }
 
     /**
@@ -38,8 +45,14 @@ class AccessPoint
      */
     public function getModel()
     {
-        $status = $this->getStatus();
-        if (!is_array($status)) {
+	if (is_null($this->stateCache)) {
+		$key = 'status.ap.'.$this->getId();
+		$status = $this->cache->getCacheItemValue($key);
+		$this->stateCache = $status;
+	} else {
+		$status = $this->stateCache;
+	}
+	if (!is_array($status)) {
             return null;
         }
 	if (!array_key_exists('board', $status)) {
@@ -60,7 +73,13 @@ class AccessPoint
      */
     public function getKernel()
     {
-        $status = $this->getStatus();
+	if (is_null($this->stateCache)) {
+		$key = 'status.ap.'.$this->getId();
+		$status = $this->cache->getCacheItemValue($key);
+		$this->stateCache = $status;
+	} else {
+		$status = $this->stateCache;
+	}
         if (!is_array($status)) {
             return null;
         }
@@ -81,7 +100,13 @@ class AccessPoint
      */
     public function getCodeName()
     {
-        $status = $this->getStatus();
+	if (is_null($this->stateCache)) {
+		$key = 'status.ap.'.$this->getId();
+		$status = $this->cache->getCacheItemValue($key);
+		$this->stateCache = $status;
+	} else {
+		$status = $this->stateCache;
+	}
         if (!is_array($status)) {
             return null;
         }
@@ -102,7 +127,13 @@ class AccessPoint
      */
     public function getSystem()
     {
-        $status = $this->getStatus();
+	if (is_null($this->stateCache)) {
+		$key = 'status.ap.'.$this->getId();
+		$status = $this->cache->getCacheItemValue($key);
+		$this->stateCache = $status;
+	} else {
+		$status = $this->stateCache;
+	}
         if (!is_array($status)) {
             return null;
         }
@@ -124,7 +155,13 @@ class AccessPoint
      */
     public function getUptime()
     {
-        $status = $this->getStatus();
+	if (is_null($this->stateCache)) {
+		$key = 'status.ap.'.$this->getId();
+		$status = $this->cache->getCacheItemValue($key);
+		$this->stateCache = $status;
+	} else {
+		$status = $this->stateCache;
+	}
         if (!is_array($status)) {
             return null;
         }
@@ -148,7 +185,13 @@ class AccessPoint
      */
     public function getLoad()
     {
-        $status = $this->getStatus();
+	if (is_null($this->stateCache)) {
+		$key = 'status.ap.'.$this->getId();
+		$status = $this->cache->getCacheItemValue($key);
+		$this->stateCache = $status;
+	} else {
+		$status = $this->stateCache;
+	}
         if (!is_array($status)) {
             return null;
         }
