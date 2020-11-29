@@ -37,10 +37,15 @@ class TestCommand extends Command
 	$devices = $this->doctrine->getRepository('ApManBundle:Device')->findAll();
 	foreach ($devices as $device) {
 		$cfg = $device->getConfig();
+		$status = $device->getStatus();
+		print("Device Id: ".$device->getId()."\n");
+		print_r($status);
+		/*
 		unset($cfg['nasid']);
 		unset($cfg['r1_key_holder']);
 		$device->setConfig($cfg);
 		$em->persist($device);
+		 */
 	}
 	$em->flush();
 	exit;

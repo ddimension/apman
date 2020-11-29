@@ -48,7 +48,13 @@ class SubscriptionService {
 	$this->logger->info('Starting Mqtt client');
 	$srv = $this;
 	$this->client = new \Mosquitto\Client('apmanwebclient', true);
-	$success = $this->client->connect('192.168.203.38', 1883);
+	if (!empty($_SERVER['MQTT_USERNAME']) and !empty($_SERVER['MQTT_PASSWORD'])) {
+		$success = $this->client->setCredentials($_SERVER['MQTT_USERNAME'], $_SERVER['MQTT_PASSWORD']);
+	}
+	if (empty($_SERVER['MQTT_PORT'])) {
+		$_SERVER['MQTT_PORT'] = 1883;
+	}
+	$success = $this->client->connect($_SERVER['MQTT_HOST'], $_SERVER['MQTT_PORT']);
 	if ($success) {
 		$this->logger->info('Failed to connected.');
 		return null;
@@ -76,7 +82,13 @@ class SubscriptionService {
 				$this->logger->error('Failed to handle message. '.json_encode($msg));
 			}
 		});
-		$success = $this->client->connect('192.168.203.38', 1883);
+		if (!empty($_SERVER['MQTT_USERNAME']) and !empty($_SERVER['MQTT_PASSWORD'])) {
+			$success = $this->client->setCredentials($_SERVER['MQTT_USERNAME'], $_SERVER['MQTT_PASSWORD']);
+		}
+		if (empty($_SERVER['MQTT_PORT'])) {
+			$_SERVER['MQTT_PORT'] = 1883;
+		}
+		$success = $this->client->connect($_SERVER['MQTT_HOST'], $_SERVER['MQTT_PORT']);
 		if ($success) {
 			$this->logger->info('Failed to connected.');
 			continue;
@@ -89,7 +101,7 @@ class SubscriptionService {
 			}
 		});
 		$this->logger->info('Connected');
-		$this->client->subscribe('/apman/#', 0);
+		$this->client->subscribe('apman/#', 0);
 		try {
 			$this->client->loopForever();
 		} catch (\Exception $e) {
@@ -102,12 +114,12 @@ class SubscriptionService {
 
     private function handleMosquittoMessage($message) {
 	    $em = $this->doctrine->getManager();
-/*	    
+/*
 	    $this->logger->info('handleMosquittoMessage(): handle message.', [
 		    'topic' => $message->topic,
 	    	    'payload' => $message->payload
 	    ]);
- */	    
+*/
 	    $tp = explode('/', $message->topic);
 	    $length = count($tp);
 	    $device = '';
