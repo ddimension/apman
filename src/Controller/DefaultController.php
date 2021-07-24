@@ -82,19 +82,20 @@ class DefaultController extends Controller
 			$opts->command = 'cat';
 			$opts->params = array('/tmp/dhcp.leases');
 			$stat = $session->call('file','exec', $opts);
-			$lines = explode("\n", $stat->stdout);
-			foreach ($lines as $line) {
-				$ds = explode(" ", $line);
-				if (!array_key_exists(3, $ds)) {
-					continue;
-				}
-				$mac = strtolower($ds[1]);
-				if (strlen($mac)) {
-					if (array_key_exists($mac, $neighbors)  && array_key_exists('name', $neighbors[$mac])) continue;
-					$neighbors[ $mac ] = array('ip' => $ds[2], 'name' => $ds[3]);
+			if (property_exists($stat, 'stdout') && is_array($stat->stdout)) {
+				$lines = explode("\n", $stat->stdout);
+				foreach ($lines as $line) {
+					$ds = explode(" ", $line);
+					if (!array_key_exists(3, $ds)) {
+						continue;
+					}
+					$mac = strtolower($ds[1]);
+					if (strlen($mac)) {
+						if (array_key_exists($mac, $neighbors)  && array_key_exists('name', $neighbors[$mac])) continue;
+						$neighbors[ $mac ] = array('ip' => $ds[2], 'name' => $ds[3]);
+					}
 				}
 			}
-
 			// Read neighbor information
 			$opts = new \stdclass();
 			$opts->command = 'ip';

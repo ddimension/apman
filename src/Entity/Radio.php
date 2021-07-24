@@ -38,7 +38,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     /**
      * @var string|null
      *
-     * @ORM\Column(name="config_path", type="string", length=64, nullable=true)
+     * @ORM\Column(name="config_path", type="string", length=255, nullable=true)
      */
     private $config_path;
 
