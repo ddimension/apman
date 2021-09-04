@@ -163,6 +163,7 @@ class DefaultController extends Controller
 				$data[$sessionId][$ifname]['board'] = $this->ssrv->getCacheItemValue('status.ap.'.$ap->getId());
 				$data[$sessionId][$ifname]['info'] = $status['info'];
 				$data[$sessionId][$ifname]['assoclist'] = array();
+				$data[$sessionId][$ifname]['deviceId'] = $device->getId();
 				if (array_key_exists('assoclist', $status)) {
 					foreach ($status['assoclist']['results'] as $entry) {
 						$mac = strtolower($entry['mac']);
@@ -341,6 +342,7 @@ class DefaultController extends Controller
 
     /**
      * @Route("/wnm_disassoc_imminent")
+     * https://docs.samsungknox.com/admin/knox-platform-for-enterprise/kbas/kba-115013403768.htm
      */
     public function wnmDisassocImminent(Request $request) {
 	if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
@@ -351,7 +353,7 @@ class DefaultController extends Controller
 	$opts = new \stdClass();
 	$opts->addr = $request->get('mac');
 	$opts->duration = 1*20;
-	$opts->abridged = false;
+	$opts->abridged = true;
 	$opts->neighbors = array();
 
 	if ($request->get('target') > 0) {
@@ -365,7 +367,6 @@ class DefaultController extends Controller
 			return $this->redirect($this->generateUrl('apman_default_index'));
 		}
 		$opts->neighbors = array($rrm->value[2]);
-		$opts->abridged = true;
 	}
 
 	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
@@ -385,6 +386,57 @@ class DefaultController extends Controller
 	$client->loop(1);
         $client->disconnect();
 	return $this->redirect($this->generateUrl('apman_default_index'));
+    } 
+    /**
+     * @Route("/rrm_beacon_req")
+     */
+    public function rrmBeaconRequest(Request $request) {
+	if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
+		echo "Params missing.\n";
+		exit();
+		return $this->redirect($this->generateUrl('apman_default_index'));
+	}
+	/* {"addr":"08:c5:e1:ad:ca:dd", "op_class":0, "channel":-1, "duration":2,"mode":2,"bssid":"ff:ff:ff:ff:ff:ff", "ssid":"kalnet"} */
+	$opts = new \stdClass();
+	$opts->addr = $request->get('mac');
+	$opts->op_class = 0;
+	$opts->channel = -1;
+	$opts->duration = 2;
+	$opts->mode = 2;
+	$opts->bssid = 'ff:ff:ff:ff:ff:ff';
+	$opts->ssid = $request->get('ssid');
+
+	if ($request->get('target') > 0) {
+		$targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy( array(
+			'id' => $request->get('target')
+		));
+		$rrm = $targetDev->getRrm();
+		$rrm = json_decode(json_encode($rrm));
+		if (!is_object($rrm) || !property_exists($rrm, 'value') || !is_array($rrm->value)) {
+                	$this->logger->error('rrmBeaconRequest(): Failed to get rrm.');
+			return $this->redirect($this->generateUrl('apman_default_index'));
+		}
+		$opts->neighbors = array($rrm->value[2]);
+		$opts->abridged = true;
+	}
+
+	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
+		'name' => $request->get('system')
+	));
+
+        $client = $this->ssrv->getMqttClient();
+        if (!$client) {
+                $this->logger->error($ap->getName().': Failed to get mqtt client.');
+		return $this->redirect($this->generateUrl('apman_default_index'));
+        }
+
+        $topic = 'apman/ap/'.$ap->getName().'/command';
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'rrm_beacon_req', $opts);
+	$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+	$res = $client->publish($topic, json_encode($cmd));
+	$client->loop(1);
+        $client->disconnect();
+	return $this->redirect($this->generateUrl('apman_default_index'));
     }	    
 
     /**
@@ -392,58 +444,126 @@ class DefaultController extends Controller
      */
     public function stationAction(Request $request) {
         $doc = $this->doctrine;
+	$em = $doc->getManager();
 	$system = $request->query->get('system','');
 	$device = $request->query->get('device','');
+	$deviceId = $request->query->get('deviceId','');
 	$mac = $request->query->get('mac','');
-	echo "<pre>";
-	echo "System: '$system'\nDevice: '$device'\n";
-	$ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
-		'name' => $system
-	));
-	$session = $this->rpcService->getSession($ap);	
-	if ($session === false) {
-	    print_r($session);
-	    exit();
-	    return $this->redirect('/');
-		return $this->redirect($this->generateUrl('apman_default_index'));
+	$output = '';
+	$output.="<pre>";
+	$output.= "System: '$system'\nDevice: '$device'\n";
+	#print("Device Stats: ".'status.device.'.$deviceId." \n");
+	$status = $this->ssrv->getCacheItemValue('status.device.'.$deviceId);
+	if (is_array($status) && is_array($status['stations'])) {
+		if (isset($status['stations'][$mac])) {
+			$output.=print_r($status['stations'][$mac],true);
+		}
 	}
-	$opts = new \stdClass();
-	$opts->command = 'iw';
-	$opts->params = array('dev',$device,"station","dump");
-#	$opts->params = array('dev',$device,"station","get",$mac);
-	$stat = $session->callCached('file','exec', $opts, 1);
-	if (!$stat) {
-		return $this->redirect('/');
+	if (is_array($status) && is_array($status['clients'])) {
+		if (isset($status['clients']['clients'][$mac])) {
+			$output.=print_r($status['clients']['clients'][$mac],true);
+		}
 	}
-	$record = false;
-	$client = array();
-	foreach (explode("\n", $stat->stdout) as $value) {
-		$line = trim($value);
-		$search = strtolower('station '.$mac);
-		if (substr(strtolower($line),0,strlen($search)) == $search) {
-			$record = true;
+	if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist'])) {
+		if (isset($status['assoclist']['results']) && is_array($status['assoclist']['results'])) {
+			foreach ($status['assoclist']['results'] as $r) {
+				if (isset($r['mac']) && strtolower($r['mac']) == strtolower($mac)) {
+					$output.="Assoclist Entry:\n";
+					$output.=print_r($r,true);
+				}
+			}
+		}
+	}
+	if (is_array($status) && is_array($status['info'])) {
+		$output.= "AP Device Status:\n";
+		$output.= print_r($status['info'],true);
+	}
+
+	if (is_array($status) && is_array($status['ap_status'])) {
+		$output.= "AP hostapd Status:\n";
+		$output.= print_r($status['ap_status'],true);
+	}
+
+	/*
+	$heatmap = [];
+	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
+		LEFT JOIN d.radio r
+		LEFT JOIN r.accesspoint a
+		ORDER by d.id DESC
+	");
+	$devices = $query->getResult();
+	$keys = [];
+	$devById = [];
+	foreach ($devices as $device) {
+		$devById[ $device->getId() ] = $device;
+		foreach ($macs as $mac => $v) {
+			$keys[] = 'status.device['.$device->getId().'].probe.'.$mac;
+		}
+	}
+
+	$probes = $this->ssrv->getMultipleCacheItemValues($keys);
+	foreach ($probes as $key => $probe) {
+		if (is_null($probe) or !is_object($probe)) {
 			continue;
 		}
-		$search = strtolower('station ');
-		if (substr(strtolower($line),0,strlen($search)) == $search) {
-			$record = false;
-			continue;
+		if (!array_key_exists($probe->address, $heatmap)) {
+			$heatmap[ $probe->address ] = array();
 		}
-		if (!$record) continue;
-		if ($line == '') {
-			continue;
+
+		$hme = new \ApManBundle\Entity\ClientHeatMap();
+		$hme->setTs($probe->ts);
+		$hme->setAddress($probe->address);
+		$hme->setDevice($devById[ $probe->device ]);
+		$hme->setEvent($probe->event);
+		if (property_exists($probe, 'signalstr')) {
+			$hme->setSignalstr($probe->signalstr);
 		}
-		list($key, $val) = explode(':', $line);
-		$key = trim($key);
-		$key = str_replace(array(' ',',','.','-','/'),'_', $key);
-		$val = trim($val);
-		$client[$key] = $val;
-		#echo "Key: $key\n";
-		#echo "Val: $val\n";
-		#echo $line."\n";
+		$heatmap[ $probe->address ][] = $hme;
 	}
-	print_r($client);
-	exit;
+	 */
+
+	$query = $em->createQuery("SELECT e FROM \ApManBundle\Entity\Event e
+		LEFT JOIN e.device d
+		LEFT JOIN d.radio r
+		LEFT JOIN r.accesspoint a
+		WHERE e.address = :mac
+		ORDER by e.ts DESC
+	");
+	$query->setParameter('mac', $mac);
+	$events = $query->getResult();
+	$output.= "</pre>";
+	$output.= "Events<br>\n";
+	#$output.= print_r($events, true);
+	$output.= "<table border=1>\n";
+	foreach ($events as $event) {
+		$output.= "<tr>";
+		$output.= "<td>";
+		$output.= $event->getTs()->format('Y-m-d H:i:s');
+		$output.= "</td>";
+
+		$output.= "<td>";
+		$output.= $event->getDevice()->getRadio()->getAccessPoint()->getName();
+		$output.= "</td>";
+
+		$output.= "<td>";
+		$output.= $event->getDevice()->getRadio()->getConfigBand();
+		$output.= "</td>";
+
+		$output.= "<td>";
+		$output.= $event->getDevice()->getSsid();;
+		$output.= "</td>";
+
+		$output.= "<td>";
+		$output.= $event->getType();
+		$output.= "</td>";
+
+		$output.= "<td>";
+		$output.= $event->getEvent();
+		$output.= "</td>";
+		$output.="</tr>";
+	}
+	$output.= "</table>";
+	return new Response($output);
     }	    
 
     /**

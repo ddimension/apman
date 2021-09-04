@@ -11,9 +11,11 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 class CustomActionsController extends CRUDController
 {
     private $rpcService;
+    private $ssrv;
 
-    function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService, \ApManBundle\Service\SubscriptionService $ssrv, \Psr\Log\LoggerInterface $logger) {
-	    $this->rpcService = $rpcService;
+    function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService, \ApManBundle\Service\SubscriptionService $ssrv, \Psr\Log\LoggerInterface $logger) 
+    {
+    	    $this->rpcService = $rpcService;
 	    $this->ssrv = $ssrv;
 	    $this->logger = $logger;
     }
@@ -21,19 +23,99 @@ class CustomActionsController extends CRUDController
 
     public function batchActionConfigure(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-
 	$selectedModels = $selectedModelQuery->execute();
-        foreach ($selectedModels as $ap) {
+        $client = $this->ssrv->getMqttClient();
+	if ($client) {
+		$deadline = 2;
+		$haveClients = false;
+		foreach ($selectedModels as $ap) {
+			foreach ($ap->getRadios() as $radio) {
+				foreach ($radio->getDevices() as $device) {
+					$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+					if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
+						foreach ($status['assoclist']['results'] as $c) {
+							if (!count($c)) continue;
+							$haveClients = true;
+							$opts = new \stdClass();
+							$opts->addr = $c['mac'];
+							$opts->duration = $deadline*10;
+							$opts->abridged = true;
+							$opts->neighbors = array();
+							foreach ($device->getSsid()->getDevices() as $neighbor) {
+								if ($neighbor->getRadio()->getAccessPoint() == $ap) continue;
+								$rrm = $neighbor->getRrm();
+								$rrm = json_decode(json_encode($rrm));
+								if (is_object($rrm) && property_exists($rrm, 'value') && is_array($rrm->value) && isset($rrm->value[2])) {
+									$opts->neighbors[] = $rrm->value[2];
+								}
+							}
+							$topic = 'apman/ap/'.$ap->getName().'/command';
+							$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'wnm_disassoc_imminent', $opts);
+							$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+						
+							$res = $client->publish($topic, json_encode($cmd));
+						}
+					}
+				}
+			}
+		}
+		$client->loop(100);
+		// Wait for evacuation
+		if ($haveClients) sleep($deadline);
+	}
+
+	foreach ($selectedModels as $ap) {
         	$this->container->get('apman.accesspointservice')->publishConfig($ap);
 	}
+
 	$this->addFlash('sonata_flash_success', 'Reconfigured.');
 	return new RedirectResponse($this->admin->generateUrl('list', array('filter' => $this->admin->getFilterParameters())));
     }	    
 
     public function batchActionConfigureAndRestart(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-
 	$selectedModels = $selectedModelQuery->execute();
+
+        $client = $this->ssrv->getMqttClient();
+	if ($client) {
+		$deadline = 2;
+		$haveClients = false;
+		foreach ($selectedModels as $ap) {
+			foreach ($ap->getRadios() as $radio) {
+				foreach ($radio->getDevices() as $device) {
+					$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+					if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
+						foreach ($status['assoclist']['results'] as $c) {
+							if (!count($c)) continue;
+							$haveClients = true;
+							$opts = new \stdClass();
+							$opts->addr = $c['mac'];
+							$opts->duration = $deadline*10;
+							$opts->abridged = true;
+							$opts->neighbors = array();
+							foreach ($device->getSsid()->getDevices() as $neighbor) {
+								if ($neighbor->getRadio()->getAccessPoint() == $ap) continue;
+								$rrm = $neighbor->getRrm();
+								$rrm = json_decode(json_encode($rrm));
+								if (is_object($rrm) && property_exists($rrm, 'value') && is_array($rrm->value) && isset($rrm->value[2])) {
+									$opts->neighbors[] = $rrm->value[2];
+								}
+							}
+							$topic = 'apman/ap/'.$ap->getName().'/command';
+							$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'wnm_disassoc_imminent', $opts);
+							$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+						
+							$res = $client->publish($topic, json_encode($cmd));
+						}
+					}
+				}
+			}
+		}
+		$client->loop(100);
+		// Wait for evacuation
+		if ($haveClients) sleep($deadline);
+	}
+
         foreach ($selectedModels as $ap) {
         	$this->container->get('apman.accesspointservice')->stopRadio($ap);
 	}
@@ -49,8 +131,49 @@ class CustomActionsController extends CRUDController
 
     public function batchActionStopRadio(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-
 	$selectedModels = $selectedModelQuery->execute();
+
+	$client = $this->ssrv->getMqttClient();
+	if ($client) {
+		$deadline = 2;
+		$haveClients = false;
+		foreach ($selectedModels as $ap) {
+			foreach ($ap->getRadios() as $radio) {
+				foreach ($radio->getDevices() as $device) {
+					$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+					if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
+						foreach ($status['assoclist']['results'] as $c) {
+							if (!count($c)) continue;
+							$haveClients = true;
+							$opts = new \stdClass();
+							$opts->addr = $c['mac'];
+							$opts->duration = $deadline*10;
+							$opts->abridged = true;
+							$opts->neighbors = array();
+							foreach ($device->getSsid()->getDevices() as $neighbor) {
+								if ($neighbor->getRadio()->getAccessPoint() == $ap) continue;
+								$rrm = $neighbor->getRrm();
+								$rrm = json_decode(json_encode($rrm));
+								if (is_object($rrm) && property_exists($rrm, 'value') && is_array($rrm->value) && isset($rrm->value[2])) {
+									$opts->neighbors[] = $rrm->value[2];
+								}
+							}
+							$topic = 'apman/ap/'.$ap->getName().'/command';
+							$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'wnm_disassoc_imminent', $opts);
+							$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+						
+							$res = $client->publish($topic, json_encode($cmd));
+						}
+					}
+				}
+			}
+		}
+		$client->loop(100);
+		// Wait for evacuation
+		if ($haveClients) sleep($deadline);
+	}
+
+
         foreach ($selectedModels as $ap) {
         	$this->container->get('apman.accesspointservice')->stopRadio($ap);
 	}

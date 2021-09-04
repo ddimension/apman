@@ -20,6 +20,7 @@ class RadioAdmin extends AbstractAdmin
         $formMapper->add('config_disabled');
         $formMapper->add('config_channel');
         $formMapper->add('config_channel_list');
+        $formMapper->add('config_band');
         $formMapper->add('config_hwmode');
         $formMapper->add('config_txpower');
         $formMapper->add('config_country');
@@ -52,6 +53,7 @@ class RadioAdmin extends AbstractAdmin
         ->addIdentifier('name')
         ->addIdentifier('is_enabled', 'boolean')
 	->addIdentifier('config_channel', null, array('label' => 'Channel'))
+	->addIdentifier('config_band', null, array('label' => 'Band'))
 	->addIdentifier('config_hwmode', null, array('label' => 'HW Mode'))
 	->addIdentifier('config_htmode', null, array('label' => 'HT Mode'))
 	->addIdentifier('config_txpower', null, array('label' => 'Tx Power'))

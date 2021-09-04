@@ -66,6 +66,13 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     /**
      * @var string|null
      *
+     * @ORM\Column(name="config_band", type="string", length=64, nullable=true)
+     */
+    private $config_band;
+
+    /**
+     * @var string|null
+     *
      * @ORM\Column(name="config_hwmode", type="string", length=64, nullable=true)
      */
     private $config_hwmode;
@@ -366,6 +373,31 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     {
         return $this->config_channel;
     }
+
+    /**
+     * Set configBand
+     *
+     * @param string $configBand
+     *
+     * @return Radio
+     */
+    public function setConfigBand($configBand)
+    {
+        $this->config_band = $configBand;
+
+        return $this;
+    }
+
+    /**
+     * Get configBand
+     *
+     * @return string
+     */
+    public function getConfigBand()
+    {
+        return $this->config_band;
+    }
+
 
     /**
      * Set configHwmode

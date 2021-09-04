@@ -27,29 +27,24 @@ class TestCommand extends Command
         $this
             ->setName('apman:test')
             ->setDescription('Test')
-//            ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
+            ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ;
     }
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $em = $this->doctrine->getManager();
+	$em = $this->doctrine->getManager();
+	/*
 	$devices = $this->doctrine->getRepository('ApManBundle:Device')->findAll();
 	foreach ($devices as $device) {
 		$cfg = $device->getConfig();
 		$status = $device->getStatus();
 		print("Device Id: ".$device->getId()."\n");
 		print_r($status);
-		/*
-		unset($cfg['nasid']);
-		unset($cfg['r1_key_holder']);
-		$device->setConfig($cfg);
-		$em->persist($device);
-		 */
 	}
 	$em->flush();
 	exit;
-
+	*/
 	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
 		'name' => $input->getArgument('name')
 	));
@@ -62,11 +57,25 @@ class TestCommand extends Command
 		$this->output->writeln("Failed to get session.");
 		return false;
 	}
-	print_r($session);
 	$opts = new \stdClass();
-	$opts->device = 'wmon0';
-	$stat = $session->call('iwinfo','scan', $opts);
+	#$opts->device = 'wmon0';
+	$opts->path = '/etc/passwd';
+	$stat = $session->call('file', 'read', $opts);
 	print_r($stat);
+	$data = $stat->data;
+	$data = str_replace('/bin/bash','/bin/ash', $data);
+	print_r($data);
+	$opts = new \stdClass();
+	$opts->path = '/etc/passwd';
+	$opts->data = $data;
+	$opt->append = false;
+	$stat = $session->call('file', 'write', $opts);
+exit;
+	$opts->command = '/cat';
+	$opts->params = [ '/etc/passwd' ];
+	$stat = $session->call('file', 'exec', $opts);
+	print_r($stat);
+	exit;
 	$opts = new \stdClass();
 	$opts->device = 'wmon1';
 	$stat = $session->call('iwinfo','scan', $opts);

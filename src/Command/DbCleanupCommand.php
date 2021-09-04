@@ -53,6 +53,15 @@ class DbCleanupCommand extends Command
 			'
         );
 	$query->setParameter('ts',$oldest);
+	$last = $query->getResult();
+
+	$query = $em->createQuery(
+		    'DELETE
+		     FROM ApManBundle:Event ev
+		     WHERE ev.ts<:ts
+			'
+        );
+	$query->setParameter('ts',$oldest);
         $last = $query->getResult();
     }
 
