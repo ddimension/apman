@@ -212,6 +212,11 @@ class SubscriptionService {
                         }
 
 			$this->addCacheItem('status.device['.$device->getId().'].probe.'.$data->address, $obj, 86400);
+			if (property_exists($data, 'raw_elements')) {
+				$key = 'status.client['.str_replace(':', '', $data->address).'].raw_elements';
+				$this->addCacheItem($key, $data->raw_elements, 86400);
+			}
+
 			$this->logger->info("handleMoqsquittoMessage(): saved $event as ClindHeatMap.", 
 				[       
 					'data' => json_encode($data),

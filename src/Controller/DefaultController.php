@@ -15,13 +15,15 @@ class DefaultController extends Controller
     private $doctrine;
     private $rpcService;
     private $ssrv;
+    private $ieparser;
 
     public function __construct(
 	    \Psr\Log\LoggerInterface $logger,
 	    \ApManBundle\Service\AccessPointService $apservice,
 	    \Doctrine\Persistence\ManagerRegistry $doctrine,
 	    \ApManBundle\Service\wrtJsonRpc $rpcService,
-	    \ApManBundle\Service\SubscriptionService $ssrv
+	    \ApManBundle\Service\SubscriptionService $ssrv,
+	    \ApManBundle\Service\WifiIeParser $ieparser
     )
     {
 	    $this->logger = $logger;
@@ -29,6 +31,7 @@ class DefaultController extends Controller
 	    $this->doctrine = $doctrine;
 	    $this->rpcService = $rpcService;
 	    $this->ssrv = $ssrv;
+	    $this->ieparser = $ieparser;
     }
 
     /**
@@ -452,6 +455,20 @@ class DefaultController extends Controller
 	$output = '';
 	$output.="<pre>";
 	$output.= "System: '$system'\nDevice: '$device'\n";
+	$output.="\n";
+	$key = 'status.client['.str_replace(':', '', $mac).'].raw_elements';
+	$raw_elements = $this->ssrv->getCacheItemValue($key);
+	if (strlen($raw_elements)) {
+		//$output.=$raw_elements."\n";
+		$ieTags = $this->ieparser->parseInformationElements(hex2bin($raw_elements));
+		$output.="Information elements transmitted on probe:\n";
+		$output.=print_r($this->ieparser->getResolveIeNames($ieTags),true);
+		$output.="\n";
+		$ieCaps = $this->ieparser->getExtendedCapabilities($ieTags);
+		$output.="Capabilities on probe:\n";
+		$output.=print_r($ieCaps,true);
+	}
+
 	#print("Device Stats: ".'status.device.'.$deviceId." \n");
 	$status = $this->ssrv->getCacheItemValue('status.device.'.$deviceId);
 	if (is_array($status) && is_array($status['stations'])) {
@@ -521,6 +538,7 @@ class DefaultController extends Controller
 		$heatmap[ $probe->address ][] = $hme;
 	}
 	 */
+
 
 	$query = $em->createQuery("SELECT e FROM \ApManBundle\Entity\Event e
 		LEFT JOIN e.device d
