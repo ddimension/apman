@@ -562,6 +562,23 @@ class WifiIeParser {
 		$ie_map[244]="RSNX";
 		$ie_map[255]="EXTENSION";
 
+		$macdb = [];
+                if (file_exists('/usr/share/nmap/nmap-mac-prefixes')) {
+			$handle = fopen('/usr/share/nmap/nmap-mac-prefixes', "r");
+			if (!$handle) {
+			     return ;
+			}
+			$macdb = array();;
+			while (($line = fgets($handle)) !== false) {
+				$line = trim($line);
+				if (empty($line)) continue;
+				if (substr($line,0,1) == '#') continue;
+				$m = strtolower(substr($line,0,6));
+				$manufacturer = substr($line,7);
+				$macdb[$m] = $manufacturer;
+			}
+		}
+
 		$ieList = [];
 		foreach ($tags as $tagId => $tagValue) {
 			if (!array_key_exists($tagId, $ie_map)) continue;
@@ -572,20 +589,14 @@ class WifiIeParser {
 					switch ($vendor) {
 						case '0050f2':
 							$vendor = 'Microsoft';
+							if ($vendorValue == 2) $vendorValue = 'WMM';
 							break;
 						case '506f9a':
 							$vendor = 'Wi-Fi Alliance';
-							break;
-						case '001018':
-							$vendor = 'Broadcom';
-							break;
-						case '00904c':
-							$vendor = 'Epigram';
-							break;
-						case '0017f2':
-							$vendor = 'Apple';
+							if ($vendorValue == 22) $vendorValue = 'Multiband Operation';
 							break;
 					}
+					if (array_key_exists($vendor, $macdb)) $vendor = $macdb[$vendor];
 					$ieList[$tagId][] = ['Vendor' => $vendor, 'Type' => $vendorValue];
 				}
 				continue;
