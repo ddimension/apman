@@ -576,6 +576,15 @@ class WifiIeParser {
 						case '506f9a':
 							$vendor = 'Wi-Fi Alliance';
 							break;
+						case '001018':
+							$vendor = 'Broadcom';
+							break;
+						case '00904c':
+							$vendor = 'Epigram';
+							break;
+						case '0017f2':
+							$vendor = 'Apple';
+							break;
 					}
 					$ieList[$tagId][] = ['Vendor' => $vendor, 'Type' => $vendorValue];
 				}
