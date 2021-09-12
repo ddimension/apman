@@ -80,7 +80,12 @@ class WifiIeParser {
 			$element.= $ies[$i];
 		}
 		foreach ($rawTags as $rawTag) {
-			if (strpos($rawTag, '(') !== false) {
+			if (strpos($rawTag, '221(') === 0) {
+				$ie = substr($rawTag, 0, strpos($rawTag, '('));
+				$value = substr($rawTag, strpos($rawTag, '(')+1, strpos($rawTag, ')')-strpos($rawTag, '(')-1);
+				if (!array_key_exists($ie,$tags)) $tags[$ie] = [];
+				$tags[$ie][] = $value;
+			} elseif (strpos($rawTag, '(') !== false) {
 				$ie = substr($rawTag, 0, strpos($rawTag, '('));
 				$value = substr($rawTag, strpos($rawTag, '(')+1, strpos($rawTag, ')')-strpos($rawTag, '(')-1);
 				$tags[$ie] = $value;
@@ -560,6 +565,22 @@ class WifiIeParser {
 		$ieList = [];
 		foreach ($tags as $tagId => $tagValue) {
 			if (!array_key_exists($tagId, $ie_map)) continue;
+			if ($tagId == 221) {
+				if (!array_key_exists($tagId, $ieList)) $ieList[$tagId] = [];
+				foreach ($tagValue as $vendorData) {
+					list($vendor, $vendorValue) = explode(',', $vendorData);
+					switch ($vendor) {
+						case '0050f2':
+							$vendor = 'Microsoft';
+							break;
+						case '506f9a':
+							$vendor = 'Wi-Fi Alliance';
+							break;
+					}
+					$ieList[$tagId][] = ['Vendor' => $vendor, 'Type' => $vendorValue];
+				}
+				continue;
+			}
 			$ieList[$tagId] = $ie_map[$tagId];
 		}
 		return $ieList;
