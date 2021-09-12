@@ -144,11 +144,11 @@ class WifiIeParser {
                         $extCaps[] = 'Event';
                 }
 
+		if ($length < 2) return $extCaps;
                 if (ord($raw[1]) && 0 == 0) {
                         $extCaps[] = 'Diagnostics';
                 }
 
-		if ($length < 2) return $extCaps;
                 if (ord($raw[1]) && 1 == 1) {
                         $extCaps[] = 'Multicast Diagnostics';
                 }
