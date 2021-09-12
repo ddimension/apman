@@ -456,6 +456,8 @@ class DefaultController extends Controller
 	$output.="<pre>";
 	$output.= "System: '$system'\nDevice: '$device'\n";
 	$output.="\n";
+
+	/*
 	$key = 'status.client['.str_replace(':', '', $mac).'].raw_elements';
 	$raw_elements = $this->ssrv->getCacheItemValue($key);
 	if (strlen($raw_elements)) {
@@ -468,16 +470,28 @@ class DefaultController extends Controller
 		$output.="Capabilities on probe:\n";
 		$output.=print_r($ieCaps,true);
 	}
+	*/
+	$status = $this->ssrv->getCacheItemValue('status.device.'.$deviceId);
+	if (is_array($status) && is_array($status['clients']) && isset($status['clients']['clients'][$mac]) && isset($status['clients']['clients'][$mac]['signature'])) {
+			$ieTags = $this->ieparser->parseSignature($status['clients']['clients'][$mac]['signature']);
+			$output.="Information elements on association:\n";
+			$output.=print_r($this->ieparser->getResolveIeNames($ieTags),true);
+			$output.="\n";
+			$ieCaps = $this->ieparser->getExtendedCapabilities($ieTags);
+			$output.="Capabilities on association:\n";
+			$output.=print_r($ieCaps,true);
+	}
 
 	#print("Device Stats: ".'status.device.'.$deviceId." \n");
-	$status = $this->ssrv->getCacheItemValue('status.device.'.$deviceId);
 	if (is_array($status) && is_array($status['stations'])) {
 		if (isset($status['stations'][$mac])) {
+			$output.="Station Status:\n";
 			$output.=print_r($status['stations'][$mac],true);
 		}
 	}
 	if (is_array($status) && is_array($status['clients'])) {
 		if (isset($status['clients']['clients'][$mac])) {
+			$output.="Station hostapd Status:\n";
 			$output.=print_r($status['clients']['clients'][$mac],true);
 		}
 	}
@@ -485,7 +499,7 @@ class DefaultController extends Controller
 		if (isset($status['assoclist']['results']) && is_array($status['assoclist']['results'])) {
 			foreach ($status['assoclist']['results'] as $r) {
 				if (isset($r['mac']) && strtolower($r['mac']) == strtolower($mac)) {
-					$output.="Assoclist Entry:\n";
+					$output.="Station Association List Entry:\n";
 					$output.=print_r($r,true);
 				}
 			}

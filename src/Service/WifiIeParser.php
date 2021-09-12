@@ -47,6 +47,56 @@ class WifiIeParser {
 	}
 
 	/**
+	* get Tags from hostapd taxonomy signature
+	* @return array 
+	*/
+	function parseSignature(string $sig, $type = 'assoc') {
+		$tags = [];
+		if (substr($sig,0,5) != 'wifi4') return $tags;
+		$td = explode('|', $sig);
+		$ies = null;
+		foreach ($td as $data) {
+			if (substr($data, 0, strlen($type)+1) != $type.':') continue;
+			$ies = substr($data, strlen($type)+1);
+		}
+		if (is_null($ies)) return $tags;
+
+		$element = null;
+		$details = false;
+		$rawTags = [];
+		for ($i = 0; $i < strlen($ies); $i++) {
+			if ($ies[$i] == '(') $details = true;
+			if ($ies[$i] == ')') $details = false;
+			if ( $i == (strlen($ies)-1)) {
+				$rawTags[] = $element.$ies[$i];
+				$element = null;
+				continue;
+
+			} elseif (($ies[$i] == ',' && !$details)) {
+				$rawTags[] = $element;
+				$element = null;
+				continue;
+			}
+			$element.= $ies[$i];
+		}
+		foreach ($rawTags as $rawTag) {
+			if (strpos($rawTag, '(') !== false) {
+				$ie = substr($rawTag, 0, strpos($rawTag, '('));
+				$value = substr($rawTag, strpos($rawTag, '(')+1, strpos($rawTag, ')')-strpos($rawTag, '(')-1);
+				$tags[$ie] = $value;
+			} elseif (strpos($rawTag, ':')) {
+				list($name, $value) = explode(':', $rawTag, 2);
+				if ($name == 'extcap') {
+					$tags[127] = hex2bin($value);
+				}
+			} else {
+				$tags[$rawTag] = null;
+			}
+		}
+		return $tags;
+	}
+
+	/**
 	* get Extended Capabilities
 	* @return array 
 	*/
@@ -55,24 +105,262 @@ class WifiIeParser {
 		if (!isset($tags[127])) return $extCaps;
 		$raw = $tags[127];
 		$length = strlen($raw);
-		if ($length!= 8) return $extCaps;
-		if (ord($raw[2]) && 0b1 == 0b1) {
-			$extCaps[] = '20/40 BSS Coexistence Management Support';
-		}
-		if (ord($raw[2]) && 0b1000 == 0b1000) {
-			$extCaps[] = 'BSS Transition';
-		}
-		if (ord($raw[2]) && 0b10 == 0b10) {
-			$extCaps[] = 'WNM Sleep Mode';
-		}
-		if (ord($raw[3]) && 0b100 == 0b100) {
-			$extCaps[] = 'DMS';
-		}
-		if (ord($raw[4]) && 0b1 == 0b1) {
-			$extCaps[] = 'QoS Map';
-		}
-		if (ord($raw[7]) && 0b100000 == 0b100000) {
-			$extCaps[] = 'Operating Mode Notification';
+
+		if ($length < 1) return $extCaps;
+                if (ord($raw[0]) && 0 == 0) {
+                        $extCaps[] = '20/40 BSS Coexistence Management Support';
+                }
+
+                if (ord($raw[0]) && 1 == 1) {
+                        $extCaps[] = 'Reserved (was On-demand beacon)';
+                }
+
+                if (ord($raw[0]) && 2 == 2) {
+                        $extCaps[] = 'Extended Channel Switching';
+                }
+
+                if (ord($raw[0]) && 3 == 3) {
+                        $extCaps[] = 'Reserved (was WAVE indication)';
+                }
+
+                if (ord($raw[0]) && 4 == 4) {
+                        $extCaps[] = 'PSMP Capability';
+                }
+
+                if (ord($raw[0]) && 5 == 5) {
+                        $extCaps[] = 'Reserved';
+                }
+
+                if (ord($raw[0]) && 6 == 6) {
+                        $extCaps[] = 'S-PSMP Support';
+                }
+
+                if (ord($raw[0]) && 7 == 7) {
+                        $extCaps[] = 'Event';
+                }
+
+                if (ord($raw[1]) && 0 == 0) {
+                        $extCaps[] = 'Diagnostics';
+                }
+
+		if ($length < 2) return $extCaps;
+                if (ord($raw[1]) && 1 == 1) {
+                        $extCaps[] = 'Multicast Diagnostics';
+                }
+
+                if (ord($raw[1]) && 2 == 2) {
+                        $extCaps[] = 'Location Tracking';
+                }
+
+                if (ord($raw[1]) && 3 == 3) {
+                        $extCaps[] = 'FMS';
+                }
+
+                if (ord($raw[1]) && 4 == 4) {
+                        $extCaps[] = 'Proxy ARP Service';
+                }
+
+                if (ord($raw[1]) && 5 == 5) {
+                        $extCaps[] = 'Collocated Interference Reporting';
+                }
+
+                if (ord($raw[1]) && 6 == 6) {
+                        $extCaps[] = 'Civic Location';
+                }
+
+                if (ord($raw[1]) && 7 == 7) {
+                        $extCaps[] = 'Geospatial Location';
+                }
+
+		if ($length < 3) return $extCaps;
+                if (ord($raw[2]) && 0 == 0) {
+                        $extCaps[] = 'TFS';
+                }
+
+                if (ord($raw[2]) && 1 == 1) {
+                        $extCaps[] = 'WNM Sleep Mode';
+                }
+
+                if (ord($raw[2]) && 2 == 2) {
+                        $extCaps[] = 'TIM Broadcast';
+                }
+
+                if (ord($raw[2]) && 3 == 3) {
+                        $extCaps[] = 'BSS Transition';
+                }
+
+                if (ord($raw[2]) && 4 == 4) {
+                        $extCaps[] = 'QoS Traffic Capability';
+                }
+
+                if (ord($raw[2]) && 5 == 5) {
+                        $extCaps[] = 'AC Station Count';
+                }
+
+                if (ord($raw[2]) && 6 == 6) {
+                        $extCaps[] = 'Multiple BSSID';
+                }
+
+                if (ord($raw[2]) && 7 == 7) {
+                        $extCaps[] = 'Timing Measurement';
+                }
+
+		if ($length < 4) return $extCaps;
+                if (ord($raw[3]) && 0 == 0) {
+                        $extCaps[] = 'Channel Usage';
+                }
+
+                if (ord($raw[3]) && 1 == 1) {
+                        $extCaps[] = 'SSID List';
+                }
+
+                if (ord($raw[3]) && 2 == 2) {
+                        $extCaps[] = 'Directed Multicast Service';
+                }
+
+                if (ord($raw[3]) && 3 == 3) {
+                        $extCaps[] = 'UTC TSF Offset';
+                }
+
+                if (ord($raw[3]) && 4 == 4) {
+                        $extCaps[] = 'TPU Buffer STA Support';
+                }
+
+                if (ord($raw[3]) && 5 == 5) {
+                        $extCaps[] = 'TDLS Peer PSM Support';
+                }
+
+                if (ord($raw[3]) && 6 == 6) {
+                        $extCaps[] = 'TDLS channel switching';
+                }
+
+                if (ord($raw[3]) && 7 == 7) {
+                        $extCaps[] = 'Interworking';
+                }
+
+		if ($length < 5) return $extCaps;
+                if (ord($raw[4]) && 0 == 0) {
+                        $extCaps[] = 'QoS Map';
+                }
+
+                if (ord($raw[4]) && 1 == 1) {
+                        $extCaps[] = 'EBR';
+                }
+
+                if (ord($raw[4]) && 2 == 2) {
+                        $extCaps[] = 'SSPN Interface';
+                }
+
+                if (ord($raw[4]) && 3 == 3) {
+                        $extCaps[] = 'Reserved';
+                }
+
+                if (ord($raw[4]) && 4 == 4) {
+                        $extCaps[] = 'MSGCF Capability';
+                }
+
+                if (ord($raw[4]) && 5 == 5) {
+                        $extCaps[] = 'TDLS Support';
+                }
+
+                if (ord($raw[4]) && 6 == 6) {
+                        $extCaps[] = 'TDLS Prohibited';
+                }
+
+                if (ord($raw[4]) && 7 == 7) {
+                        $extCaps[] = 'TDLS Channel Switching Prohibited';
+                }
+
+		if ($length < 6) return $extCaps;
+                if (ord($raw[5]) && 0 == 0) {
+                        $extCaps[] = 'Reject Unadmitted Frame';
+                }
+
+		if ($length < 5) return $extCaps;
+                if (ord($raw[5]) && 1 == 1) {
+                        $extCaps[] = 'Service Interval Granularity';
+                }
+
+                if (ord($raw[5]) && 2 == 2) {
+                        $extCaps[] = 'Identifier Location';
+                }
+
+                if (ord($raw[5]) && 3 == 3) {
+                        $extCaps[] = 'U-APSD Coexistence';
+                }
+
+                if (ord($raw[5]) && 4 == 4) {
+                        $extCaps[] = 'WNM Notification';
+                }
+
+                if (ord($raw[5]) && 5 == 5) {
+                        $extCaps[] = 'QAB Capability';
+                }
+
+                if (ord($raw[5]) && 6 == 6) {
+                        $extCaps[] = 'UTF-8 SSID';
+                }
+
+                if (ord($raw[5]) && 7 == 7) {
+                        $extCaps[] = 'QMF Activated';
+                }
+
+		if ($length < 7) return $extCaps;
+                if (ord($raw[6]) && 0 == 0) {
+                        $extCaps[] = 'QMF Reconfiguration Activated';
+                }
+
+                if (ord($raw[6]) && 1 == 1) {
+                        $extCaps[] = 'Robust AV Streaming';
+                }
+
+                if (ord($raw[6]) && 2 == 2) {
+                        $extCaps[] = 'Advanced GCR';
+                }
+
+                if (ord($raw[6]) && 3 == 3) {
+                        $extCaps[] = 'Mesh GCR';
+                }
+
+                if (ord($raw[6]) && 4 == 4) {
+                        $extCaps[] = 'SCS';
+                }
+
+                if (ord($raw[6]) && 5 == 5) {
+                        $extCaps[] = 'QLoad Report';
+                }
+
+                if (ord($raw[6]) && 6 == 6) {
+                        $extCaps[] = 'Alternate EDCA';
+                }
+
+                if (ord($raw[6]) && 7 == 7) {
+                        $extCaps[] = 'Unprotected TXOP Negotiation';
+                }
+
+		if ($length < 8) return $extCaps;
+                if (ord($raw[7]) && 0 == 0) {
+                        $extCaps[] = 'Protected TXOP Negotiation';
+                }
+
+                if (ord($raw[7]) && 1 == 1) {
+                        $extCaps[] = 'Reserved';
+                }
+
+                if (ord($raw[7]) && 2 == 2) {
+                        $extCaps[] = 'Protected QLoad Report';
+                }
+
+                if (ord($raw[7]) && 3 == 3) {
+                        $extCaps[] = 'TDLS Wider Bandwidth';
+                }
+
+                if (ord($raw[7]) && 4 == 4) {
+                        $extCaps[] = 'Operating Mode Notification';
+                }
+
+                if (ord($raw[7]) && 5 == 5) {
+                        $extCaps[] = 'Max Number Of MSDUs In A-MSDU';
 		}
 		/*
 		printf("X %08b\n", ord($raw[0]));
