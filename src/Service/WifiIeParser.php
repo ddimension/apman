@@ -586,18 +586,20 @@ class WifiIeParser {
 				if (!array_key_exists($tagId, $ieList)) $ieList[$tagId] = [];
 				foreach ($tagValue as $vendorData) {
 					list($vendor, $vendorValue) = explode(',', $vendorData);
+					$vendorSet = ['Vendor-OUI' => $vendor];
+					$vendorSet['Type-Id'] = $vendorValue;
+					if (array_key_exists($vendor, $macdb)) $vendorSet['Vendor-Name'] = $macdb[$vendor];
 					switch ($vendor) {
 						case '0050f2':
-							$vendor = 'Microsoft';
-							if ($vendorValue == 2) $vendorValue = 'WMM';
+							// Microsoft
+							$vendorSet['Type-Name'] = 'WMM';
 							break;
 						case '506f9a':
-							$vendor = 'Wi-Fi Alliance';
-							if ($vendorValue == 22) $vendorValue = 'Multiband Operation';
+							// Wi-Fi Alliance
+							$vendorSet['Type-Name'] = 'Multiband Operation';
 							break;
 					}
-					if (array_key_exists($vendor, $macdb)) $vendor = $macdb[$vendor];
-					$ieList[$tagId][] = ['Vendor' => $vendor, 'Type' => $vendorValue];
+					$ieList[$tagId][] = $vendorSet;
 				}
 				continue;
 			}
