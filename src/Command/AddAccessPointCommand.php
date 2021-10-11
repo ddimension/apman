@@ -44,7 +44,7 @@ class AddAccessPointCommand extends Command
 	$ap->setUbusUrl($input->getArgument('ubus_url'));
 	$session = $this->rpcService->getSession($ap);
 	if ($session === false) {
-		$this->output->writeln("Cannot connect to AP ".$ap->getName());
+		$output->writeln("Cannot connect to AP ".$ap->getName());
 		return false;
 	}
 	$opts = new \stdClass();
@@ -52,11 +52,11 @@ class AddAccessPointCommand extends Command
 	$opts->type = 'wifi-device';
 	$stat = $session->call('uci','get', $opts);
 	if (!isset($stat->values) || !count($stat->values)) {
-		$this->output->writeln("No radios found on AP ".$ap->getName());
+		$output->writeln("No radios found on AP ".$ap->getName());
 		return false;
 	}
 	foreach ($stat->values as $name => $cfg) {
-		$this->output->writeln("Adding radio ".$name);
+		$output->writeln("Adding radio ".$name);
 		$radio = new \ApManBundle\Entity\Radio(); 
 		$radio->setAccessPoint($ap);
 		$radio->setName($name);
@@ -65,7 +65,7 @@ class AddAccessPointCommand extends Command
 	}
 	$em->persist($ap);
 	$em->flush();
-	$this->output->writeln("Saved AP ".$ap->getName()." with id ".$ap->getId());
+	$output->writeln("Saved AP ".$ap->getName()." with id ".$ap->getId());
     }
 
 }
