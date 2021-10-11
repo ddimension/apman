@@ -389,7 +389,78 @@ class DefaultController extends Controller
 	$client->loop(1);
         $client->disconnect();
 	return $this->redirect($this->generateUrl('apman_default_index'));
+    }
+
+    /**
+     * @Route("/bss_transition_request_prepare")
+     */
+    public function wnmBssTransitionPrepare(Request $request) {
+	if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
+		return $this->redirect($this->generateUrl('apman_default_index'));
+	}
+	$ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy( array(
+		'name' => $request->get('ssid')
+	));
+
+	return $this->render('default/bss_transition_request.html.twig',
+		array(
+			'devices' => $ssid->getDevices(),
+			'mac' => $request->get('mac'),
+			'system' => $request->get('system'),
+			'device' => $request->get('device'),
+			'ssid' => $request->get('ssid')
+		)
+	);
     } 
+
+    /**
+     * @Route("/bss_transition_request")
+     * https://docs.samsungknox.com/admin/knox-platform-for-enterprise/kbas/kba-115013403768.htm
+     */
+    public function wnmBssTransitionRequest(Request $request) {
+	if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
+		echo "Params missing.\n";
+		exit();
+		return $this->redirect($this->generateUrl('apman_default_index'));
+	}
+	$opts = new \stdClass();
+	$opts->addr = $request->get('mac');
+	$opts->abridged = true;
+	$opts->disassociation_imminent = false;
+	$opts->neighbors = array();
+
+	if ($request->get('target') > 0) {
+		$targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy( array(
+			'id' => $request->get('target')
+		));
+		$rrm = $targetDev->getRrm();
+		$rrm = json_decode(json_encode($rrm));
+		if (!is_object($rrm) || !property_exists($rrm, 'value') || !is_array($rrm->value)) {
+                	$this->logger->error('wnmBssTransitionRequest(): Failed to get rrm.');
+			return $this->redirect($this->generateUrl('apman_default_index'));
+		}
+		$opts->neighbors = array($rrm->value[2]);
+	}
+
+	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
+		'name' => $request->get('system')
+	));
+
+        $client = $this->ssrv->getMqttClient();
+        if (!$client) {
+                $this->logger->error($ap->getName().': Failed to get mqtt client.');
+		return $this->redirect($this->generateUrl('apman_default_index'));
+        }
+
+        $topic = 'apman/ap/'.$ap->getName().'/command';
+	$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'bss_transition_request', $opts);
+	$this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+	$res = $client->publish($topic, json_encode($cmd));
+	$client->loop(1);
+        $client->disconnect();
+	return $this->redirect($this->generateUrl('apman_default_index'));
+    }
+
     /**
      * @Route("/rrm_beacon_req")
      */

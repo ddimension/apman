@@ -49,6 +49,9 @@
 	VHT
 </th>
 <th>
+	HE
+</th>
+<th>
 	WPS
 </th>
 <th>
@@ -176,6 +179,11 @@
 				{% endif %}
 			</td>
 			<td>
+				{% if data[system][device]['assoclist'][client]['tx'].he is defined %}
+					{{ data[system][device]['assoclist'][client]['tx'].he }}
+				{% endif %}
+			</td>
+			<td>
 				{% if data[system][device]['clients'][client].wps is defined %}
 					{{ data[system][device]['clients'][client].wps }}
 				{% endif %}
@@ -266,8 +274,13 @@
 				<a href="{{ path('apman_default_deauth') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}">DeAuth</a><br />
 				<a href="{{ path('apman_default_deauth') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ban_time=30">DeAuth+Ban (30s)</a><br />
 				{% if data[system][device]['info'].ssid is defined %}
+					<a href="{{ path('apman_default_wnmbsstransitionprepare') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ssid={{ data[system][device]['info'].ssid|url_encode }}"&deviceId={{ data[system][device]['deviceId'] }}>BSS Transition</a><br />
+				{% endif %}
+<!--
+				{% if data[system][device]['info'].ssid is defined %}
 					<a href="{{ path('apman_default_wnmdisassocimminentprepare') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ssid={{ data[system][device]['info'].ssid|url_encode }}"&deviceId={{ data[system][device]['deviceId'] }}>WNM Disassoc</a><br />
 				{% endif %}
+-->
 				{% if data[system][device]['info'].ssid is defined %}
 					<a href="{{ path('apman_default_rrmbeaconrequest') }}?system={{ system|url_encode }}&device={{ device|url_encode }}&mac={{ client|url_encode }}&ssid={{ data[system][device]['info'].ssid|url_encode }}&deviceId={{ data[system][device]['deviceId'] }}">RRM Beacon Request</a><br />
 				{% endif %}
