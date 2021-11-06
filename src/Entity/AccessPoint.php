@@ -69,6 +69,16 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     private $status = [];
 
     /**
+     * @ORM\Column(type="boolean", nullable=true)
+     */
+    private $ProvisioningEnabled;
+
+    /**
+     * @ORM\Column(type="boolean", nullable=true)
+     */
+    private $IsProductive;
+
+    /**
      * Constructor
      */
     public function __construct()
@@ -257,6 +267,30 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     public function setStatus(?array $status): self
     {
         $this->status = $status;
+
+        return $this;
+    }
+
+    public function getProvisioningEnabled(): ?bool
+    {
+        return $this->ProvisioningEnabled;
+    }
+
+    public function setProvisioningEnabled(?bool $ProvisioningEnabled): self
+    {
+        $this->ProvisioningEnabled = $ProvisioningEnabled;
+
+        return $this;
+    }
+
+    public function getIsProductive(): ?bool
+    {
+        return $this->IsProductive;
+    }
+
+    public function setIsProductive(?bool $IsProductive): self
+    {
+        $this->IsProductive = $IsProductive;
 
         return $this;
     }

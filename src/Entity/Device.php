@@ -140,6 +140,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     {
         $config = $this->config;
 	if (!empty($this->ifname)) $config['ifname'] = $this->ifname;
+	if (!empty($config['ifname'])) $config['ifname'] = "wlan-d".$this->getId();
 	if (!empty($this->address)) $config['macaddress'] = $this->address;
         return $config;
     }
@@ -279,6 +280,12 @@ class Device extends \ApManBundle\DynamicEntity\Device
     public function setRrm(?array $rrm): self
     {
         $this->rrm = $rrm;
+	if (is_array($rrm) && isset($rrm['value']) && is_array($rrm['value']) and count($rrm['value'])) {
+		$mac = $rrm['value'][0];
+		if (strlen($mac)) {
+			$this->setAddress($mac);
+		}
+	}
 
         return $this;
     }

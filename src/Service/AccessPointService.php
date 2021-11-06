@@ -138,6 +138,11 @@ class AccessPointService {
 	$opts->type = 'wifi-device';
 	// $opts->section = $device->getName();
 	$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+	$opts = new \stdClass();
+	$opts->config = 'wireless';
+	$opts->type = 'wifi-vlan';
+	// $opts->section = $device->getName();
+	$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
 	#$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
 	$client->loop(1);
 
@@ -161,13 +166,37 @@ class AccessPointService {
 			$opts->type = 'wifi-iface';
 			$opts->name = $device->getName();
 
-			$config = $this->getDeviceConfig($device);;
+			$config = $this->getDeviceConfig($device);
+			$vlans = [];
+			if (property_exists($config, 'vlans')) {
+				$vlans = $config->vlans;
+				unset($config->vlans);
+			}
+
 			$opts->values = $config;
 			$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
-			#$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'set', $opts);
 			
 			$changed = true;
 			$logger->debug($ap->getName().': Configured device '.$device->getName());
+
+			if (!is_array($vlans)) {
+				continue;
+			}
+			if (!count($vlans)) {
+				continue;
+			}
+			foreach ($vlans as $vlan) {
+				$opts = new \stdClass();
+				$opts->config = 'wireless';
+				$opts->type = 'wifi-vlan';
+				// $opts->name = 'vlan_'.$vlan->vid;
+				$opts->name = $device->getName().'_'.$vlan->vid;
+				$vlan->iface = $device->getName();
+				$opts->values = $vlan;
+				$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
+				$changed = true;
+				$logger->debug($ap->getName().': Configured device '.$device->getName().' vlan '.$vlan->vid);
+			}
 		}
 	}
 

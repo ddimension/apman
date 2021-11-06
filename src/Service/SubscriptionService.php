@@ -4,6 +4,7 @@ namespace ApManBundle\Service;
 
 use Symfony\Component\Cache\Simple\FilesystemCache;
 use Symfony\Component\Cache\Adapter\MemcachedAdapter;
+use Symfony\Component\Cache\Adapter\RedisAdapter;
 use karpy47\PhpMqttClient\MQTTClient;
 
 class SubscriptionService {
@@ -14,6 +15,7 @@ class SubscriptionService {
 	private $ch;
 	private $device;
 	private $cache;
+	private $cacheLocal = array( 'ap-by-name' => array(), 'dev-by-ap-ifname' => array() );
 
 	function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, \ApManBundle\Service\wrtJsonRpc $rpcService) {
 		$this->logger = $logger;
@@ -78,8 +80,12 @@ class SubscriptionService {
 		});
 		 */
 		$this->client->onMessage(function($msg) use ($srv) {
-			if (!$srv->handleMosquittoMessage($msg)) {
-				$this->logger->error('Failed to handle message. '.json_encode($msg));
+			try {
+				if (!$srv->handleMosquittoMessage($msg)) {
+					$this->logger->debug('Failed to handle message. '.json_encode($msg));
+				}
+			} catch (\Exception $e) {
+				$this->logger->error('Failed to handle message. '.$e.' '.$e->getTraceAsString());
 			}
 		});
 		if (!empty($_SERVER['MQTT_USERNAME']) and !empty($_SERVER['MQTT_PASSWORD'])) {
@@ -115,10 +121,10 @@ class SubscriptionService {
     private function handleMosquittoMessage($message) {
 	    $em = $this->doctrine->getManager();
 /*
-	    $this->logger->info('handleMosquittoMessage(): handle message.', [
-		    'topic' => $message->topic,
-	    	    'payload' => $message->payload
-	    ]);
+	    if (strpos($message->topic, 'ap-outdoor.kalnet.hooya.de') !== false) {
+echo "XX ";		   
+    print_r($message);
+}
 */
 	    $tp = explode('/', $message->topic);
 	    $length = count($tp);
@@ -140,8 +146,12 @@ class SubscriptionService {
 				    $device = $tp[4];
 			    }
 		    } elseif ($tp[3] == 'booted') {
-			    $this->assignAllNeighbors();
+			    #$this->assignAllNeighbors();
 			    return true;
+		    } elseif ($tp[3] == 'wireless') {
+			    // go on
+		    } elseif ($tp[3] == 'online') {
+			    // go on
 		    } else {
 			    return false;
 		    }
@@ -154,13 +164,34 @@ class SubscriptionService {
 	    if (strpos($device, '.') !== false) {
 		    $device = substr($device,strpos($device, '.')+1);
 	    }
-	    #$this->logger->info('handleMosquittoMessage(): hostname: '.$shortname.' device:'.$device);
-	    $qb = $em->createQueryBuilder();
-	    $query = $em->createQuery("SELECT a FROM ApManBundle\Entity\AccessPoint a
-				WHERE a.name = :apname
-	    ");
-	    $query->setParameter('apname', $hostname);
-	    $ap = $query->getOneOrNullResult();
+
+	    // Setup cache	    
+	    if (!isset($this->cacheLocal['ap-by-name'][$hostname])) {
+		    $query = $em->createQuery("SELECT a FROM ApManBundle\Entity\AccessPoint a");
+		    foreach ($query->getResult() as $row) {
+			    $this->cacheLocal['ap-by-name'][ $row->getName() ] = $row;
+		    }
+	    }
+	    if (!isset($this->cacheLocal['dev-by-ap-ifname'][$hostname])) {
+		    $query = $em->createQuery("SELECT d,r,a FROM ApManBundle\Entity\Device d
+				LEFT JOIN d.radio r
+				LEFT JOIN r.accesspoint a
+		    ");
+		    foreach ($query->getResult() as $row) {
+			    $apname = $row->getRadio()->getAccessPoint()->getName();
+			    $devname = $row->getIfname();
+			    if (!isset($this->cacheLocal['dev-by-ap-ifname'][ $apname ])) {
+				    $this->cacheLocal['dev-by-ap-ifname'][ $apname ] = [];
+			    }
+			    $this->cacheLocal['dev-by-ap-ifname'][ $apname ][ $devname ] = $row;
+		    }
+	    }
+
+	    if (!isset($this->cacheLocal['ap-by-name'][$hostname])) {
+	                $this->logger->info('handleMoqsquittoMessage(): ap not found '.$hostname);
+			return true;
+            }
+	    $ap = $this->cacheLocal['ap-by-name'][ $hostname ];
 	    if (is_null($ap)) {
 	                $this->logger->info('handleMoqsquittoMessage(): ap not found '.$hostname);
 			return true;
@@ -173,20 +204,43 @@ class SubscriptionService {
 			return true; 
 	    } elseif ($tp[3] == 'properties' && $tp[4] == 'session' && $tp[5] == 'create') {
 	                $this->logger->info('handleMoqsquittoMessage(): save session for '.$hostname);
+	    } elseif ($tp[3] == 'notifications' && $tp[4] == 'hostapd' && $tp[5] == 'bss.add') {
+		    $bssmsg = json_decode($message->payload, true);
+		    if (!is_array($bssmsg)) {
+			    $this->logger->error('handleMoqsquittoMessage(): bss add notification is not an array. '.$hostname.' '.print_r($bssmsg,true));
+			    return false;
+		    }
+                    if (!isset($bssmsg['name'])) {
+			    $this->logger->error('handleMoqsquittoMessage(): missing name property in bss add notification from '.$hostname);
+			    return false;
+		    }
+		    $device = $bssmsg['name'];
+		    //$this->logger->info('handleMoqsquittoMessage(): prehandled accesspoint bss add notification '.$tp[5].' for device '.$device.' from '.$hostname,(array)$message);
+	    } elseif ($tp[3] == 'wireless' && $tp[4] == 'status') {
+    		return $this->ApLifetimeHandler($ap, $message);
+	    } elseif ($tp[3] == 'online') {
+		return $this->ApLifetimeHandler($ap, $message);
+	    /*
+	    } elseif ($tp[3] == 'properties') {
+		$this->logger->info('handleMoqsquittoMessage(): implement properties handler for message from '.$hostname,(array)$message);
+		return false;
+	    */
 	    }
-	    $qb = $em->createQueryBuilder();
-	    $query = $em->createQuery("SELECT d,r,a FROM ApManBundle\Entity\Device d
-				LEFT JOIN d.radio r
-				LEFT JOIN r.accesspoint a
-				WHERE a.name = :apname
-				AND d.ifname = :ifname
-	    ");
-	    $query->setParameter('apname', $hostname);
-      	    $query->setParameter('ifname', $device);
-	    $device = $query->getOneOrNullResult();
-	    if (is_null($device)) {
-		    $this->logger->info('handleMosquittoMessage(): not found');
+	    //echo "XX: ".$message->topic.' '.$message->payload."\n";
+
+	    // Handle device specific messages
+	    if (!isset($this->cacheLocal['dev-by-ap-ifname'][$hostname])) {
+	                $this->logger->info('handleMoqsquittoMessage(): ap not found '.$hostname);
 			return true;
+            }
+	    if (!isset($this->cacheLocal['dev-by-ap-ifname'][$hostname][$device])) {
+	                $this->logger->info('handleMoqsquittoMessage(): device '.$device.' not found '.$hostname);
+			return true;
+            }
+	    $device = $this->cacheLocal['dev-by-ap-ifname'][ $hostname ][ $device ];
+	    if (is_null($device)) {
+		    $this->logger->error('handleMosquittoMessage(): device not found ', ['apname' => $hostname, 'topic' => $message->topic ]);
+			return false;
 	    }
 	    if ($tp[3] == 'device' && $tp[5] == 'status') {
 		    $this->statusHandler($device, $message);
@@ -196,9 +250,17 @@ class SubscriptionService {
 		    $em->persist($device);
 		    $em->flush();
 		    return true;
-	    } elseif ($tp[3] == 'notifications' and $tp[4] == 'hostapd') {
-		    return false;
-	    } elseif ($tp[3] == 'notifications'){
+	    } elseif ($tp[3] == 'notifications' and $tp[4] == 'hostapd' and $tp[5] == 'bss.add') {
+		    $this->logger->info('handleMoqsquittoMessage(): accesspoint bss.add notification '.$tp[5].' for '.$hostname,(array)$message);
+		    /* This is now done via the ApLifetimeHandler 
+		    $opts = new \stdClass();
+		    $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', $opts);
+		    $topic = 'apman/ap/'.$ap->getName().'/command';
+		    $this->client->publish($topic, json_encode($cmd));
+		    $this->logger->info('handleMoqsquittoMessage(): sent update_beacon command because of notification '.$tp[5].' for '.$hostname,(array)$message);
+		     */
+		    return true;
+	    } elseif ($tp[3] == 'notifications') {
 		$event = $tp[5];
 		$data = json_decode($message->payload);
 		if ($event == 'probe') {
@@ -310,10 +372,202 @@ class SubscriptionService {
 	return true;
     }
 
+    private function ApLifetimeHandler($ap, $message, $deviceList = null) {
+	$em = $this->doctrine->getManager();
+	$tp = explode('/', $message->topic);
+	$msg = json_decode($message->payload, true);
+
+	$stateKey = 'status.state['.$ap->getId().']';
+	$state = $this->getCacheItemValue($stateKey);
+	if (!is_int($state)) $state = null;
+	$stateOld = $state;
+	$state = intval($state);
+	$cif = 0;
+	// Handle online message
+	if ($tp[3] == 'online') {
+		if (!isset($msg['status'])) {
+			return false;
+		}
+		$this->addCacheItem('status.online['.$ap->getId().']', $msg, 86400);
+		$this->logger->info('ApLifetimeHandler(): save online status from '.$ap->getName(), $msg);
+		if ($msg['status'] == 'online') {
+			//
+			if ($state == \ApManBundle\Library\AccessPointState::STATE_OFFLINE) {
+				$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ONLINE);
+			}
+		} else {
+			$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_OFFLINE);
+			// Reset device cache in offline case
+			/*
+			echo "Resetting Cache ".$ap->getName()."\n";
+			if (is_array($this->cacheLocal['dev-by-ap-ifname']) && isset($this->cacheLocal['dev-by-ap-ifname'][$ap->getName()])) {
+				foreach ($this->cacheLocal['dev-by-ap-ifname'][$ap->getName()] as $device) {
+					$key = 'status.device.'.$device->getId();
+					echo "Resetting Cache Key $key\n";
+					$this->deleteCacheItem($key);
+				}
+			}
+			 */
+		}
+	// Handle status Message
+	} elseif ($tp[3] == 'wireless' && $tp[4] == 'status') {
+		$this->addCacheItem('status.wireless['.$ap->getId().']', $msg, 86400);
+		$this->logger->info('ApLifetimeHandler(): save wireless status (length: '.strlen($message->payload).') from '.$ap->getName());
+
+		if ($state < \ApManBundle\Library\AccessPointState::STATE_ONLINE) {
+			return false;
+		}
+
+		$pending = false;
+		$up = false;
+		$failed = false;
+		foreach ($msg as $name => $rstate) {
+			#var_dump($rstate);
+			//print_r($rstate);
+			if ($name == 'timestamp' or !is_array($rstate)) continue;
+
+			if ($rstate['pending']) $pending = true;
+			if ($rstate['retry_setup_failed']) $failed = true;
+			if ($rstate['up']) {
+				$up = true;
+			} else {
+				$up = false;
+			}
+			if (isset($rstate['interfaces']) && is_array($rstate['interfaces'])) $cif+=count($rstate['interfaces']);
+			// Hook to update interface names of devices
+			if (isset($rstate['interfaces']) && is_array($rstate['interfaces']) && is_array($this->cacheLocal['dev-by-ap-ifname']) && isset($this->cacheLocal['dev-by-ap-ifname'][$ap->getName()])) {
+				foreach ($rstate['interfaces'] as $interface) {
+					if (!isset($interface['ifname']) or !isset($interface['section'])) {
+						continue;
+					}
+					foreach ($this->cacheLocal['dev-by-ap-ifname'][$ap->getName()] as $ldev) {
+						if ($ldev->getName() !== $interface['section']) {
+							continue;
+						}
+						if ($ldev->getIfname() !== $interface['ifname']) {
+							$this->logger->info('ApLifetimeHandler(): assigned ifname '.$interface['ifname'].' to device '.$ldev->getName().' on '.$ap->getName());
+							$ldev->setIfname($interface['ifname']);
+							$em->persist($ldev);
+							$em->flush();
+						}
+					}
+				}
+			}
+		}
+		if ($failed) {
+			$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_FAILED);
+		} elseif ($pending) {
+			$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_PENDING);
+		} elseif ($up && $state < \ApManBundle\Library\AccessPointState::STATE_CONFIGURED) {
+			$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_CONFIGURED);
+		} elseif ($up) {
+			// keep
+		} else {
+			$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_PENDING);
+		}
+	}
+
+	/*
+	 * Items to watch on every time a wireless status update comes in
+	 */
+	if (is_array($this->cacheLocal['dev-by-ap-ifname']) && isset($this->cacheLocal['dev-by-ap-ifname'][$ap->getName()])) {
+		// Handle CAC / DFS
+		if ($cif && $state >= \ApManBundle\Library\AccessPointState::STATE_CONFIGURED) {
+			$cac_active = false;
+			$found = 0;
+			foreach ($this->cacheLocal['dev-by-ap-ifname'][$ap->getName()] as $device) {
+				$key = 'status.device.'.$device->getId();
+				$ds = $this->getCacheItemValue($key);
+				if ($ds !== null) $found++;
+				if (!is_array($ds) || !isset($ds['ap_status']) || !isset($ds['ap_status']['dfs']) || !isset($ds['ap_status']['dfs']['cac_active'])) {
+					continue;
+				}
+#				if ($ap->getName() == 'ap-outdoor2.kalnet.hooya.de') echo "K $key V".substr(json_encode($ds),0,130)."\n";
+				#var_dump($ds['ap_status']['dfs']);
+				if ($ds['ap_status']['dfs']['cac_active']) {
+					$cac_active = true;
+				}
+			}
+			$this->logger->notice("ApLifetimeHandler Monitoring ".$ap->getName()." Interfaces, DFS CAC Active: ".($cac_active?1:0).", Interfaces found: $found, configured Interfaces: $cif\n");
+			if ($found >= $cif) {
+				if ($cac_active && $state >= \ApManBundle\Library\AccessPointState::STATE_CONFIGURED) {
+					$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING);
+				}
+				if (!$cac_active && $state >= \ApManBundle\Library\AccessPointState::STATE_CONFIGURED && $state <= \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING) {
+
+					$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_READY);
+				}
+			} else {
+				$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING);
+			}
+		}
+
+		// After DFS is ready, AP is also ready for activation
+		if ($state == \ApManBundle\Library\AccessPointState::STATE_DFS_READY) {
+			// Enable Beacons and BSS management
+			$this->logger->info("ApLifetimeHandler(): state $state on ap ".$ap->getName().' detected, updating beacon.' );
+			$topic = 'apman/ap/'.$ap->getName().'/command/bulk';
+			$commands = [
+				'list' => [],
+				'options' => [
+					'cancel_on_error' => false
+				]
+			];
+			// At first 5g, then 2g	
+			$dev2G = [];		
+			$dev5G = [];		
+			foreach ($this->cacheLocal['dev-by-ap-ifname'][$ap->getName()] as $device) {
+				if ($device->getRadio()->getConfigBand() == '5g') {
+					$dev5G[] = $device;
+				} else {
+					$dev2G[] = $device;
+				}
+			}
+			$opts = new \stdClass();
+			$opts->neighbor_report = true;
+			$opts->beacon_report = true;
+			$opts->bss_transition = true;
+			foreach ($dev5G as $device) {
+				$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
+				$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
+			}
+			if (count($commands['list'])) {
+				$eopts = new \stdclass();
+				$eopts->command = 'sleep';
+				$eopts->params = array('5');
+				$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'file', 'exec', $eopts);
+			}
+			foreach ($dev2G as $device) {
+				$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
+				$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
+			}
+			if (count($commands['list'])) {
+				$this->client->publish($topic, json_encode($commands));
+			}
+
+			// Assign Neighbors, enable reports
+			$this->logger->info("ApLifetimeHandler(): state $state on ap ".$ap->getName().' detected, start AssignAllNeighbors.' );
+			$this->assignAllNeighbors();
+			$state = $this->changeApLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ACTIVE);
+		}	
+	}
+	$this->logger->debug("ApLifetimeHandler(): state '$state' of ap ".$ap->getName());
+    }
+
+    private function changeApLifetimeState($ap, int $state) {
+	$stateKey = 'status.state['.$ap->getId().']';
+	$stateOld = $this->getCacheItemValue($stateKey);
+	if ($state === $stateOld) return $state;
+	$this->logger->info("changeApLifetimeState(): changing state from '$stateOld' to '$state'  of ap ".$ap->getName());
+	$this->addCacheItem($stateKey, $state, 86400);
+	return $state;
+    }	    
+
     public function assignAllNeighbors()
     {
 	$em = $this->doctrine->getManager();
 
+	$cmds = [];
 	$ssids = $this->doctrine->getRepository('ApManBundle:SSID')->findall();
 	foreach ($ssids as $ssid) {
 		$neighbors = array();
@@ -341,15 +595,6 @@ class SubscriptionService {
 				continue;
 			}
 
-			$opts = new \stdClass();
-			$opts->neighbor_report = true;
-			$opts->beacon_report = true;
-			$opts->bss_transition = true;
-
-			$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
-
-			$topic = 'apman/ap/'.$ap->getName().'/command';
-			$this->client->publish($topic, json_encode($cmd));
 
 			$nr_own = $device->getRrm();
 			if (!(is_array($nr_own) && array_key_exists('value', $nr_own))) {
@@ -366,12 +611,26 @@ class SubscriptionService {
 			$opts = new \stdClass();
 			$opts->list = $own_neighbors;
 
-			$cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'rrm_nr_set', $opts);
-
-			$topic = 'apman/ap/'.$ap->getName().'/command';
-			$this->client->publish($topic, json_encode($cmd));
+			$ap = $device->getRadio()->getAccessPoint()->getName();
+			if (!isset($cmds[ $ap ])) {
+				$cmds[ $ap ] = [];
+			}
+			$cmds[ $ap ][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'rrm_nr_set', $opts);
 		}
 		//print_r($neighbors);
+	}
+	foreach ($cmds as $apname => $apcmds) {
+		$topic = 'apman/ap/'.$apname.'/command/bulk';
+		$commands = [
+			'list' => $apcmds,
+			'options' => [
+				'cancel_on_error' => false
+			]
+		];
+		if (count($commands['list'])) {
+			$this->logger->info("assignAllNeighbors(): send rrm commands to $apname\n");
+			$this->client->publish($topic, json_encode($commands));
+		}
 	}
     }
 
@@ -380,9 +639,15 @@ class SubscriptionService {
      * @return Memcached
      */
     private function getCacheClient() {
+	    /*
 	$client = MemcachedAdapter::createConnection(
 	    $_SERVER['MEMCACHE']
 	);
+	     */
+	$client = RedisAdapter::createConnection(
+	    'redis://localhost'
+	);
+
 	return $client;
     }
 
@@ -392,7 +657,8 @@ class SubscriptionService {
      */
     private function getCache() {
 	$client = $this->getCacheClient();
-	return new MemcachedAdapter($client, 'apman', 87600);
+	#return new MemcachedAdapter($client, 'apman', 87600);
+	return new RedisAdapter($client, 'apman', 87600);
     }
 
     private function addCacheItem($key, $data, $expires = null) {
@@ -445,6 +711,16 @@ class SubscriptionService {
 		$res[ $ti[ $key ] ] = $value;
 	}
 	return $res;
+    }
+
+    private function deleteCacheItem($key) {
+	if (is_null($this->cache)) {
+		$this->cache = $this->getCache();
+	}
+
+	$key = str_replace(':', '', $key);
+	$this->cache->deleteItem($key);
+	return;
     }
 
 }

@@ -18,7 +18,9 @@ class AccessPointAdmin extends AbstractAdmin
             ->add('username', TextType::class)
             ->add('password', TextType::class)
 	    ->add('ubus_url', UrlType::class)
-            ->add('ipv4', TextType::class);
+            ->add('ipv4', TextType::class)
+            ->add('ProvisioningEnabled')
+            ->add('IsProductive');
     }
 
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
@@ -36,7 +38,10 @@ class AccessPointAdmin extends AbstractAdmin
         $listMapper->addIdentifier('codename');
         $listMapper->addIdentifier('kernel');
         $listMapper->addIdentifier('uptime', 'datetime');
+        $listMapper->addIdentifier('ProvisioningEnabled');
+        $listMapper->addIdentifier('IsProductive');
         $listMapper->addIdentifier('load');
+        $listMapper->addIdentifier('state');
 	$listMapper->addIdentifier('_action', null, array(
 		'actions' => array(
 			'syslog' => array(

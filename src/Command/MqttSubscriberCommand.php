@@ -38,6 +38,7 @@ class MqttSubscriberCommand extends Command
  
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+	set_time_limit(1800);
 	return $this->subs->runMqttLoop();
     }
 }

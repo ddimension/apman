@@ -3,6 +3,7 @@
 namespace ApManBundle\DynamicEntity;
 
 use Symfony\Component\Cache\Simple\FilesystemCache;
+use ApManBundle\Library\AccessPointState;
 
 class AccessPoint
 {
@@ -209,5 +210,22 @@ class AccessPoint
 		$d[] = sprintf('%0.02f', $load/100000);
 	}
 	return join(', ', $d);
+    }
+
+    /**
+     * get info
+     * @return \?string
+     */
+    public function getState()
+    {
+	$key = 'status.state['.$this->getId().']';	    
+	$state = $this->cache->getCacheItemValue($key);
+	if (is_null($state)) $state = 0;;
+	$sClass = new \ReflectionClass('\\ApManBundle\\Library\\AccessPointState');
+	$map = $sClass->getConstants();
+	if (!is_array($map)) return $state;
+	$isMapped = array_search($state, $map);
+	if ($isMapped === false) return $state;
+	return $isMapped;
     }
 }

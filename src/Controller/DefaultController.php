@@ -256,6 +256,409 @@ class DefaultController extends Controller
 		'number_format_bps'
 	));
     }
+    
+    /**
+     * @Route("/grid")
+     */
+    public function gridAction(\ApManBundle\Service\wrtJsonRpc $rpc)
+    {
+	$logger = $this->logger;
+	$apsrv = $this->apservice;
+        $doc = $this->doctrine;
+	$em = $doc->getManager();
+
+	$neighbors = array();
+	$firewall_host = $this->container->getParameter('firewall_url');
+	$firewall_user = $this->container->getParameter('firewall_user');
+	$firewall_pwd = $this->container->getParameter('firewall_password');
+
+	// read dhcpd leases
+	$output = array();
+	$result = NULL;
+	exec('dhcp-lease-list  --parsable', $lines, $result);
+	if ($result == 0) {
+		foreach ($lines as $line) {
+			if (substr($line,0,4) != 'MAC ') continue;
+			$data = explode(' ', $line);
+			$neighbors[ $data[1] ]['ip'] = $data[3];
+			if ($data[5] != '-NA-') {
+				$neighbors[ $data[1] ]['name'] = $data[5];
+			} else {
+				$name = gethostbyaddr($data[3]);
+				if ($name == $data[3]) continue;
+				$neighbors[ $data[1] ]['name'] = $name;
+			}
+		}
+	}
+
+	$query = $em->createQuery("SELECT c FROM ApManBundle\Entity\Client c");
+	$result = $query->getResult();
+	foreach ($result as $client) {
+		$mac = $client->getMac();
+		$neighbors[ $mac ] = array();
+		$neighbors[ $mac ]['name'] = $client->getName();
+	}
+
+	if ($firewall_host) {
+		$logger->debug('Building MAC cache');
+		$session = $rpc->login($firewall_host,$firewall_user,$firewall_pwd);
+		if ($session !== false) {
+			// Read dnsmasq leases
+			$opts = new \stdclass();
+			$opts->command = 'cat';
+			$opts->params = array('/tmp/dhcp.leases');
+			$stat = $session->call('file','exec', $opts);
+			if (property_exists($stat, 'stdout') && is_array($stat->stdout)) {
+				$lines = explode("\n", $stat->stdout);
+				foreach ($lines as $line) {
+					$ds = explode(" ", $line);
+					if (!array_key_exists(3, $ds)) {
+						continue;
+					}
+					$mac = strtolower($ds[1]);
+					if (strlen($mac)) {
+						if (array_key_exists($mac, $neighbors)  && array_key_exists('name', $neighbors[$mac])) continue;
+						$neighbors[ $mac ] = array('ip' => $ds[2], 'name' => $ds[3]);
+					}
+				}
+			}
+			// Read neighbor information
+			$opts = new \stdclass();
+			$opts->command = 'ip';
+			$opts->params = array('-4','neighb');
+			$stat = $session->call('file','exec', $opts);
+			$lines = explode("\n", $stat->stdout);
+			foreach ($lines as $line) {
+				$ds = explode(" ", $line);
+				if (!array_key_exists(4, $ds)) {
+					continue;
+				}
+				$mac = strtolower($ds[4]);
+				if (strlen($mac)) {
+					if (array_key_exists($mac, $neighbors)  && array_key_exists('name', $neighbors[$mac])) continue;
+					$neighbors[ $mac ] = array('ip' => $ds[0]);
+					$cache = $this->get('session')->get('name_cache', null);
+					if (!is_array($cache)) {
+						$cache = array();
+					}
+					if (array_key_exists($mac, $cache)) {
+						$name = $cache[ $mac ];
+						if ($name === false) {
+							$logger->debug('skipping because of negative entry: '.$name);
+							continue;
+						}
+						$logger->debug('found '.$name);
+					} else {
+						$name = gethostbyaddr($ds[0]);
+						if ($name == $ds[0]) $name = '';
+						if (empty($name)) {
+							$cache[ $mac ] = false;
+						} else {
+							$cache[ $mac ] = $name;
+						}
+
+					}
+					if ($name) {
+						$neighbors[ $mac ]['name'] = $name;
+					}
+					$this->get('session')->set('name_cache', $cache);
+				}
+			}
+		}
+		$logger->debug('MAC cache complete');
+	}	
+	$aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
+	$logger->debug('Logging in to all APs');
+	$sessions = array();
+	$data = array();
+	$history = array();
+	$macs = array();
+	foreach ($aps as $ap) {
+		$sessionId = $ap->getName();
+		$apStateKey = 'status.state['.$ap->getId().']';
+		$apStatus = $this->ssrv->getCacheItemValue($apStateKey);
+		$data[$sessionId] = array();
+		$history[$sessionId] = array();
+		foreach ($ap->getRadios() as $radio) {
+			foreach ($radio->getDevices() as $device) {
+				$delat = 0;
+				$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+				$ifname = $device->getIfname();
+				if ($status === NULL) continue;
+				if (!isset($status['info'])) continue;
+
+				$data[$sessionId][$ifname] = array();
+				$data[$sessionId][$ifname]['board'] = $this->ssrv->getCacheItemValue('status.ap.'.$ap->getId());
+				$data[$sessionId][$ifname]['info'] = $status['info'];
+				$data[$sessionId][$ifname]['assoclist'] = array();
+				$data[$sessionId][$ifname]['deviceId'] = $device->getId();
+				if (array_key_exists('assoclist', $status)) {
+					foreach ($status['assoclist']['results'] as $entry) {
+						$mac = strtolower($entry['mac']);
+						$data[$sessionId][$ifname]['assoclist'][$mac] = $entry;
+						$macs[$mac] = true;
+					}
+				}
+				$data[$sessionId][$ifname]['clients'] = array();
+				if (array_key_exists('clients', $status)) {
+					if (array_key_exists('clients', $status['clients'])) {
+						$data[$sessionId][$ifname]['clients'] = $status['clients']['clients'];
+					}
+				}
+				$data[$sessionId][$ifname]['clientstats'] = $status['stations'];
+
+				if (array_key_exists('history', $status) and is_array($status['history']) and array_key_exists(0, $status['history'])) {
+					$currentStatus = $status;
+					$status = $currentStatus['history'][0];
+					if ($status === NULL) continue;
+					
+
+					$history[$sessionId][$ifname] = array();
+					$history[$sessionId][$ifname]['board'] = $ap->getStatus();
+					$history[$sessionId][$ifname]['info'] = $status['info'];
+					$history[$sessionId][$ifname]['assoclist'] = array();
+					if (array_key_exists('timestamp', $status) && array_key_exists('timestamp', $currentStatus)) {
+						$deltat = $currentStatus['timestamp']-$status['timestamp'];
+						$history[$sessionId][$ifname]['timedelta'] = $deltat;
+					}
+					foreach ($status['assoclist']['results'] as $entry) {
+						$mac = strtolower($entry['mac']);
+						$history[$sessionId][$ifname]['assoclist'][$mac] = $entry;
+					}
+					$history[$sessionId][$ifname]['clients'] = array();
+					if (array_key_exists('clients', $status)) {
+						if (array_key_exists('clients', $status['clients'])) {
+							$history[$sessionId][$ifname]['clients'] = $status['clients']['clients'];
+						}
+					}
+					$history[$sessionId][$ifname]['clientstats'] = $status['stations'];
+				}
+			}
+		}
+	}
+	$heatmap = [];
+	$query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
+		LEFT JOIN d.radio r
+		LEFT JOIN r.accesspoint a
+		ORDER by d.id DESC
+	");
+	$devices = $query->getResult();
+	$keys = [];
+	$devById = [];
+	foreach ($devices as $device) {
+		$devById[ $device->getId() ] = $device;
+		foreach ($macs as $mac => $v) {
+			$keys[] = 'status.device['.$device->getId().'].probe.'.$mac;
+		}
+	}
+
+	$probes = $this->ssrv->getMultipleCacheItemValues($keys);
+	foreach ($probes as $key => $probe) {
+		if (is_null($probe) or !is_object($probe)) {
+			continue;
+		}
+		if (!array_key_exists($probe->address, $heatmap)) {
+			$heatmap[ $probe->address ] = array();
+		}
+
+		$hme = new \ApManBundle\Entity\ClientHeatMap();
+		$hme->setTs($probe->ts);
+		$hme->setAddress($probe->address);
+		$hme->setDevice($devById[ $probe->device ]);
+		$hme->setEvent($probe->event);
+		if (property_exists($probe, 'signalstr')) {
+			$hme->setSignalstr($probe->signalstr);
+		}
+		$heatmap[ $probe->address ][] = $hme;
+	}
+
+	#header('Content-type: text/plain');
+#	print_r($data);
+
+	$statusList = [];
+	$i = 0;
+	
+	foreach ($data as $system => $devices) {
+		#echo "System: $system \n"; //.json_encode($devices)."\n";
+		#echo "System: $system ".json_encode($devices)."\n";
+		#continue;
+		if (is_array($devices) && !count($devices)) {
+			continue;
+		}
+
+		foreach ($devices as $device => $ds ) {
+			if (!is_array($ds)) {
+				continue;
+			}
+			if (!array_key_exists('assoclist', $ds)) {
+				continue;
+			}
+			if (!count($ds['assoclist'])) {
+				continue;
+			}
+			foreach ($ds['assoclist'] as $clientMac => $assocData) {
+				
+				#print_r($ds);
+				#exit;
+
+				$status = [];
+				$stauts['id'] = $i;
+				$status["access point"] = "";
+				$status["ssid"] = "";
+				$status["interface"] = "";
+				$status["channel"] = "";
+				$status["frequency"] = "";
+				$status["mac"] = "";
+				$status["authenticated"] = false;
+				$status["associated"] = false;
+				$status["authorized"] = false;
+				$status["areauth"] = "";
+				$status["wds"] = "";
+				$status["wmm"] = "";
+				$status["ht"] = "";
+				$status["vht"] = "";
+				$status["he"] = "";
+				$status["wps"] = "";
+				$status["mfp"] = "";
+				$status["signal"] = "";
+				$status["noise"] = "";
+				$status["rx rate"] = "";
+				$status["tx rate"] = "";
+				$status["rx bytes"] = "";
+				$status["tx bytes"] = "";
+				$status["rx airtime"] = "";
+				$status["tx airtime"] = "";
+				$status["connected_time"] = null;
+				$status["inactive"] = null;
+				$status["ipv4"] = null;
+				$status["info"] = null;
+				$status["name"] = null;
+				$status["manufacturer"] = null;
+				# data[system][device]['info'].ssid
+				
+				$status["access point"] = $system;
+				$status["interface"] = $device;
+				$status["mac"] = $clientMac;
+
+				if (is_array($assocData)) {
+					$stats = [
+						'thr',
+						'wme',
+						'signal',
+						'signal_avg',
+						'noise',
+						'connected_time',
+						'inactive',
+						'mfp',
+						'tdls',
+						'authenticated',
+						'authorized'
+					];
+					foreach ($stats as $statName) {
+						if (array_key_exists($statName, $assocData)) {
+							$status[$statName] = $assocData[$statName];
+						}
+					}
+				}
+
+				if (array_key_exists('info', $ds) && is_array($ds['info'])) {
+					$stats = [
+						'ssid',
+						'channel',
+						'frequency',
+						'inactive'
+					];
+					foreach ($stats as $statName) {
+						if (array_key_exists($statName, $ds['info'])) {
+							$status[$statName] = $ds['info'][$statName];
+						}
+					}
+				}
+
+				if (array_key_exists('clientstats', $ds) && is_array($ds['clientstats'])) {
+					if (!array_key_exists($clientMac, $ds['clientstats'])) {
+						echo "XYY0\n";
+						continue;
+					}
+					$stats = [
+						'authenticated',
+						'associated',
+						'authorized'
+					];
+					foreach ($stats as $statName) {
+						if (array_key_exists($statName, $ds['clientstats'][$clientMac])) {
+							$status[$statName] = ($ds['clientstats'][$clientMac][$statName] == 'yes')?true:false;
+						}
+					}
+
+				}
+
+				if (array_key_exists('clients', $ds) && is_array($ds['clients'])) {
+					if (!array_key_exists($clientMac, $ds['clients'])) {
+						continue;
+					}
+					$stats = [
+						'preauth',
+						'wds',
+						'wmm',
+						'ht',
+						'vht',
+						'he',
+						'aid'
+					];
+					foreach ($stats as $statName) {
+						if (array_key_exists($statName, $ds['clients'][$clientMac])) {
+							$status[$statName] = $ds['clients'][$clientMac][$statName];
+						}
+					}
+					if (array_key_exists('rate', $ds['clients'][$clientMac])) {
+						$status['rx rate'] = $ds['clients'][$clientMac]['rate']['rx'];
+						$status['tx rate'] = $ds['clients'][$clientMac]['rate']['tx'];
+					}
+					if (array_key_exists('bytes', $ds['clients'][$clientMac])) {
+						$status['rx bytes'] = $ds['clients'][$clientMac]['bytes']['rx'];
+						$status['tx bytes'] = $ds['clients'][$clientMac]['bytes']['tx'];
+					}
+					if (array_key_exists('airtime', $ds['clients'][$clientMac])) {
+						$status['rx airtime'] = $ds['clients'][$clientMac]['airtime']['rx'];
+						$status['tx airtime'] = $ds['clients'][$clientMac]['airtime']['tx'];
+					}
+				}
+				if (array_key_exists($clientMac, $neighbors)) {
+					if (array_key_exists('ip', $neighbors[$clientMac])) {
+						$status['ipv4'] = $neighbors[$clientMac]['ip'];
+					}
+					if (array_key_exists('name', $neighbors[$clientMac])) {
+						$status['name'] = $neighbors[$clientMac]['name'];
+					}
+					$man = $apsrv->getMacManufacturer($clientMac);
+					if ($man) {
+						$status['manufacturer'] = $man;
+					}
+				}
+
+
+				$statusList[$i] = $status;
+				$i++;
+			}
+		}
+	}
+	$statusList = [];
+	$statusList[] = ['id' => 1, 'title' => 'xxx'];
+	$statusList[] = ['id' => 2, 'title' => 'yyy'];
+
+
+	print_r($statusList);
+	exit;
+	return $this->render('default/clients.html.twig', array(
+		'data' => $data,
+		'historical_data' => $history,
+		'neighbors' => $neighbors,
+		'apsrv' => $apsrv,
+		'heatmap' => $heatmap,
+		'number_format_bps'
+	));
+    }
 
     /**
      * @Route("/disconnect")
@@ -356,9 +759,29 @@ class DefaultController extends Controller
 	$opts = new \stdClass();
 	$opts->addr = $request->get('mac');
 	$opts->duration = 1*20;
-	$opts->abridged = true;
 	$opts->neighbors = array();
 
+	if (!empty($request->get('disassociation_imminent')) and ! empty($request->get('disassociation_timer'))) {
+		$opts->disassociation_imminent=$request->get('disassociation_imminent')>0?true:false;
+		$opts->disassociation_timer=$request->get('disassociation_timer');
+	}
+
+/*	
+    Required:
+    addr: String - MAC-address of the STA to send the request to (colon-seperated)
+
+    Optional:
+    abridged - Bool - Indicates if the abridged flag is set, meaning neighbors list should be preferred
+    disassociation_imminent: Bool - Whether or not the disassoc_imminent
+                             flag is set
+    disassociation_timer: I32 - number of TBTTs after which the client will
+                          be disassociated
+    validity_period: I32 - number of TBTTs after which the beacon
+                     candidate list (if included) will be invalid
+    neighbors: blob-array - Array of strings containing neighbor reports as
+               hex-string
+
+ */
 	if ($request->get('target') > 0) {
 		$targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy( array(
 			'id' => $request->get('target')
@@ -370,6 +793,7 @@ class DefaultController extends Controller
 			return $this->redirect($this->generateUrl('apman_default_index'));
 		}
 		$opts->neighbors = array($rrm->value[2]);
+		$opts->abridged = true;
 	}
 
 	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
@@ -429,6 +853,11 @@ class DefaultController extends Controller
 	$opts->disassociation_imminent = false;
 	$opts->neighbors = array();
 
+	if (intval($request->get('disassociation_imminent', 0))) {
+		$opts->disassociation_imminent = true;
+		$opts->disassociation_timer = 150;
+	}
+	
 	if ($request->get('target') > 0) {
 		$targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy( array(
 			'id' => $request->get('target')
@@ -475,7 +904,7 @@ class DefaultController extends Controller
 	$opts->addr = $request->get('mac');
 	$opts->op_class = 0;
 	$opts->channel = -1;
-	$opts->duration = 2;
+	$opts->duration = 20;
 	$opts->mode = 2;
 	$opts->bssid = 'ff:ff:ff:ff:ff:ff';
 	$opts->ssid = $request->get('ssid');
@@ -546,24 +975,24 @@ class DefaultController extends Controller
 	if (is_array($status) && is_array($status['clients']) && isset($status['clients']['clients'][$mac]) && isset($status['clients']['clients'][$mac]['signature'])) {
 			$ieTags = $this->ieparser->parseSignature($status['clients']['clients'][$mac]['signature']);
 			$output.="Information elements on association:\n";
-			$output.=print_r($this->ieparser->getResolveIeNames($ieTags),true);
+			$output.=json_encode($this->ieparser->getResolveIeNames($ieTags), JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
 			$output.="\n";
 			$ieCaps = $this->ieparser->getExtendedCapabilities($ieTags);
 			$output.="Capabilities on association:\n";
-			$output.=print_r($ieCaps,true);
+			$output.=json_encode($ieCaps, JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
 	}
 
 	#print("Device Stats: ".'status.device.'.$deviceId." \n");
 	if (is_array($status) && is_array($status['stations'])) {
 		if (isset($status['stations'][$mac])) {
 			$output.="Station Status:\n";
-			$output.=print_r($status['stations'][$mac],true);
+			$output.=json_encode($status['stations'][$mac], JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
 		}
 	}
 	if (is_array($status) && is_array($status['clients'])) {
 		if (isset($status['clients']['clients'][$mac])) {
 			$output.="Station hostapd Status:\n";
-			$output.=print_r($status['clients']['clients'][$mac],true);
+			$output.=json_encode($status['clients']['clients'][$mac], JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
 		}
 	}
 	if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist'])) {
@@ -571,19 +1000,19 @@ class DefaultController extends Controller
 			foreach ($status['assoclist']['results'] as $r) {
 				if (isset($r['mac']) && strtolower($r['mac']) == strtolower($mac)) {
 					$output.="Station Association List Entry:\n";
-					$output.=print_r($r,true);
+					$output.=json_encode($r,JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
 				}
 			}
 		}
 	}
 	if (is_array($status) && is_array($status['info'])) {
 		$output.= "AP Device Status:\n";
-		$output.= print_r($status['info'],true);
+		$output.=json_encode($status['info'],JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
 	}
 
 	if (is_array($status) && is_array($status['ap_status'])) {
 		$output.= "AP hostapd Status:\n";
-		$output.= print_r($status['ap_status'],true);
+		$output.=json_encode($status['ap_status'],JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
 	}
 
 	/*
