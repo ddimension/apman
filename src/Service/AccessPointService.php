@@ -117,7 +117,7 @@ class AccessPointService {
     public function publishConfig($ap)
     {
 	$logger = $this->logger;	 
-        if (!$ap->getProvisiongEnabled()) {
+        if (!$ap->getProvisioningEnabled()) {
 		$logger->notice($ap->getName().': Ignore request to publish config sice ProvisioningEnabled is false.');
 		return true;
 	}
@@ -786,6 +786,32 @@ class AccessPointService {
     }
 
     public function lifetimeHouseKeeping(array $aps , array $devicesByAp) {
+	$em = $this->doctrine->getManager();
+	if (is_null($aps) || !is_array($aps) || !count($aps)) {
+		$this->output->writeln("No productive Accesspoints found.");
+		return false;
+	}
+	$apsNotActive=[];
+	$productive = 0;
+	$total = 0;
+	foreach ($aps as $ap) {
+		if (!$ap->getIsProductive()) {
+			// ignore others;
+			continue;
+		}
+		$total++;
+		$stateKey = 'status.state['.$ap->getId().']';
+		$state = $this->cacheFactory->getCacheItemValue($stateKey);
+		$state = \ApManBundle\Library\AccessPointState::getStateName($state);
+		if ($state != 'STATE_ACTIVE') {
+			$apsNotActive[] = $ap;
+		} 
+	}
+	if (!count($apsNotActive)) {
+		return;
+	}
+	$this->logger->error("Failure - ".count($apsNotActive)." APs offline|online=".($total-count($apsNotActive))." offline=".count($apsNotActive));
+	return;
     }
 
     private function changeLifetimeState($ap, int $state) {

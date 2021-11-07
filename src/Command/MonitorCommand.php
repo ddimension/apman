@@ -53,7 +53,7 @@ class MonitorCommand extends Command
 		echo "OK - All APs online|online=$total offline=0\n";
 		return 0;
 	}
-	echo "Failure - Some APs offline|online=".($total-count($apsNotActive))." offline=".count($apsNotActive)."\n";
+	echo "Failure - ".count($apsNotActive)." APs offline|online=".($total-count($apsNotActive))." offline=".count($apsNotActive)."\n";
 	return 2;
     }
 }

@@ -14,7 +14,7 @@ interface iFeatureService {
 		\Psr\Log\LoggerInterface $logger, 
 		\Doctrine\Persistence\ManagerRegistry $doctrine, 
 		\ApManBundle\Service\wrtJsonRpc $rpcService, 
-		\ApManBundle\Service\SubscriptionService $mqttFactory,
+		\ApManBundle\Factory\MqttFactory $mqttFactory,
 		\Symfony\Component\HttpKernel\KernelInterface $kernel
        	);
 

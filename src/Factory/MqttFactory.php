@@ -27,24 +27,25 @@ class MqttFactory {
 	$m = $this;
 	$this->client = new \Mosquitto\Client($id, $cleanSession);
 	$this->client->onLog(function($level, $string) use ($m) {
+		$c = get_class($m);
 		switch ($level) {
 			case \Mosquitto\Client::LOG_DEBUG:
-				$m->logger->debug(__CLASS__.'(): '.$string);
+				$m->logger->debug($c.': '.$string);
 				break;
 			case \Mosquitto\Client::LOG_INFO:
-				$m->logger->info(__CLASS__.'(): '.$string);
+				$m->logger->info($c.': '.$string);
 				break;
 			case \Mosquitto\Client::LOG_NOTICE:
-				$m->logger->notice(__CLASS__.'(): '.$string);
+				$m->logger->notice($c.': '.$string);
 				break;
 			case \Mosquitto\Client::LOG_WARNING:
-				$m->logger->warning(__CLASS__.'(): '.$string);
+				$m->logger->warning($c.': '.$string);
 				break;
 			case \Mosquitto\Client::LOG_ERR:
-				$m->logger->error(__CLASS__.'(): '.$string);
+				$m->logger->error($c.': '.$string);
 				break;
 			default:
-				$m->logger->debug(__CLASS__.'(): '.$string);
+				$m->logger->debug($c.': '.$string);
 				break;
 		}
 	});

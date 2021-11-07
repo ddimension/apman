@@ -176,19 +176,15 @@ echo "XX ";
 	    }
 	     */
 	    // Setup cache
-	    if (!isset($this->cacheLocal['ap-by-name'][$hostname])) {
-		    $query = $em->createQuery("SELECT a FROM ApManBundle\Entity\AccessPoint a");
-		    foreach ($query->getResult() as $row) {
-			    $this->cacheLocal['ap-by-name'][ $row->getName() ] = $row;
-		    }
-	    }
-	    if (!isset($this->cacheLocal['dev-by-ap-ifname'][$hostname])) {
+	    if (!isset($this->cacheLocal['ap-by-name'][$hostname]) or !isset($this->cacheLocal['dev-by-ap-ifname'][$hostname])) {
+		    //$this->logger->notice("SubscribtionService: Flushing pid local cache.");
 		    $query = $em->createQuery("SELECT d,r,a FROM ApManBundle\Entity\Device d
 				LEFT JOIN d.radio r
 				LEFT JOIN r.accesspoint a
 		    ");
 		    foreach ($query->getResult() as $row) {
 			    $apname = $row->getRadio()->getAccessPoint()->getName();
+			    $this->cacheLocal['ap-by-name'][ $apname ] = $row->getRadio()->getAccessPoint();
 			    $devname = $row->getIfname();
 			    if (!isset($this->cacheLocal['dev-by-ap-ifname'][ $apname ])) {
 				    $this->cacheLocal['dev-by-ap-ifname'][ $apname ] = [];
