@@ -41,19 +41,19 @@ class MonitorCommand extends Command
 		return false;
 	}
 	$apsNotActive=[];
-	$total=0;
+	$total = 0;
 	foreach ($aps as $ap) {
 		$total++;
 		$state = $ap->getState();
 		if ($state != 'STATE_ACTIVE') {
 			$apsNotActive[] = $ap;
-		}
+		} 
 	}
 	if (!count($apsNotActive)) {
 		echo "OK - All APs online|online=$total offline=0\n";
 		return 0;
 	}
-	echo "Failure - Some APs offline|online=$total offline=".count($apsNotActive)."\n";
+	echo "Failure - Some APs offline|online=".($total-count($apsNotActive))." offline=".count($apsNotActive)."\n";
 	return 2;
     }
 }

@@ -8,7 +8,7 @@ class StaticMACFeatureService implements iFeatureService {
 	private $logger;
 	private $doctrine;
 	private $rpcService;
-	private $ssrv;
+	private $mqttFactory;
 	private $kernel;
 
 	private $map;
@@ -22,13 +22,13 @@ class StaticMACFeatureService implements iFeatureService {
 		\Psr\Log\LoggerInterface $logger, 
 		\Doctrine\Persistence\ManagerRegistry $doctrine, 
 		\ApManBundle\Service\wrtJsonRpc $rpcService, 
-		\ApManBundle\Service\SubscriptionService $ssrv,
+		\ApManBundle\Service\SubscriptionService $mqttFactory,
 		\Symfony\Component\HttpKernel\KernelInterface $kernel
        	) {
 		$this->logger = $logger;
 		$this->doctrine = $doctrine;
 		$this->rpcService = $rpcService;
-		$this->ssrv = $ssrv;
+		$this->mqttFactory = $mqttFactory;
 		$this->kernel = $kernel;
 	}
 

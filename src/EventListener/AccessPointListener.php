@@ -4,16 +4,17 @@ namespace ApManBundle\EventListener;
 
 use Doctrine\ORM\Event\LifecycleEventArgs;
 use ApManBundle\Service\wrtJsonRpc;
-use ApManBundle\Service\SubscriptionService;
+use ApManBundle\Factory\CacheFactory;
 
 class AccessPointListener
 {
      private $rpcService;
-     private $ssrv;
+     private $cacheFactory;
 
-     public function __construct(wrtJsonRpc $rpcService, SubscriptionService $ssrv) {
+     public function __construct(wrtJsonRpc $rpcService, CacheFactory $cacheFactory) {
          $this->rpcService = $rpcService;
-         $this->ssrv = $ssrv;
+	 $this->cacheFactory = $cacheFactory;
+	 $this->cacheFactory->getCache();
      }
 
      public function postLoad(LifecycleEventArgs $args)
@@ -22,8 +23,8 @@ class AccessPointListener
          if(method_exists($entity, 'setRpcService')) {
              $entity->setRpcService($this->rpcService);
          }
-         if(method_exists($entity, 'setCache')) {
-             $entity->setCache($this->ssrv);
+	 if(method_exists($entity, 'setCache')) {
+             $entity->setCache($this->cacheFactory);
          }
      }
 }

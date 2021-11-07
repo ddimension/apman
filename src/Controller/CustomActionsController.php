@@ -11,27 +11,32 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 class CustomActionsController extends CRUDController
 {
     private $rpcService;
-    private $ssrv;
+    private $mqttFactory;
+    private $cacheFactory;
 
-    function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService, \ApManBundle\Service\SubscriptionService $ssrv, \Psr\Log\LoggerInterface $logger) 
+    function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService, \Psr\Log\LoggerInterface $logger,
+	    \ApManBundle\Factory\MqttFactory $mqttFactory, \ApManBundle\Factory\CacheFactory $cacheFactory
+    ) 
     {
     	    $this->rpcService = $rpcService;
-	    $this->ssrv = $ssrv;
 	    $this->logger = $logger;
+	    $this->mqttFactory = $mqttFactory;
+	    $this->cacheFactory = $cacheFactory;
+	    $this->cacheFactory->getCache();
     }
     
 
     public function batchActionConfigure(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
 	$selectedModels = $selectedModelQuery->execute();
-        $client = $this->ssrv->getMqttClient();
+        $client = $this->mqttFactory->getClient();
 	if ($client) {
 		$deadline = 2;
 		$haveClients = false;
 		foreach ($selectedModels as $ap) {
 			foreach ($ap->getRadios() as $radio) {
 				foreach ($radio->getDevices() as $device) {
-					$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+					$status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
 					if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
 						foreach ($status['assoclist']['results'] as $c) {
 							if (!count($c)) continue;
@@ -76,14 +81,14 @@ class CustomActionsController extends CRUDController
     {
 	$selectedModels = $selectedModelQuery->execute();
 
-        $client = $this->ssrv->getMqttClient();
+        $client = $this->mqttFactory->getClient();
 	if ($client) {
 		$deadline = 2;
 		$haveClients = false;
 		foreach ($selectedModels as $ap) {
 			foreach ($ap->getRadios() as $radio) {
 				foreach ($radio->getDevices() as $device) {
-					$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+					$status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
 					if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
 						foreach ($status['assoclist']['results'] as $c) {
 							if (!count($c)) continue;
@@ -133,14 +138,14 @@ class CustomActionsController extends CRUDController
     {
 	$selectedModels = $selectedModelQuery->execute();
 
-	$client = $this->ssrv->getMqttClient();
+	$client = $this->mqttFactory->getClient();
 	if ($client) {
 		$deadline = 2;
 		$haveClients = false;
 		foreach ($selectedModels as $ap) {
 			foreach ($ap->getRadios() as $radio) {
 				foreach ($radio->getDevices() as $device) {
-					$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+					$status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
 					if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
 						foreach ($status['assoclist']['results'] as $c) {
 							if (!count($c)) continue;
@@ -213,7 +218,7 @@ class CustomActionsController extends CRUDController
    
     public function batchActionReboot(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-	$client = $this->ssrv->getMqttClient();
+	$client = $this->mqttFactory->getClient();
 	if (!$client) {
 		$this->logger->error($ap->getName().': Failed to get mqtt client.');
 		$this->addFlash('sonata_flash_error', "Cannot connect to mqtt for ".$ap->getName());

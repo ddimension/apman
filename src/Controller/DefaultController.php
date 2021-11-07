@@ -8,30 +8,35 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
+
 class DefaultController extends Controller
 {
     private $logger;
     private $apservice;
     private $doctrine;
     private $rpcService;
-    private $ssrv;
     private $ieparser;
+    private $mqttFactory;
+    private $cacheFactory;
 
     public function __construct(
 	    \Psr\Log\LoggerInterface $logger,
 	    \ApManBundle\Service\AccessPointService $apservice,
 	    \Doctrine\Persistence\ManagerRegistry $doctrine,
 	    \ApManBundle\Service\wrtJsonRpc $rpcService,
-	    \ApManBundle\Service\SubscriptionService $ssrv,
-	    \ApManBundle\Service\WifiIeParser $ieparser
+	    \ApManBundle\Service\WifiIeParser $ieparser,
+	    \ApManBundle\Factory\MqttFactory $mqttFactory, 
+	    \ApManBundle\Factory\CacheFactory $cacheFactory
     )
     {
 	    $this->logger = $logger;
 	    $this->apservice = $apservice;
 	    $this->doctrine = $doctrine;
 	    $this->rpcService = $rpcService;
-	    $this->ssrv = $ssrv;
 	    $this->ieparser = $ieparser;
+            $this->mqttFactory = $mqttFactory;
+            $this->cacheFactory = $cacheFactory;
+            $this->cacheFactory->getCache();
     }
 
     /**
@@ -157,13 +162,13 @@ class DefaultController extends Controller
 		foreach ($ap->getRadios() as $radio) {
 			foreach ($radio->getDevices() as $device) {
 				$delat = 0;
-				$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+				$status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
 				$ifname = $device->getIfname();
 				if ($status === NULL) continue;
 				if (!isset($status['info'])) continue;
 
 				$data[$sessionId][$ifname] = array();
-				$data[$sessionId][$ifname]['board'] = $this->ssrv->getCacheItemValue('status.ap.'.$ap->getId());
+				$data[$sessionId][$ifname]['board'] = $this->cacheFactory->getCacheItemValue('status.ap.'.$ap->getId());
 				$data[$sessionId][$ifname]['info'] = $status['info'];
 				$data[$sessionId][$ifname]['assoclist'] = array();
 				$data[$sessionId][$ifname]['deviceId'] = $device->getId();
@@ -227,7 +232,7 @@ class DefaultController extends Controller
 		}
 	}
 
-	$probes = $this->ssrv->getMultipleCacheItemValues($keys);
+	$probes = $this->cacheFactory->getMultipleCacheItemValues($keys);
 	foreach ($probes as $key => $probe) {
 		if (is_null($probe) or !is_object($probe)) {
 			continue;
@@ -376,19 +381,19 @@ class DefaultController extends Controller
 	foreach ($aps as $ap) {
 		$sessionId = $ap->getName();
 		$apStateKey = 'status.state['.$ap->getId().']';
-		$apStatus = $this->ssrv->getCacheItemValue($apStateKey);
+		$apStatus = $this->cacheFactory->getCacheItemValue($apStateKey);
 		$data[$sessionId] = array();
 		$history[$sessionId] = array();
 		foreach ($ap->getRadios() as $radio) {
 			foreach ($radio->getDevices() as $device) {
 				$delat = 0;
-				$status = $this->ssrv->getCacheItemValue('status.device.'.$device->getId());
+				$status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
 				$ifname = $device->getIfname();
 				if ($status === NULL) continue;
 				if (!isset($status['info'])) continue;
 
 				$data[$sessionId][$ifname] = array();
-				$data[$sessionId][$ifname]['board'] = $this->ssrv->getCacheItemValue('status.ap.'.$ap->getId());
+				$data[$sessionId][$ifname]['board'] = $this->cacheFactory->getCacheItemValue('status.ap.'.$ap->getId());
 				$data[$sessionId][$ifname]['info'] = $status['info'];
 				$data[$sessionId][$ifname]['assoclist'] = array();
 				$data[$sessionId][$ifname]['deviceId'] = $device->getId();
@@ -452,7 +457,7 @@ class DefaultController extends Controller
 		}
 	}
 
-	$probes = $this->ssrv->getMultipleCacheItemValues($keys);
+	$probes = $this->cacheFactory->getMultipleCacheItemValues($keys);
 	foreach ($probes as $key => $probe) {
 		if (is_null($probe) or !is_object($probe)) {
 			continue;
@@ -676,7 +681,7 @@ class DefaultController extends Controller
 	$opts->reason = 5;
 	$opts->deauth = false;
 	$opts->ban_time = 10;
-        $client = $this->ssrv->getMqttClient();
+        $client = $this->mqttFactory->getClient();
         if (!$client) {
                 $this->logger->error($ap->getName().': Failed to get mqtt client.');
 		return $this->redirect($this->generateUrl('apman_default_index'));
@@ -709,7 +714,7 @@ class DefaultController extends Controller
 	$opts->reason = 3;
 	$opts->deauth = true;
 	$opts->ban_time = $ban_time;
-        $client = $this->ssrv->getMqttClient();
+        $client = $this->mqttFactory->getClient();
         if (!$client) {
                 $this->logger->error($ap->getName().': Failed to get mqtt client.');
 		return $this->redirect($this->generateUrl('apman_default_index'));
@@ -800,7 +805,7 @@ class DefaultController extends Controller
 		'name' => $request->get('system')
 	));
 
-        $client = $this->ssrv->getMqttClient();
+        $client = $this->mqttFactory->getClient();
         if (!$client) {
                 $this->logger->error($ap->getName().': Failed to get mqtt client.');
 		return $this->redirect($this->generateUrl('apman_default_index'));
@@ -875,7 +880,7 @@ class DefaultController extends Controller
 		'name' => $request->get('system')
 	));
 
-        $client = $this->ssrv->getMqttClient();
+        $client = $this->mqttFactory->getClient();
         if (!$client) {
                 $this->logger->error($ap->getName().': Failed to get mqtt client.');
 		return $this->redirect($this->generateUrl('apman_default_index'));
@@ -927,7 +932,7 @@ class DefaultController extends Controller
 		'name' => $request->get('system')
 	));
 
-        $client = $this->ssrv->getMqttClient();
+        $client = $this->mqttFactory->getClient();
         if (!$client) {
                 $this->logger->error($ap->getName().': Failed to get mqtt client.');
 		return $this->redirect($this->generateUrl('apman_default_index'));
@@ -959,7 +964,7 @@ class DefaultController extends Controller
 
 	/*
 	$key = 'status.client['.str_replace(':', '', $mac).'].raw_elements';
-	$raw_elements = $this->ssrv->getCacheItemValue($key);
+	$raw_elements = $this->cacheFactory->getCacheItemValue($key);
 	if (strlen($raw_elements)) {
 		//$output.=$raw_elements."\n";
 		$ieTags = $this->ieparser->parseInformationElements(hex2bin($raw_elements));
@@ -971,7 +976,7 @@ class DefaultController extends Controller
 		$output.=print_r($ieCaps,true);
 	}
 	*/
-	$status = $this->ssrv->getCacheItemValue('status.device.'.$deviceId);
+	$status = $this->cacheFactory->getCacheItemValue('status.device.'.$deviceId);
 	if (is_array($status) && is_array($status['clients']) && isset($status['clients']['clients'][$mac]) && isset($status['clients']['clients'][$mac]['signature'])) {
 			$ieTags = $this->ieparser->parseSignature($status['clients']['clients'][$mac]['signature']);
 			$output.="Information elements on association:\n";
@@ -1032,7 +1037,7 @@ class DefaultController extends Controller
 		}
 	}
 
-	$probes = $this->ssrv->getMultipleCacheItemValues($keys);
+	$probes = $this->cacheFactory->getMultipleCacheItemValues($keys);
 	foreach ($probes as $key => $probe) {
 		if (is_null($probe) or !is_object($probe)) {
 			continue;

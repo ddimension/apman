@@ -21,6 +21,11 @@ class AccessPoint
 
     public function setCache($cache) {
 	    $this->cache = $cache;
+	    $this->stateCache = $this->cache->getMultipleCacheItemValues([
+		'status.state['.$this->getId().']',
+		'status.ap.'.$this->getId().'.board',
+		'status.ap.'.$this->getId().'.info'
+	    ]);
     }
 
     /**
@@ -46,27 +51,20 @@ class AccessPoint
      */
     public function getModel()
     {
-	if (is_null($this->stateCache)) {
-		$key = 'status.ap.'.$this->getId();
-		$status = $this->cache->getCacheItemValue($key);
-		$this->stateCache = $status;
-	} else {
-		$status = $this->stateCache;
+	$key = 'status.ap.'.$this->getId().'.board';
+	if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
+		return null;
 	}
+	$status = $this->stateCache[$key]; 
+
 	if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('board', $status)) {
-	    return null;
-	}
-	if (!is_array($status['board'])) {
-	    return null;
-	}
-        if (!array_key_exists('model', $status['board'])) {
+        if (!array_key_exists('model', $status)) {
             return null;
             return '';
         }
-	return $status['board']['model'];
+	return $status['model'];
     }
     
     /**
@@ -74,26 +72,18 @@ class AccessPoint
      */
     public function getKernel()
     {
-	if (is_null($this->stateCache)) {
-		$key = 'status.ap.'.$this->getId();
-		$status = $this->cache->getCacheItemValue($key);
-		$this->stateCache = $status;
-	} else {
-		$status = $this->stateCache;
+	$key = 'status.ap.'.$this->getId().'.board';
+	if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
+		return null;
 	}
-        if (!is_array($status)) {
-            return null;
-        }
-	if (!array_key_exists('board', $status)) {
+	$status = $this->stateCache[$key];
+	if (!is_array($status)) {
 	    return null;
 	}
-	if (!is_array($status['board'])) {
-	    return null;
-	}
-        if (!array_key_exists('kernel', $status['board'])) {
+        if (!array_key_exists('kernel', $status)) {
             return null;
         }
-	return $status['board']['kernel'];
+	return $status['kernel'];
     }
 
     /**
@@ -101,26 +91,21 @@ class AccessPoint
      */
     public function getCodeName()
     {
-	if (is_null($this->stateCache)) {
-		$key = 'status.ap.'.$this->getId();
-		$status = $this->cache->getCacheItemValue($key);
-		$this->stateCache = $status;
-	} else {
-		$status = $this->stateCache;
+	$key = 'status.ap.'.$this->getId().'.board';
+	if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
+		return null;
 	}
+	$status = $this->stateCache[$key];
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('board', $status)) {
-	    return null;
-	}
-	if (!is_array($status['board'])) {
-	    return null;
-	}
-        if (!array_key_exists('release', $status['board'])) {
+        if (!array_key_exists('release', $status)) {
             return null;
         }
-	return $status['board']['release']['version'];
+        if (!array_key_exists('description', $status['release'])) {
+            return null;
+        }
+	return $status['release']['description'];
     }
 
     /**
@@ -128,26 +113,18 @@ class AccessPoint
      */
     public function getSystem()
     {
-	if (is_null($this->stateCache)) {
-		$key = 'status.ap.'.$this->getId();
-		$status = $this->cache->getCacheItemValue($key);
-		$this->stateCache = $status;
-	} else {
-		$status = $this->stateCache;
+	$key = 'status.ap.'.$this->getId().'.board';
+	if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
+		return null;
 	}
+	$status = $this->stateCache[$key];
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('board', $status)) {
-	    return null;
-	}
-	if (!is_array($status['board'])) {
-	    return null;
-	}
-        if (!array_key_exists('system', $status['board'])) {
+        if (!array_key_exists('system', $status)) {
             return null;
         }
-	return $status['board']['system'];
+	return $status['system'];
     }
 
     /**
@@ -156,27 +133,19 @@ class AccessPoint
      */
     public function getUptime()
     {
-	if (is_null($this->stateCache)) {
-		$key = 'status.ap.'.$this->getId();
-		$status = $this->cache->getCacheItemValue($key);
-		$this->stateCache = $status;
-	} else {
-		$status = $this->stateCache;
+	$key = 'status.ap.'.$this->getId().'.info';
+	if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
+		return null;
 	}
+	$status = $this->stateCache[$key];
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('info', $status)) {
-	    return null;
-	}
-	if (!is_array($status['info'])) {
-	    return null;
-	}
-        if (!array_key_exists('uptime', $status['info'])) {
+        if (!array_key_exists('uptime', $status)) {
             return null;
         }
 	$date = new \DateTime();
-	$date->setTimestamp(time()-$status['info']['uptime']);
+	$date->setTimestamp(time()-$status['uptime']);
 	return $date;
     }
 
@@ -186,27 +155,19 @@ class AccessPoint
      */
     public function getLoad()
     {
-	if (is_null($this->stateCache)) {
-		$key = 'status.ap.'.$this->getId();
-		$status = $this->cache->getCacheItemValue($key);
-		$this->stateCache = $status;
-	} else {
-		$status = $this->stateCache;
+	$key = 'status.ap.'.$this->getId().'.info';
+	if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
+		return null;
 	}
+	$status = $this->stateCache[$key];
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('info', $status)) {
-	    return null;
-	}
-	if (!is_array($status['info'])) {
-	    return null;
-	}
-        if (!array_key_exists('uptime', $status['info'])) {
+        if (!array_key_exists('uptime', $status)) {
             return null;
         }
 	$d = array();
-	foreach ($status['info']['load'] as $load) {
+	foreach ($status['load'] as $load) {
 		$d[] = sprintf('%0.02f', $load/100000);
 	}
 	return join(', ', $d);
@@ -218,14 +179,11 @@ class AccessPoint
      */
     public function getState()
     {
-	$key = 'status.state['.$this->getId().']';	    
-	$state = $this->cache->getCacheItemValue($key);
-	if (is_null($state)) $state = 0;;
-	$sClass = new \ReflectionClass('\\ApManBundle\\Library\\AccessPointState');
-	$map = $sClass->getConstants();
-	if (!is_array($map)) return $state;
-	$isMapped = array_search($state, $map);
-	if ($isMapped === false) return $state;
-	return $isMapped;
+	$key = 'status.state['.$this->getId().']';
+	if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
+		return 'Unknown';
+	}
+	$state = $this->stateCache[$key];
+	return AccessPointState::getStateName($state);
     }
 }
