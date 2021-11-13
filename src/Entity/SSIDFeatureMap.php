@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * SSIDFeatureMap
+ * SSIDFeatureMap.
  *
  * @ORM\Table(name="ssid_feature_map")
  * @ORM\Entity
@@ -33,7 +33,7 @@ class SSIDFeatureMap
      *
      * @ORM\Column(name="config", type="array", nullable=false)
      */
-    private $config = array();
+    private $config = [];
 
     /**
      * @var \ApManBundle\Entity\SSID
@@ -56,22 +56,21 @@ class SSIDFeatureMap
     private $feature;
 
     /**
-     * @var integer|null
+     * @var int|null
      *
      * @ORM\Column(name="priority", type="integer", length=64, nullable=false)
      */
     private $priority = 0;
-    
+
     /**
-     * @var boolean|null
+     * @var bool|null
      *
      * @ORM\Column(name="enabled", type="boolean", nullable=true)
      */
     private $enabled = true;
 
-
     /**
-     * Constructor
+     * Constructor.
      */
     public function __construct()
     {
@@ -80,14 +79,15 @@ class SSIDFeatureMap
     /**
      * @return string
      */
-    public function __toString() {
-	    return (string)$this->getName();
-    }	    
+    public function __toString()
+    {
+        return (string) $this->getName();
+    }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -95,7 +95,7 @@ class SSIDFeatureMap
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -109,7 +109,7 @@ class SSIDFeatureMap
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -119,9 +119,7 @@ class SSIDFeatureMap
     }
 
     /**
-     * Add config
-     *
-     * @param array $config
+     * Add config.
      *
      * @return SSIDFeatureMap
      */
@@ -133,7 +131,7 @@ class SSIDFeatureMap
     }
 
     /**
-     * Get configOptions
+     * Get configOptions.
      *
      * @return \array
      */
@@ -143,13 +141,13 @@ class SSIDFeatureMap
     }
 
     /**
-     * Set ssid
+     * Set ssid.
      *
      * @param \ApManBundle\Entity\SSID $ssid
      *
      * @return SSIDFeatureMap
      */
-    public function setSsid(\ApManBundle\Entity\SSID $ssid)
+    public function setSsid(SSID $ssid)
     {
         $this->ssid = $ssid;
 
@@ -157,7 +155,7 @@ class SSIDFeatureMap
     }
 
     /**
-     * Get ssid
+     * Get ssid.
      *
      * @return \ApManBundle\Entity\SSID
      */
@@ -167,13 +165,13 @@ class SSIDFeatureMap
     }
 
     /**
-     * Set feature
+     * Set feature.
      *
      * @param \ApManBundle\Entity\Feature $feature
      *
      * @return SSIDFeatureMap
      */
-    public function setFeature(\ApManBundle\Entity\Feature $feature)
+    public function setFeature(Feature $feature)
     {
         $this->feature = $feature;
 
@@ -181,7 +179,7 @@ class SSIDFeatureMap
     }
 
     /**
-     * Get feature
+     * Get feature.
      *
      * @return \ApManBundle\Entity\Feature
      */
@@ -191,9 +189,9 @@ class SSIDFeatureMap
     }
 
     /**
-     * Set priority
+     * Set priority.
      *
-     * @param integer $priority
+     * @param int $priority
      *
      * @return SSIDFeatureMap
      */
@@ -205,9 +203,9 @@ class SSIDFeatureMap
     }
 
     /**
-     * Get priority
+     * Get priority.
      *
-     * @return integer
+     * @return int
      */
     public function getPriority()
     {
@@ -215,9 +213,9 @@ class SSIDFeatureMap
     }
 
     /**
-     * Set enabled
+     * Set enabled.
      *
-     * @param integer $enabled
+     * @param int $enabled
      *
      * @return SSIDFeatureMap
      */
@@ -229,9 +227,9 @@ class SSIDFeatureMap
     }
 
     /**
-     * Get enabled
+     * Get enabled.
      *
-     * @return boolean
+     * @return bool
      */
     public function getEnabled()
     {

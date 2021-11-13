@@ -5,7 +5,8 @@ namespace ApManBundle\DynamicEntity;
 class Device
 {
     /**
-     * get Status
+     * get Status.
+     *
      * @return \string
      */
     public function getStatus()
@@ -14,21 +15,23 @@ class Device
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('status', $status)) {
-	    return null;
-	}
-	if (!is_array($status['status'])) {
-	    return null;
-	}
+        if (!array_key_exists('status', $status)) {
+            return null;
+        }
+        if (!is_array($status['status'])) {
+            return null;
+        }
         if (!array_key_exists('up', $status['status'])) {
             return null;
         }
-	$res = 'Up: '.$status['status']['up']?'Up':'Down';
-	return $res;
+        $res = 'Up: '.$status['status']['up'] ? 'Up' : 'Down';
+
+        return $res;
     }
 
     /**
-     * get StatisticsTransmit
+     * get StatisticsTransmit.
+     *
      * @return \integer|\string
      */
     public function getStatisticsTransmit()
@@ -37,26 +40,28 @@ class Device
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('status', $status)) {
-	    return null;
-	}
-	if (!is_array($status['status'])) {
-	    return null;
-	}
+        if (!array_key_exists('status', $status)) {
+            return null;
+        }
+        if (!is_array($status['status'])) {
+            return null;
+        }
         if (!array_key_exists('statistics', $status['status'])) {
             return null;
         }
-	if (!is_array($status['status']['statistics'])) {
-	    return null;
-	}
+        if (!is_array($status['status']['statistics'])) {
+            return null;
+        }
         if (!array_key_exists('tx_bytes', $status['status']['statistics'])) {
             return null;
-	}
-	return $status['status']['statistics']['tx_bytes'];
+        }
+
+        return $status['status']['statistics']['tx_bytes'];
     }
 
     /**
-     * get statisticsReceive
+     * get statisticsReceive.
+     *
      * @return \integer|\string
      */
     public function getStatisticsReceive()
@@ -65,55 +70,71 @@ class Device
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('status', $status)) {
-	    return null;
-	}
-	if (!is_array($status['status'])) {
-	    return null;
-	}
+        if (!array_key_exists('status', $status)) {
+            return null;
+        }
+        if (!is_array($status['status'])) {
+            return null;
+        }
         if (!array_key_exists('statistics', $status['status'])) {
             return null;
         }
-	if (!is_array($status['status']['statistics'])) {
-	    return null;
-	}
+        if (!is_array($status['status']['statistics'])) {
+            return null;
+        }
         if (!array_key_exists('rx_bytes', $status['status']['statistics'])) {
             return null;
-	}
-	return $status['status']['statistics']['rx_bytes'];
+        }
+
+        return $status['status']['statistics']['rx_bytes'];
     }
 
     public function getClients($useArray = false)
     {
         $status = $this->getStatus();
         if (!is_array($status)) {
-	    if ($useArray) return array();
+            if ($useArray) {
+                return [];
+            }
+
             return null;
         }
-	if (!array_key_exists('stations', $status)) {
-	    if ($useArray) return array();
-	    return null;
-	}
-	if (!is_array($status['stations'])) {
-	    if ($useArray) return array();
-	    return null;
-	}
-	$res = array();
-	foreach ($status['stations'] as $mac => $client) {
-		if (isset($mac)) {
-			$res[] = $mac;
-		}
-	}
-	if (!count($res)) {
-		if ($useArray) return array();
-		return '-';
-	}
-	if ($useArray) return $res;
-	return join(' ',$res);
+        if (!array_key_exists('stations', $status)) {
+            if ($useArray) {
+                return [];
+            }
+
+            return null;
+        }
+        if (!is_array($status['stations'])) {
+            if ($useArray) {
+                return [];
+            }
+
+            return null;
+        }
+        $res = [];
+        foreach ($status['stations'] as $mac => $client) {
+            if (isset($mac)) {
+                $res[] = $mac;
+            }
+        }
+        if (!count($res)) {
+            if ($useArray) {
+                return [];
+            }
+
+            return '-';
+        }
+        if ($useArray) {
+            return $res;
+        }
+
+        return join(' ', $res);
     }
 
     /**
-     * get model
+     * get model.
      */
     public function getChannel()
     {
@@ -121,20 +142,21 @@ class Device
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('info', $status)) {
-	    return null;
-	}
-	if (!is_array($status['info'])) {
-	    return null;
-	}
+        if (!array_key_exists('info', $status)) {
+            return null;
+        }
+        if (!is_array($status['info'])) {
+            return null;
+        }
         if (!array_key_exists('channel', $status['info'])) {
             return null;
         }
-	return $status['info']['channel'];
+
+        return $status['info']['channel'];
     }
 
     /**
-     * get model
+     * get model.
      */
     public function getTxPower()
     {
@@ -142,20 +164,21 @@ class Device
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('info', $status)) {
-	    return null;
-	}
-	if (!is_array($status['info'])) {
-	    return null;
-	}
+        if (!array_key_exists('info', $status)) {
+            return null;
+        }
+        if (!is_array($status['info'])) {
+            return null;
+        }
         if (!array_key_exists('txpower', $status['info'])) {
             return null;
         }
-	return $status['info']['txpower'];
+
+        return $status['info']['txpower'];
     }
 
     /**
-     * get model
+     * get model.
      */
     public function getHwMode()
     {
@@ -163,20 +186,21 @@ class Device
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('info', $status)) {
-	    return null;
-	}
-	if (!is_array($status['info'])) {
-	    return null;
-	}
+        if (!array_key_exists('info', $status)) {
+            return null;
+        }
+        if (!is_array($status['info'])) {
+            return null;
+        }
         if (!array_key_exists('hwmodes', $status['info'])) {
             return null;
         }
-	return join('', $status['info']['hwmodes']);
+
+        return join('', $status['info']['hwmodes']);
     }
 
     /**
-     * get model
+     * get model.
      */
     public function getHtMode()
     {
@@ -184,23 +208,24 @@ class Device
         if (!is_array($status)) {
             return null;
         }
-	if (!array_key_exists('info', $status)) {
-	    return null;
-	}
-	if (!is_array($status['info'])) {
-	    return null;
-	}
+        if (!array_key_exists('info', $status)) {
+            return null;
+        }
+        if (!is_array($status['info'])) {
+            return null;
+        }
         if (!array_key_exists('htmodes', $status['info'])) {
             return null;
         }
-	return join(', ', $status['info']['htmodes']);
+
+        return join(', ', $status['info']['htmodes']);
     }
 
     /**
-     * get rrm_own
+     * get rrm_own.
      */
     public function getRrmOwn()
     {
-	$this->getRrm();
+        $this->getRrm();
     }
 }

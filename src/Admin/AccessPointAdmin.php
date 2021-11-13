@@ -3,8 +3,8 @@
 namespace ApManBundle\Admin;
 
 use Sonata\AdminBundle\Admin\AbstractAdmin;
-use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
+use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
@@ -17,7 +17,7 @@ class AccessPointAdmin extends AbstractAdmin
         $formMapper->add('name', TextType::class)
             ->add('username', TextType::class)
             ->add('password', TextType::class)
-	    ->add('ubus_url', UrlType::class)
+        ->add('ubus_url', UrlType::class)
             ->add('ipv4', TextType::class)
             ->add('ProvisioningEnabled')
             ->add('IsProductive');
@@ -42,41 +42,42 @@ class AccessPointAdmin extends AbstractAdmin
         $listMapper->addIdentifier('IsProductive');
         $listMapper->addIdentifier('load');
         $listMapper->addIdentifier('state');
-	$listMapper->addIdentifier('_action', null, array(
-		'actions' => array(
-			'syslog' => array(
-				'template' => 'CRUD/list__action_syslog.html.twig'
-			),
-			'login' => array(
-				'template' => 'CRUD/list__action_login.html.twig'
-			),
-			'lldp' => array(
-				'template' => 'CRUD/list__action_lldp.html.twig'
-			)
-		)
-	));
+        $listMapper->addIdentifier('_action', null, [
+        'actions' => [
+            'syslog' => [
+                'template' => 'CRUD/list__action_syslog.html.twig',
+            ],
+            'login' => [
+                'template' => 'CRUD/list__action_login.html.twig',
+            ],
+            'lldp' => [
+                'template' => 'CRUD/list__action_lldp.html.twig',
+            ],
+        ],
+    ]);
     }
 
-    public function getBatchActions() {
+    public function getBatchActions()
+    {
         $actions = parent::getBatchActions();
 
-#        if ($this->hasRoute('print') && $this->isGranted('VIEW')) {
-            $actions['configure_and_restart'] = array('label' => 'Stop, Configure and Start', 'ask_confirmation' => true);
-            $actions['configure'] = array('label' => 'Configure', 'ask_confirmation' => true);
-            $actions['stop_radio'] = array('label' => 'Stop Radio', 'ask_confirmation' => true);
-            $actions['start_radio'] = array('label' => 'Start Radio', 'ask_confirmation' => true);
-            $actions['wifi_restart'] = array('label' => 'WiFi Restart', 'ask_confirmation' => true);
-            $actions['refresh_radios'] = array('label' => 'Wifi Radio Config refresh from AP', 'ask_confirmation' => true);
-            $actions['reboot'] = array('label' => 'Reboot', 'ask_confirmation' => true);
- #       }
+//        if ($this->hasRoute('print') && $this->isGranted('VIEW')) {
+        $actions['configure_and_restart'] = ['label' => 'Stop, Configure and Start', 'ask_confirmation' => true];
+        $actions['configure'] = ['label' => 'Configure', 'ask_confirmation' => true];
+        $actions['stop_radio'] = ['label' => 'Stop Radio', 'ask_confirmation' => true];
+        $actions['start_radio'] = ['label' => 'Start Radio', 'ask_confirmation' => true];
+        $actions['wifi_restart'] = ['label' => 'WiFi Restart', 'ask_confirmation' => true];
+        $actions['refresh_radios'] = ['label' => 'Wifi Radio Config refresh from AP', 'ask_confirmation' => true];
+        $actions['reboot'] = ['label' => 'Reboot', 'ask_confirmation' => true];
+        //       }
 
         return $actions;
     }
 
-    protected function configureRoutes(RouteCollection $collection) {
-	    $collection->add('syslog', $this->getRouterIdParameter().'/syslog');
-	    $collection->add('login', $this->getRouterIdParameter().'/login');
-	    $collection->add('lldp', $this->getRouterIdParameter().'/lldp');
+    protected function configureRoutes(RouteCollection $collection)
+    {
+        $collection->add('syslog', $this->getRouterIdParameter().'/syslog');
+        $collection->add('login', $this->getRouterIdParameter().'/login');
+        $collection->add('lldp', $this->getRouterIdParameter().'/lldp');
     }
 }
-

@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * SSIDConfigListOption
+ * SSIDConfigListOption.
  *
  * @ORM\Table(name="ssid_config_list_option")
  * @ORM\Entity
@@ -39,7 +39,7 @@ class SSIDConfigListOption
     private $ssid_config_list;
 
     /**
-     * Set value
+     * Set value.
      *
      * @param string $value
      *
@@ -53,7 +53,7 @@ class SSIDConfigListOption
     }
 
     /**
-     * Get value
+     * Get value.
      *
      * @return string
      */
@@ -61,5 +61,4 @@ class SSIDConfigListOption
     {
         return $this->value;
     }
-
 }

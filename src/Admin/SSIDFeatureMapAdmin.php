@@ -14,7 +14,6 @@ use Symfony\Component\Form\Extension\Core\Type\TextType;
 
 final class SSIDFeatureMapAdmin extends AbstractAdmin
 {
-
     protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper
@@ -56,17 +55,17 @@ final class SSIDFeatureMapAdmin extends AbstractAdmin
             ->add('enabled')
             ->add('feature')
             ->add('ssid')
-	    ;
-	$formMapper->get('config')->addModelTransformer(new CallbackTransformer(
-	    function ($tagsAsArray) {
-		//object stdclass json, need to be transform as string for render form
-		return json_encode($tagsAsArray, JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-	    },
-	    function ($tagsAsString) { 
-		//string, need to be transform as stdClass for json type for persist in DB
-		return json_decode($tagsAsString, true, 512, JSON_THROW_ON_ERROR);
-	    }
-	));
+        ;
+        $formMapper->get('config')->addModelTransformer(new CallbackTransformer(
+        function ($tagsAsArray) {
+            //object stdclass json, need to be transform as string for render form
+            return json_encode($tagsAsArray, JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        },
+        function ($tagsAsString) {
+            //string, need to be transform as stdClass for json type for persist in DB
+            return json_decode($tagsAsString, true, 512, JSON_THROW_ON_ERROR);
+        }
+    ));
     }
 
     protected function configureShowFields(ShowMapper $showMapper): void

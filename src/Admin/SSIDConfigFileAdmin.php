@@ -3,8 +3,8 @@
 namespace ApManBundle\Admin;
 
 use Sonata\AdminBundle\Admin\AbstractAdmin;
-use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
+use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 
 class SSIDConfigFileAdmin extends AbstractAdmin
@@ -24,7 +24,7 @@ class SSIDConfigFileAdmin extends AbstractAdmin
 
     protected function configureListFields(ListMapper $listMapper)
     {
-        $listMapper->addIdentifier('ssid',null, array('associated_property' => 'name'));
+        $listMapper->addIdentifier('ssid', null, ['associated_property' => 'name']);
         $listMapper->addIdentifier('name');
         $listMapper->addIdentifier('filename');
         $listMapper->addIdentifier('content');

@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * AccessPoint
+ * AccessPoint.
  *
  * @ORM\Table(name="accesspoint")
  * @ORM\Entity
@@ -79,7 +79,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     private $IsProductive;
 
     /**
-     * Constructor
+     * Constructor.
      */
     public function __construct()
     {
@@ -89,15 +89,16 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     public function __toString()
     {
         if ($this->getName()) {
-		return $this->getName();
-	}
-	return '-';
+            return $this->getName();
+        }
+
+        return '-';
     }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -105,7 +106,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -119,7 +120,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -129,7 +130,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Set username
+     * Set username.
      *
      * @param string $username
      *
@@ -143,7 +144,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Get username
+     * Get username.
      *
      * @return string
      */
@@ -153,7 +154,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Set password
+     * Set password.
      *
      * @param string $password
      *
@@ -167,7 +168,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Get password
+     * Get password.
      *
      * @return string
      */
@@ -177,7 +178,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Set ubusUrl
+     * Set ubusUrl.
      *
      * @param string $ubusUrl
      *
@@ -191,7 +192,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Get ubusUrl
+     * Get ubusUrl.
      *
      * @return string
      */
@@ -201,13 +202,13 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Add radio
+     * Add radio.
      *
      * @param \ApManBundle\Entity\Radio $radio
      *
      * @return AccessPoint
      */
-    public function addRadio(\ApManBundle\Entity\Radio $radio)
+    public function addRadio(Radio $radio)
     {
         $this->radios[] = $radio;
 
@@ -215,17 +216,17 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Remove radio
+     * Remove radio.
      *
      * @param \ApManBundle\Entity\Radio $radio
      */
-    public function removeRadio(\ApManBundle\Entity\Radio $radio)
+    public function removeRadio(Radio $radio)
     {
         $this->radios->removeElement($radio);
     }
 
     /**
-     * Get radios
+     * Get radios.
      *
      * @return \Doctrine\Common\Collections\Collection
      */
@@ -234,9 +235,8 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
         return $this->radios;
     }
 
-
     /**
-     * Set ipv4
+     * Set ipv4.
      *
      * @param string $ipv4
      *
@@ -250,7 +250,7 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     }
 
     /**
-     * Get ipv4
+     * Get ipv4.
      *
      * @return string
      */

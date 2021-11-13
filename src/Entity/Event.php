@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * Event
+ * Event.
  *
  * @ORM\Table(name="event")
  * @ORM\Entity
@@ -60,20 +60,21 @@ class Event
     private $event;
 
     /**
-     * @var integer
+     * @var int
      *
      * @ORM\Column(name="signalstr", type="integer", nullable=true)
      */
     private $signalstr;
-    
-    public function __toString() {
-	return $this->getMessage();
+
+    public function __toString()
+    {
+        return $this->getMessage();
     }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -81,7 +82,7 @@ class Event
     }
 
     /**
-     * Set ts
+     * Set ts.
      *
      * @param \DateTime $ts
      *
@@ -95,7 +96,7 @@ class Event
     }
 
     /**
-     * Get ts
+     * Get ts.
      *
      * @return \DateTime
      */
@@ -105,13 +106,13 @@ class Event
     }
 
     /**
-     * Set Device
+     * Set Device.
      *
      * @param \ApManBundle\Entity\Device $device
      *
      * @return Device
      */
-    public function setDevice(\ApManBundle\Entity\Device $device)
+    public function setDevice(Device $device)
     {
         $this->device = $device;
 
@@ -119,7 +120,7 @@ class Event
     }
 
     /**
-     * Get radio
+     * Get radio.
      *
      * @return \ApManBundle\Entity\Device
      */
@@ -129,7 +130,7 @@ class Event
     }
 
     /**
-     * Set type
+     * Set type.
      *
      * @param string $type
      *
@@ -143,7 +144,7 @@ class Event
     }
 
     /**
-     * Get type
+     * Get type.
      *
      * @return string
      */
@@ -153,7 +154,7 @@ class Event
     }
 
     /**
-     * Set address
+     * Set address.
      *
      * @param string $address
      *
@@ -167,7 +168,7 @@ class Event
     }
 
     /**
-     * Get address
+     * Get address.
      *
      * @return string
      */
@@ -177,7 +178,7 @@ class Event
     }
 
     /**
-     * Set event
+     * Set event.
      *
      * @param string $event
      *
@@ -191,7 +192,7 @@ class Event
     }
 
     /**
-     * Get event
+     * Get event.
      *
      * @return string
      */
@@ -201,7 +202,7 @@ class Event
     }
 
     /**
-     * Set signalstr
+     * Set signalstr.
      *
      * @param int $signalstr
      *
@@ -215,7 +216,7 @@ class Event
     }
 
     /**
-     * Get signalstr
+     * Get signalstr.
      *
      * @return int
      */
@@ -223,5 +224,4 @@ class Event
     {
         return $this->signalstr;
     }
-
 }

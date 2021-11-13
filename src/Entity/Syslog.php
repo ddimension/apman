@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * Syslog
+ * Syslog.
  *
  * @ORM\Table(name="syslog")
  * @ORM\Entity
@@ -41,15 +41,16 @@ class Syslog
      * @ORM\Column(name="message", type="text", length=4096, nullable=false)
      */
     private $message;
-    
-    public function __toString() {
-	return $this->getMessage();
+
+    public function __toString()
+    {
+        return $this->getMessage();
     }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -57,7 +58,7 @@ class Syslog
     }
 
     /**
-     * Set ts
+     * Set ts.
      *
      * @param \DateTime $ts
      *
@@ -71,7 +72,7 @@ class Syslog
     }
 
     /**
-     * Get ts
+     * Get ts.
      *
      * @return \DateTime
      */
@@ -81,7 +82,7 @@ class Syslog
     }
 
     /**
-     * Set message
+     * Set message.
      *
      * @param string $message
      *
@@ -95,7 +96,7 @@ class Syslog
     }
 
     /**
-     * Get message
+     * Get message.
      *
      * @return string
      */
@@ -105,7 +106,7 @@ class Syslog
     }
 
     /**
-     * Set source
+     * Set source.
      *
      * @param string $source
      *
@@ -119,7 +120,7 @@ class Syslog
     }
 
     /**
-     * Get source
+     * Get source.
      *
      * @return string
      */
@@ -127,6 +128,4 @@ class Syslog
     {
         return $this->source;
     }
-
-
 }

@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * SSIDConfigFile
+ * SSIDConfigFile.
  *
  * @ORM\Table(name="ssid_config_file")
  * @ORM\Entity
@@ -53,9 +53,9 @@ class SSIDConfigFile
     private $ssid;
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -63,7 +63,7 @@ class SSIDConfigFile
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -77,7 +77,7 @@ class SSIDConfigFile
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -87,7 +87,7 @@ class SSIDConfigFile
     }
 
     /**
-     * Set filename
+     * Set filename.
      *
      * @param string $filename
      *
@@ -101,7 +101,7 @@ class SSIDConfigFile
     }
 
     /**
-     * Get filename
+     * Get filename.
      *
      * @return string
      */
@@ -111,7 +111,7 @@ class SSIDConfigFile
     }
 
     /**
-     * Set content
+     * Set content.
      *
      * @param string $content
      *
@@ -125,7 +125,7 @@ class SSIDConfigFile
     }
 
     /**
-     * Get content
+     * Get content.
      *
      * @return string
      */
@@ -135,13 +135,13 @@ class SSIDConfigFile
     }
 
     /**
-     * Set ssid
+     * Set ssid.
      *
      * @param \ApManBundle\Entity\SSID $ssid
      *
      * @return SSIDConfigFile
      */
-    public function setSsid(\ApManBundle\Entity\SSID $ssid)
+    public function setSsid(SSID $ssid)
     {
         $this->ssid = $ssid;
 
@@ -149,7 +149,7 @@ class SSIDConfigFile
     }
 
     /**
-     * Get ssid
+     * Get ssid.
      *
      * @return \ApManBundle\Entity\SSID
      */
@@ -157,6 +157,4 @@ class SSIDConfigFile
     {
         return $this->ssid;
     }
-
-
 }

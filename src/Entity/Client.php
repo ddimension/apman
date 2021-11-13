@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * Client
+ * Client.
  *
  * @ORM\Table(name="client")
  * @ORM\Entity
@@ -50,9 +50,9 @@ class Client
     private $name;
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -60,7 +60,7 @@ class Client
     }
 
     /**
-     * Set mac
+     * Set mac.
      *
      * @param string $mac
      *
@@ -74,7 +74,7 @@ class Client
     }
 
     /**
-     * Get mac
+     * Get mac.
      *
      * @return string
      */
@@ -84,9 +84,9 @@ class Client
     }
 
     /**
-     * Set modeG
+     * Set modeG.
      *
-     * @param boolean $modeG
+     * @param bool $modeG
      *
      * @return Client
      */
@@ -98,9 +98,9 @@ class Client
     }
 
     /**
-     * Get modeG
+     * Get modeG.
      *
-     * @return boolean
+     * @return bool
      */
     public function getModeG()
     {
@@ -108,9 +108,9 @@ class Client
     }
 
     /**
-     * Set modeA
+     * Set modeA.
      *
-     * @param boolean $modeA
+     * @param bool $modeA
      *
      * @return Client
      */
@@ -122,9 +122,9 @@ class Client
     }
 
     /**
-     * Get modeA
+     * Get modeA.
      *
-     * @return boolean
+     * @return bool
      */
     public function getModeA()
     {
@@ -132,7 +132,7 @@ class Client
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -146,7 +146,7 @@ class Client
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */

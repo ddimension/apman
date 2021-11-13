@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * Radio
+ * Radio.
  *
  * @ORM\Table(name="radio")
  * @ORM\Entity
@@ -179,7 +179,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     private $accesspoint;
 
     /**
-     * Constructor
+     * Constructor.
      */
     public function __construct()
     {
@@ -187,9 +187,9 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -197,7 +197,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -211,7 +211,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -221,13 +221,13 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Add device
+     * Add device.
      *
      * @param \ApManBundle\Entity\Device $device
      *
      * @return Radio
      */
-    public function addDevice(\ApManBundle\Entity\Device $device)
+    public function addDevice(Device $device)
     {
         $this->devices[] = $device;
 
@@ -235,17 +235,17 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Remove device
+     * Remove device.
      *
      * @param \ApManBundle\Entity\Device $device
      */
-    public function removeDevice(\ApManBundle\Entity\Device $device)
+    public function removeDevice(Device $device)
     {
         $this->devices->removeElement($device);
     }
 
     /**
-     * Get devices
+     * Get devices.
      *
      * @return \Doctrine\Common\Collections\Collection
      */
@@ -255,13 +255,13 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set accesspoint
+     * Set accesspoint.
      *
      * @param \ApManBundle\Entity\AccessPoint $accesspoint
      *
      * @return Radio
      */
-    public function setAccesspoint(\ApManBundle\Entity\AccessPoint $accesspoint)
+    public function setAccesspoint(AccessPoint $accesspoint)
     {
         $this->accesspoint = $accesspoint;
 
@@ -269,7 +269,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get accesspoint
+     * Get accesspoint.
      *
      * @return \ApManBundle\Entity\AccessPoint
      */
@@ -279,7 +279,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configType
+     * Set configType.
      *
      * @param string $configType
      *
@@ -293,7 +293,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configType
+     * Get configType.
      *
      * @return string
      */
@@ -303,7 +303,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configPath
+     * Set configPath.
      *
      * @param string $configPath
      *
@@ -317,7 +317,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configPath
+     * Get configPath.
      *
      * @return string
      */
@@ -327,7 +327,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configDisabled
+     * Set configDisabled.
      *
      * @param string $configDisabled
      *
@@ -341,7 +341,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configDisabled
+     * Get configDisabled.
      *
      * @return string
      */
@@ -351,7 +351,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configChannel
+     * Set configChannel.
      *
      * @param string $configChannel
      *
@@ -365,7 +365,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configChannel
+     * Get configChannel.
      *
      * @return string
      */
@@ -375,7 +375,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configBand
+     * Set configBand.
      *
      * @param string $configBand
      *
@@ -389,7 +389,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configBand
+     * Get configBand.
      *
      * @return string
      */
@@ -398,9 +398,8 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
         return $this->config_band;
     }
 
-
     /**
-     * Set configHwmode
+     * Set configHwmode.
      *
      * @param string $configHwmode
      *
@@ -414,7 +413,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configHwmode
+     * Get configHwmode.
      *
      * @return string
      */
@@ -424,7 +423,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configTxpower
+     * Set configTxpower.
      *
      * @param string $configTxpower
      *
@@ -438,7 +437,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configTxpower
+     * Get configTxpower.
      *
      * @return string
      */
@@ -448,7 +447,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configCountry
+     * Set configCountry.
      *
      * @param string $configCountry
      *
@@ -462,7 +461,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configCountry
+     * Get configCountry.
      *
      * @return string
      */
@@ -472,7 +471,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configRequireMode
+     * Set configRequireMode.
      *
      * @param string $configRequireMode
      *
@@ -486,7 +485,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configRequireMode
+     * Get configRequireMode.
      *
      * @return string
      */
@@ -496,7 +495,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configLogLevel
+     * Set configLogLevel.
      *
      * @param string $configLogLevel
      *
@@ -510,7 +509,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configLogLevel
+     * Get configLogLevel.
      *
      * @return string
      */
@@ -520,7 +519,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configHtmode
+     * Set configHtmode.
      *
      * @param string $configHtmode
      *
@@ -534,7 +533,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configHtmode
+     * Get configHtmode.
      *
      * @return string
      */
@@ -544,7 +543,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configNoscan
+     * Set configNoscan.
      *
      * @param string $configNoscan
      *
@@ -558,7 +557,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configNoscan
+     * Get configNoscan.
      *
      * @return string
      */
@@ -568,7 +567,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configBeaconInt
+     * Set configBeaconInt.
      *
      * @param string $configBeaconInt
      *
@@ -582,7 +581,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configBeaconInt
+     * Get configBeaconInt.
      *
      * @return string
      */
@@ -592,7 +591,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configBasicRate
+     * Set configBasicRate.
      *
      * @param string $configBasicRate
      *
@@ -606,7 +605,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configBasicRate
+     * Get configBasicRate.
      *
      * @return string
      */
@@ -616,7 +615,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configSupportedRates
+     * Set configSupportedRates.
      *
      * @param string $configSupportedRates
      *
@@ -630,7 +629,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configSupportedRates
+     * Get configSupportedRates.
      *
      * @return string
      */
@@ -640,7 +639,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configRts
+     * Set configRts.
      *
      * @param string $configRts
      *
@@ -654,7 +653,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configRts
+     * Get configRts.
      *
      * @return string
      */
@@ -664,7 +663,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configAntennaGain
+     * Set configAntennaGain.
      *
      * @param string $configAntennaGain
      *
@@ -678,7 +677,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configAntennaGain
+     * Get configAntennaGain.
      *
      * @return string
      */
@@ -688,7 +687,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configHtCapab
+     * Set configHtCapab.
      *
      * @param array $configHtCapab
      *
@@ -697,28 +696,30 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     public function setConfigHtCapab($configHtCapab)
     {
         foreach ($configHtCapab as $key => $value) {
-		if (trim($value) == '') 
-			unset($configHtCapab[$key]);
-	}
+            if ('' == trim($value)) {
+                unset($configHtCapab[$key]);
+            }
+        }
         $this->config_ht_capab = $configHtCapab;
 
         return $this;
     }
 
     /**
-     * Get configHtCapab
+     * Get configHtCapab.
      *
      * @return array
      */
     public function getConfigHtCapab()
     {
-	$config = $this->config_ht_capab;
-	$config[] = '';
+        $config = $this->config_ht_capab;
+        $config[] = '';
+
         return $config;
     }
 
     /**
-     * Set configChannelList
+     * Set configChannelList.
      *
      * @param string $configChannelList
      *
@@ -732,7 +733,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Get configChannelList
+     * Get configChannelList.
      *
      * @return string
      */
@@ -742,60 +743,67 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Import config
+     * Import config.
      *
      * @param object $config
-     * @return boolean
+     *
+     * @return bool
      */
-    public function importConfig($config) {
+    public function importConfig($config)
+    {
         $cfgVars = get_class_vars(get_class($this));
-	foreach ($cfgVars as $key => $value) {
-		$cfgVar = 'config_'.$key;
-		if (substr($key,0,7) == 'config_') {
-			if (gettype($this->$key) == 'array') {
-				$this->$key = array();
-			} else {
-				$this->$key = null;
-			}
-		} else {
-			unset($cfgVars[$key]);
-		}
-	}
-	foreach ((array)$config as $key => $value) {
-		$cfgVar = 'config_'.$key;
-		if (is_array($value) || is_object($value)) {
-			$this->$cfgVar = (array)$value;
-		} else {
-			$this->$cfgVar = $value;
-		}
-	}
-	return true;
-    }	    
+        foreach ($cfgVars as $key => $value) {
+            $cfgVar = 'config_'.$key;
+            if ('config_' == substr($key, 0, 7)) {
+                if ('array' == gettype($this->$key)) {
+                    $this->$key = [];
+                } else {
+                    $this->$key = null;
+                }
+            } else {
+                unset($cfgVars[$key]);
+            }
+        }
+        foreach ((array) $config as $key => $value) {
+            $cfgVar = 'config_'.$key;
+            if (is_array($value) || is_object($value)) {
+                $this->$cfgVar = (array) $value;
+            } else {
+                $this->$cfgVar = $value;
+            }
+        }
+
+        return true;
+    }
 
     /**
-     * Export config
+     * Export config.
      *
      * @return object
      */
-    public function exportConfig() {
-	$cfgVars = get_class_vars(get_class($this));
+    public function exportConfig()
+    {
+        $cfgVars = get_class_vars(get_class($this));
         $res = new \stdClass();
-	foreach ($cfgVars as $key => $value) {
-		if (is_null($this->$key)) {
-			continue;
-		}
-		if (is_array($this->$key) and !count($this->$key)) {
-			continue;
-		}
-		if (substr($key,0,7) != 'config_') continue;
-		$cfgVar = substr($key,7);
-		$res->$cfgVar = $this->$key;
-	}
-	return $res;
+        foreach ($cfgVars as $key => $value) {
+            if (is_null($this->$key)) {
+                continue;
+            }
+            if (is_array($this->$key) and !count($this->$key)) {
+                continue;
+            }
+            if ('config_' != substr($key, 0, 7)) {
+                continue;
+            }
+            $cfgVar = substr($key, 7);
+            $res->$cfgVar = $this->$key;
+        }
+
+        return $res;
     }
-    
+
     /**
-     * Get fullname
+     * Get fullname.
      *
      * @return string
      */
@@ -805,11 +813,12 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * get IsEnabled
+     * get IsEnabled.
+     *
      * @return \boolean
      */
     public function getIsEnabled()
     {
-	return intval($this->getConfigDisabled())<1;
+        return intval($this->getConfigDisabled()) < 1;
     }
 }

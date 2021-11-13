@@ -1,27 +1,25 @@
 <?php
+
 namespace ApManBundle\Command;
 
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Style\SymfonyStyle;
-
 
 class ClientReportCommand extends Command
 {
-    protected static $defaultName = 'apman:clientreport'; 
+    protected static $defaultName = 'apman:clientreport';
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
-	$this->logger = $logger;
-	$this->apservice = $apservice;
-	$this->rpcService = $rpcService;
+        $this->logger = $logger;
+        $this->apservice = $apservice;
+        $this->rpcService = $rpcService;
     }
- 
+
     protected function configure()
     {
         $this
@@ -30,60 +28,59 @@ class ClientReportCommand extends Command
             ->addArgument('ssid', InputArgument::REQUIRED, 'SSID')
             ;
     }
- 
+
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-	$em = $this->doctrine->getManager();
-	$ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy( array(
-		'name' => $input->getArgument('ssid')
-	));
-	if (is_null($ssid)) {
-		$this->output->writeln("SSID not found.");
-		return false;
-	}
-	$startTime = new \DateTime('now');
-	foreach ($ssid->getDevices() as $device) {
-		$radio = $device->getRadio();
-		$ap = $radio->getAccesspoint();
-		$cfg = $device->getConfig();
-		$clients = $device->getClients(true);
-		//$this->output->writeln("Clients: ".print_r($clients,true));
-		if (!count($clients)) {
-			continue;
-		}
-		if (empty($device->getIfname())) {
-			$this->output->writeln("ifname missing for ".$ap->getName().":".$radio->getName().":".$device->getName());
-			continue;
-		}
-		$session = $this->rpcService->getSession($ap);
-		if ($session === false) {
-			$this->output->writeln("Cannot connect to AP ".$ap->getName());
-			continue;
-		}
+        $em = $this->doctrine->getManager();
+        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy([
+        'name' => $input->getArgument('ssid'),
+    ]);
+        if (is_null($ssid)) {
+            $this->output->writeln('SSID not found.');
 
-		
-		// 1s base
-		$duration = 400;
-		$duration = 10;
-		foreach ($clients as $client) {
-			$this->output->writeln("Requesting Report for Client ".$client);
-			$opts = new \stdClass();
-			$opts->addr = $client;
-			$opts->mode = 0;
-			$opts->op_class = 0;
-			$opts->channel = 0;
-			// base 100ms
-			$opts->duration = $duration*10;
-			$opts->bssid = 'ff:ff:ff:ff:ff:ff';
-			$opts->ssid = $ssid->getName();
-			$stat = $session->call('hostapd.'.$device->getIfname(),'rrm_beacon_req', $opts);
-			usleep(250000);
-		}
-		
-	}
-	sleep(10);
-	$query = $em->createQuery(
-		    'SELECT sl
+            return false;
+        }
+        $startTime = new \DateTime('now');
+        foreach ($ssid->getDevices() as $device) {
+            $radio = $device->getRadio();
+            $ap = $radio->getAccesspoint();
+            $cfg = $device->getConfig();
+            $clients = $device->getClients(true);
+            //$this->output->writeln("Clients: ".print_r($clients,true));
+            if (!count($clients)) {
+                continue;
+            }
+            if (empty($device->getIfname())) {
+                $this->output->writeln('ifname missing for '.$ap->getName().':'.$radio->getName().':'.$device->getName());
+                continue;
+            }
+            $session = $this->rpcService->getSession($ap);
+            if (false === $session) {
+                $this->output->writeln('Cannot connect to AP '.$ap->getName());
+                continue;
+            }
+
+            // 1s base
+            $duration = 400;
+            $duration = 10;
+            foreach ($clients as $client) {
+                $this->output->writeln('Requesting Report for Client '.$client);
+                $opts = new \stdClass();
+                $opts->addr = $client;
+                $opts->mode = 0;
+                $opts->op_class = 0;
+                $opts->channel = 0;
+                // base 100ms
+                $opts->duration = $duration * 10;
+                $opts->bssid = 'ff:ff:ff:ff:ff:ff';
+                $opts->ssid = $ssid->getName();
+                $stat = $session->call('hostapd.'.$device->getIfname(), 'rrm_beacon_req', $opts);
+                usleep(250000);
+            }
+        }
+        sleep(10);
+        $query = $em->createQuery(
+            'SELECT sl
 		     FROM ApManBundle:Syslog sl
 		     WHERE
 		     sl.ts>:ts
@@ -93,8 +90,8 @@ class ClientReportCommand extends Command
         $query->setParameter('ts', $startTime);
         $query->setParameter('ptr', '%beacon%');
         $entries = $query->getResult();
-	foreach ($entries as $entry) {
-		$this->output->writeln(sprintf("% 15s:%s", $entry->getSource(),$entry->getMessage()));
-	}
+        foreach ($entries as $entry) {
+            $this->output->writeln(sprintf('% 15s:%s', $entry->getSource(), $entry->getMessage()));
+        }
     }
 }

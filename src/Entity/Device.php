@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * Device
+ * Device.
  *
  * @ORM\Table(name="device")
  * @ORM\Entity
@@ -79,11 +79,10 @@ class Device extends \ApManBundle\DynamicEntity\Device
      */
     private $rrm = [];
 
-
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -91,7 +90,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -105,7 +104,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -115,7 +114,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Set config
+     * Set config.
      *
      * @param array $config
      *
@@ -123,36 +122,43 @@ class Device extends \ApManBundle\DynamicEntity\Device
      */
     public function setConfig($config)
     {
-	unset($config['ifname']);
-	unset($config['macaddr']);
-	unset($config['macaddress']);
-	$this->config = $config;
+        unset($config['ifname']);
+        unset($config['macaddr']);
+        unset($config['macaddress']);
+        $this->config = $config;
 
-	return $this;
+        return $this;
     }
 
     /**
-     * Get config
+     * Get config.
      *
      * @return array
      */
     public function getConfig()
     {
         $config = $this->config;
-	if (!empty($this->ifname)) $config['ifname'] = $this->ifname;
-	if (!empty($config['ifname'])) $config['ifname'] = "wlan-d".$this->getId();
-	if (!empty($this->address)) $config['macaddress'] = $this->address;
+        if (!empty($this->ifname)) {
+            $config['ifname'] = $this->ifname;
+        }
+        if (!empty($config['ifname'])) {
+            $config['ifname'] = 'wlan-d'.$this->getId();
+        }
+        if (!empty($this->address)) {
+            $config['macaddress'] = $this->address;
+        }
+
         return $config;
     }
 
     /**
-     * Set radio
+     * Set radio.
      *
      * @param \ApManBundle\Entity\Radio $radio
      *
      * @return Device
      */
-    public function setRadio(\ApManBundle\Entity\Radio $radio)
+    public function setRadio(Radio $radio)
     {
         $this->radio = $radio;
 
@@ -160,7 +166,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Get radio
+     * Get radio.
      *
      * @return \ApManBundle\Entity\Radio
      */
@@ -170,13 +176,13 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Set ssid
+     * Set ssid.
      *
      * @param \ApManBundle\Entity\SSID $ssid
      *
      * @return Device
      */
-    public function setSsid(\ApManBundle\Entity\SSID $ssid)
+    public function setSsid(SSID $ssid)
     {
         $this->ssid = $ssid;
 
@@ -184,7 +190,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Get ssid
+     * Get ssid.
      *
      * @return \ApManBundle\Entity\SSID
      */
@@ -194,7 +200,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Set ifname
+     * Set ifname.
      *
      * @param string $ifname
      *
@@ -208,7 +214,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Get ifname
+     * Get ifname.
      *
      * @return string
      */
@@ -218,7 +224,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Set address
+     * Set address.
      *
      * @param string $address
      *
@@ -232,7 +238,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Get address
+     * Get address.
      *
      * @return string
      */
@@ -242,22 +248,24 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * get IsEnabled
+     * get IsEnabled.
+     *
      * @return \boolean
      */
     public function getIsEnabled()
     {
-	if (!$this->getSSID()->getIsEnabled()) {
-         		return false;
-         	}
-	$config = $this->getConfig();
-	if (!isset($config['disabled'])) {
-         	    	return true;
-         	}
-	if (intval($config['disabled'])) {
-         		return false;
-         	}
-	return true;
+        if (!$this->getSSID()->getIsEnabled()) {
+            return false;
+        }
+        $config = $this->getConfig();
+        if (!isset($config['disabled'])) {
+            return true;
+        }
+        if (intval($config['disabled'])) {
+            return false;
+        }
+
+        return true;
     }
 
     public function getStatus(): ?array
@@ -280,16 +288,15 @@ class Device extends \ApManBundle\DynamicEntity\Device
     public function setRrm(?array $rrm): self
     {
         $this->rrm = $rrm;
-	if (is_array($rrm) && isset($rrm['value']) && is_array($rrm['value']) and count($rrm['value'])) {
-		$mac = $rrm['value'][0];
-		if (strlen($mac)) {
-			$this->setAddress($mac);
-		}
-	}
+        if (is_array($rrm) && isset($rrm['value']) && is_array($rrm['value']) and count($rrm['value'])) {
+            $mac = $rrm['value'][0];
+            if (strlen($mac)) {
+                $this->setAddress($mac);
+            }
+        }
 
         return $this;
     }
-
 
     /*
      *
@@ -306,5 +313,4 @@ class Device extends \ApManBundle\DynamicEntity\Device
      *
      *
      */
-
 }

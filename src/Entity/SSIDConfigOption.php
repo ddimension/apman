@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * SSIDConfigOption
+ * SSIDConfigOption.
  *
  * @ORM\Table(name="ssid_config_option")
  * @ORM\Entity
@@ -45,9 +45,10 @@ class SSIDConfigOption
      */
     private $ssid;
 
-    public function __clone() {
-	    $this->id = null;
-	    $this->ssid = null;
+    public function __clone()
+    {
+        $this->id = null;
+        $this->ssid = null;
     }
 
     public function __toString()
@@ -56,9 +57,9 @@ class SSIDConfigOption
     }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -66,7 +67,7 @@ class SSIDConfigOption
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -80,7 +81,7 @@ class SSIDConfigOption
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -90,7 +91,7 @@ class SSIDConfigOption
     }
 
     /**
-     * Set value
+     * Set value.
      *
      * @param string $value
      *
@@ -104,7 +105,7 @@ class SSIDConfigOption
     }
 
     /**
-     * Get value
+     * Get value.
      *
      * @return string
      */
@@ -114,13 +115,13 @@ class SSIDConfigOption
     }
 
     /**
-     * Set ssid
+     * Set ssid.
      *
      * @param \ApManBundle\Entity\SSID $ssid
      *
      * @return SSIDConfigOption
      */
-    public function setSsid(\ApManBundle\Entity\SSID $ssid)
+    public function setSsid(SSID $ssid)
     {
         $this->ssid = $ssid;
 
@@ -128,7 +129,7 @@ class SSIDConfigOption
     }
 
     /**
-     * Get ssid
+     * Get ssid.
      *
      * @return \ApManBundle\Entity\SSID
      */
@@ -136,5 +137,4 @@ class SSIDConfigOption
     {
         return $this->ssid;
     }
-
 }

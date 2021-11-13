@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * Feature
+ * Feature.
  *
  * @ORM\Table(name="feature")
  * @ORM\Entity
@@ -40,10 +40,10 @@ class Feature
      *
      * @ORM\Column(name="config", type="array", nullable=false)
      */
-    private $config = array();
+    private $config = [];
 
     /**
-     * Constructor
+     * Constructor.
      */
     public function __construct()
     {
@@ -52,14 +52,15 @@ class Feature
     /**
      * @return string
      */
-    public function __toString() {
-	    return (string)$this->getName();
-    }	    
+    public function __toString()
+    {
+        return (string) $this->getName();
+    }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -67,7 +68,7 @@ class Feature
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -81,7 +82,7 @@ class Feature
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -91,7 +92,7 @@ class Feature
     }
 
     /**
-     * Set implementation 
+     * Set implementation.
      *
      * @param string $implementation
      *
@@ -105,7 +106,7 @@ class Feature
     }
 
     /**
-     * Get implementation
+     * Get implementation.
      *
      * @return string
      */
@@ -115,9 +116,7 @@ class Feature
     }
 
     /**
-     * Add config
-     *
-     * @param array $config
+     * Add config.
      *
      * @return Feature
      */
@@ -129,7 +128,7 @@ class Feature
     }
 
     /**
-     * Get configOptions
+     * Get configOptions.
      *
      * @return \array
      */
@@ -139,18 +138,19 @@ class Feature
     }
 
     /**
-     * Get instance
+     * Get instance.
      *
      * @return \object|\null
      */
     public function getInstance()
     {
-	if (empty($this->instance)) {
-		return null;
-	}
-	if (!class_exists($this->instance)) {
-		return null;
-	}
+        if (empty($this->instance)) {
+            return null;
+        }
+        if (!class_exists($this->instance)) {
+            return null;
+        }
+
         return new $this->instance($this);
     }
 }

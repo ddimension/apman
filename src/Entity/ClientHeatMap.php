@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * ClientHeatMap
+ * ClientHeatMap.
  *
  * @ORM\Table(name="client_heatmap")
  * @ORM\Entity
@@ -46,18 +46,19 @@ class ClientHeatMap
     private $event;
 
     /**
-     * @var integer
+     * @var int
      *
      * @ORM\Column(name="signalstr", type="integer", nullable=true)
      */
     private $signalstr;
-    
-    public function __toString() {
-	return $this->getMessage();
+
+    public function __toString()
+    {
+        return $this->getMessage();
     }
 
     /**
-     * Set ts
+     * Set ts.
      *
      * @param \DateTime $ts
      *
@@ -71,7 +72,7 @@ class ClientHeatMap
     }
 
     /**
-     * Get ts
+     * Get ts.
      *
      * @return \DateTime
      */
@@ -81,13 +82,13 @@ class ClientHeatMap
     }
 
     /**
-     * Set Device
+     * Set Device.
      *
      * @param \ApManBundle\Entity\Device $device
      *
      * @return Device
      */
-    public function setDevice(\ApManBundle\Entity\Device $device)
+    public function setDevice(Device $device)
     {
         $this->device = $device;
 
@@ -95,7 +96,7 @@ class ClientHeatMap
     }
 
     /**
-     * Get radio
+     * Get radio.
      *
      * @return \ApManBundle\Entity\Device
      */
@@ -105,7 +106,7 @@ class ClientHeatMap
     }
 
     /**
-     * Set address
+     * Set address.
      *
      * @param string $address
      *
@@ -119,7 +120,7 @@ class ClientHeatMap
     }
 
     /**
-     * Get address
+     * Get address.
      *
      * @return string
      */
@@ -129,7 +130,7 @@ class ClientHeatMap
     }
 
     /**
-     * Set event
+     * Set event.
      *
      * @param string $event
      *
@@ -143,7 +144,7 @@ class ClientHeatMap
     }
 
     /**
-     * Get event
+     * Get event.
      *
      * @return string
      */
@@ -153,7 +154,7 @@ class ClientHeatMap
     }
 
     /**
-     * Set signalstr
+     * Set signalstr.
      *
      * @param int $signalstr
      *
@@ -167,7 +168,7 @@ class ClientHeatMap
     }
 
     /**
-     * Get signalstr
+     * Get signalstr.
      *
      * @return int
      */
@@ -175,5 +176,4 @@ class ClientHeatMap
     {
         return $this->signalstr;
     }
-
 }

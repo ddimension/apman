@@ -1,24 +1,22 @@
 <?php
+
 namespace ApManBundle\Command;
- 
+
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Style\SymfonyStyle;
-
 
 class UpdateAccessPointCommand extends Command
 {
-    protected static $defaultName = 'apman:update-ap'; 
+    protected static $defaultName = 'apman:update-ap';
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
-	$this->logger = $logger;
-	$this->apservice = $apservice;
+        $this->logger = $logger;
+        $this->apservice = $apservice;
     }
 
     protected function configure()
@@ -29,17 +27,18 @@ class UpdateAccessPointCommand extends Command
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ;
     }
- 
+
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-	$ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy( array(
-		'name' => $input->getArgument('name')
-	));
-	if (is_null($ap)) {
-		$this->output->writeln("Add this accesspoint. Cannot find it.");
-		return false;
-	}
+        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        'name' => $input->getArgument('name'),
+    ]);
+        if (is_null($ap)) {
+            $this->output->writeln('Add this accesspoint. Cannot find it.');
 
-	$this->apservice->refreshRadios($ap);
+            return false;
+        }
+
+        $this->apservice->refreshRadios($ap);
     }
 }

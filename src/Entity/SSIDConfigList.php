@@ -5,7 +5,7 @@ namespace ApManBundle\Entity;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * SSIDConfigList
+ * SSIDConfigList.
  *
  * @ORM\Table(name="ssid_config_list")
  * @ORM\Entity
@@ -46,7 +46,7 @@ class SSIDConfigList
     private $ssid;
 
     /**
-     * Constructor
+     * Constructor.
      */
     public function __construct()
     {
@@ -54,9 +54,9 @@ class SSIDConfigList
     }
 
     /**
-     * Get id
+     * Get id.
      *
-     * @return integer
+     * @return int
      */
     public function getId()
     {
@@ -64,7 +64,7 @@ class SSIDConfigList
     }
 
     /**
-     * Set name
+     * Set name.
      *
      * @param string $name
      *
@@ -78,7 +78,7 @@ class SSIDConfigList
     }
 
     /**
-     * Get name
+     * Get name.
      *
      * @return string
      */
@@ -88,13 +88,13 @@ class SSIDConfigList
     }
 
     /**
-     * Add option
+     * Add option.
      *
      * @param \ApManBundle\Entity\SSIDConfigListOption $option
      *
      * @return SSIDConfigList
      */
-    public function addOption(\ApManBundle\Entity\SSIDConfigListOption $option)
+    public function addOption(SSIDConfigListOption $option)
     {
         $this->options[] = $option;
 
@@ -102,17 +102,17 @@ class SSIDConfigList
     }
 
     /**
-     * Remove option
+     * Remove option.
      *
      * @param \ApManBundle\Entity\SSIDConfigListOption $option
      */
-    public function removeOption(\ApManBundle\Entity\SSIDConfigListOption $option)
+    public function removeOption(SSIDConfigListOption $option)
     {
         $this->options->removeElement($option);
     }
 
     /**
-     * Get options
+     * Get options.
      *
      * @return \Doctrine\Common\Collections\Collection
      */
@@ -122,13 +122,13 @@ class SSIDConfigList
     }
 
     /**
-     * Set ssid
+     * Set ssid.
      *
      * @param \ApManBundle\Entity\SSID $ssid
      *
      * @return SSIDConfigList
      */
-    public function setSsid(\ApManBundle\Entity\SSID $ssid)
+    public function setSsid(SSID $ssid)
     {
         $this->ssid = $ssid;
 
@@ -136,7 +136,7 @@ class SSIDConfigList
     }
 
     /**
-     * Get ssid
+     * Get ssid.
      *
      * @return \ApManBundle\Entity\SSID
      */
@@ -144,6 +144,4 @@ class SSIDConfigList
     {
         return $this->ssid;
     }
-
-
 }
