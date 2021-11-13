@@ -121,6 +121,12 @@ class SubscriptionService {
 
     private function handleMosquittoMessage($message) {
 	    $em = $this->doctrine->getManager();
+	    if (!$em->isOpen()) {
+		    $em = $em->create(
+			$em->getConnection(),
+			$em->getConfiguration()
+	            );
+	   }
 /*
 	    if (strpos($message->topic, 'ap-outdoor.kalnet.hooya.de') !== false) {
 echo "XX ";		   
