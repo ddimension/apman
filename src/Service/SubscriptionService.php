@@ -33,27 +33,6 @@ class SubscriptionService
         $this->cacheFactory = $cacheFactory;
     }
 
-    public static function checkResult($result)
-    {
-        if (!is_object($result)) {
-            return false;
-        }
-        if (!property_exists($result, 'jsonrpc')) {
-            return false;
-        }
-        if ('2.0' != $result->jsonrpc) {
-            return false;
-        }
-        if (!property_exists($result, 'result')) {
-            return false;
-        }
-        if (!is_array($result->result)) {
-            return false;
-        }
-
-        return true;
-    }
-
     public function runMqttLoop()
     {
         $this->logger->info('Starting MqttLoop');
@@ -215,7 +194,7 @@ class SubscriptionService
             $data = [];
             $data[$tp[5]] = json_decode($message->payload, true);
             $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId(), $data);
-            $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId().'.'.$tp[5], $data[$tp[5]], 86400);
+            $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId().'.'.$tp[5], $data[$tp[5]], 180*86400);
 
             return true;
         } elseif ('properties' == $tp[3] && 'session' == $tp[4] && 'create' == $tp[5]) {

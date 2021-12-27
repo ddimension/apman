@@ -31,12 +31,5 @@ class SSIDConfigOptionAdmin extends AbstractAdmin
 
     public function prePersist($object)
     {
-        //	$object = parent::create($object);
-        file_put_contents('/tmp/xxxxw', "bla\n");
-        if ($this->isChild()) {
-            echo "HOHOHO\n<br>";
-            echo 'P:'.$this->getParent()->getId();
-        }
-        echo "FFOHOHO\n<br>";
     }
 }
