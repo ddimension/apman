@@ -28,7 +28,7 @@ class CacheFactory
     );
          */
         $this->client = RedisAdapter::createConnection(
-        'redis://localhost'
+        'redis://'.$_SERVER['REDIS']
     );
 
         return $this->client;
