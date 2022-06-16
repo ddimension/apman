@@ -97,7 +97,7 @@ class SSID
      * Import Config.
      *
      * @param $doctrine
-     * @param \Object $config
+     * @param \object $config
      *
      * @return
      */
@@ -209,7 +209,7 @@ class SSID
     /**
      * Export Config.
      *
-     * @return \Object
+     * @return \object
      */
     public function exportConfig()
     {

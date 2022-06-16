@@ -179,6 +179,16 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     private $accesspoint;
 
     /**
+     * @ORM\Column(type="string", length=24, nullable=true)
+     */
+    private $he_bss_color;
+
+    /**
+     * @ORM\Column(type="string", length=24, nullable=true)
+     */
+    private $he_su_beamformee;
+
+    /**
      * Constructor.
      */
     public function __construct()
@@ -820,5 +830,29 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     public function getIsEnabled()
     {
         return intval($this->getConfigDisabled()) < 1;
+    }
+
+    public function getHeBssColor(): ?string
+    {
+        return $this->he_bss_color;
+    }
+
+    public function setHeBssColor(?string $he_bss_color): self
+    {
+        $this->he_bss_color = $he_bss_color;
+
+        return $this;
+    }
+
+    public function getHeSuBeamformee(): ?string
+    {
+        return $this->he_su_beamformee;
+    }
+
+    public function setHeSuBeamformee(?string $he_su_beamformee): self
+    {
+        $this->he_su_beamformee = $he_su_beamformee;
+
+        return $this;
     }
 }

@@ -24,7 +24,7 @@ class Client
     /**
      * @var string|null
      *
-     * @ORM\Column(name="mac", type="string", length=17, nullable=true)
+     * @ORM\Column(name="mac", type="string", length=17, nullable=true, unique=true)
      */
     private $mac;
 
@@ -48,6 +48,11 @@ class Client
      * @ORM\Column(name="name", type="string", length=255, nullable=true)
      */
     private $name;
+
+    /**
+     * @ORM\Column(type="boolean", nullable=true)
+     */
+    private $SteeringDisabled = false;
 
     /**
      * Get id.
@@ -153,5 +158,17 @@ class Client
     public function getName()
     {
         return $this->name;
+    }
+
+    public function getSteeringDisabled(): ?bool
+    {
+        return $this->SteeringDisabled;
+    }
+
+    public function setSteeringDisabled(?bool $SteeringDisabled): self
+    {
+        $this->SteeringDisabled = $SteeringDisabled;
+
+        return $this;
     }
 }
