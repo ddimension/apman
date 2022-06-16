@@ -12,6 +12,8 @@ class AccessPointService
     private $kernel;
     private $mqttFactory;
     private $cacheFactory;
+    private $steeringState = ['clients' => [], 'state' => []];
+    private $ieparser;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -19,7 +21,8 @@ class AccessPointService
         wrtJsonRpc $rpcService,
         \Symfony\Component\HttpKernel\KernelInterface $kernel,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
-        \ApManBundle\Factory\CacheFactory $cacheFactory
+    \ApManBundle\Factory\CacheFactory $cacheFactory,
+    WifiIeParser $ieparser
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -27,6 +30,7 @@ class AccessPointService
         $this->kernel = $kernel;
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
+        $this->ieparser = $ieparser;
     }
 
     /**
@@ -136,11 +140,11 @@ class AccessPointService
         }
 
         $commands = [
-        'list' => [],
-        'options' => [
-            'cancel_on_error' => false,
-        ],
-    ];
+            'list' => [],
+            'options' => [
+                'cancel_on_error' => false,
+            ],
+        ];
         // total clean up
         $opts = new \stdClass();
         $opts->config = 'wireless';
@@ -934,15 +938,263 @@ class AccessPointService
         foreach ($cmds as $apname => $apcmds) {
             $topic = 'apman/ap/'.$apname.'/command/bulk';
             $commands = [
-            'list' => $apcmds,
-            'options' => [
-                'cancel_on_error' => false,
-            ],
-        ];
+                'list' => $apcmds,
+                'options' => [
+                    'cancel_on_error' => false,
+                ],
+            ];
             if (count($commands['list'])) {
                 $this->logger->info("assignAllNeighbors(): send rrm commands to $apname\n");
                 $client->publish($topic, json_encode($commands));
             }
+        }
+    }
+
+    public function handleStationUpdates(\ApManBundle\Entity\Device $device, array $data)
+    {
+        if (!array_key_exists('clients', $data)) {
+            return false;
+        }
+        if (!is_array($data['clients'])) {
+            return false;
+        }
+        if (!array_key_exists('clients', $data['clients'])) {
+            return false;
+        }
+        if (!is_array($data['clients']['clients'])) {
+            return false;
+        }
+        $clients = $data['clients']['clients'];
+        if (0 == count($clients)) {
+            return false;
+        }
+        if (!isset($data['assoclist'])) {
+            return false;
+        }
+        if (!is_array($data['assoclist'])) {
+            return false;
+        }
+        if (!isset($data['assoclist']['results'])) {
+            return false;
+        }
+        if (!is_array($data['assoclist']['results'])) {
+            return false;
+        }
+        if (0 == count($data['assoclist']['results'])) {
+            return false;
+        }
+
+        foreach ($data['assoclist']['results'] as $r) {
+            $mac = strtolower($r['mac']);
+            $this->stationRunner($device, $mac, $r, $clients[$mac]);
+        }
+    }
+
+    private function stationRunner(\ApManBundle\Entity\Device $device, string $mac, array $assocProps, array $apData)
+    {
+        $em = $this->doctrine->getManager();
+
+        $band = $device->getRadio()->getConfigBand();
+        $updated = false;
+        if (!array_key_exists($mac, $this->steeringState['clients'])) {
+            $qb = $em->createQueryBuilder();
+            $query = $em->createQuery(
+            'SELECT c
+			 FROM ApManBundle:Client c
+			 WHERE c.mac=:mac'
+            );
+            $query->setParameter('mac', $mac);
+            try {
+                $client = $query->getSingleResult();
+            } catch (\Doctrine\ORM\NoResultException $e) {
+                $this->logger->warning('stationRunner('.$mac.'): Client not found, create it.');
+                $client = new \ApManBundle\Entity\Client();
+                $client->setMac($mac);
+                $updated = true;
+            }
+            $this->steeringState['clients'][$mac] = $client;
+        }
+        $client = $this->steeringState['clients'][$mac];
+
+        // Check if band updates are needed
+        if ('5g' == $band) {
+            if (!$client->getModeA()) {
+                $client->setModeA(true);
+                $updated = true;
+            }
+        } elseif ('2g' == $band) {
+            if (!$client->getModeG()) {
+                $client->setModeG(true);
+                $updated = true;
+            }
+        }
+        if ($updated) {
+            $em->persist($client);
+            $em->flush();
+        }
+
+        return $this->steerClient($client, $device, $mac, $assocProps, $apData);
+    }
+
+    private function steerClient(\ApManBundle\Entity\Client $client, \ApManBundle\Entity\Device $device, string $mac, array $assocProps, array $apData)
+    {
+        $em = $this->doctrine->getManager();
+        $ap = $device->getRadio()->getAccesspoint();
+        $ssid = $device->getSsid();
+        $band = $device->getRadio()->getConfigBand();
+        $try = 1;
+        $type = 'del_client';
+        $transition_timeout = 30;
+        $wnm_capable = false;
+
+        if ($client->getSteeringDisabled()) {
+            //$this->logger->warning('steerClient('.$mac.'): Steering disabled for client.');
+            return false;
+        }
+        if ('kalnet' !== $ssid->getName()) {
+            //$this->logger->warning('steerClient('.$mac.'): Steering disabled for SSID.', [ 'ssid' => $ssid->getName() ] );
+            return false;
+        }
+
+        $connected = intval($assocProps['connected_time']);
+        if ($connected < 100) {
+            return false;
+        }
+
+        $signal = intval($assocProps['signal']);
+
+        if (isset($apData['signature']) and !empty($apData['signature'])) {
+            $ieTags = $this->ieparser->parseSignature($apData['signature']);
+            if (is_array($ieTags)) {
+                $ieCaps = $this->ieparser->getExtendedCapabilities($ieTags);
+                if (in_array('BSS Transition', $ieCaps)) {
+                    //$this->logger->warning('steerClient('.$mac.'): Capable of wnm notification.');
+                    $wnm_capable = true;
+                    $type = 'bss_transition_request';
+                }
+            }
+        }
+
+        if ('5g' == $band) {
+            // Already connected via 5g, no need.
+            if (array_key_exists($mac, $this->steeringState['state'])) {
+                // transition was successfull
+                unset($this->steeringState['state'][$mac]);
+                $this->logger->warning('steerClient('.$mac.'): successfull.');
+            }
+
+            return false;
+        }
+
+        if ('2g' == $band and $connected < 100) {
+            // The last transition failed, do not retry.
+            if (array_key_exists($mac, $this->steeringState['state'])) {
+                $this->steeringState['state'][$mac]['try'] = 99;
+                $this->logger->error('steerClient('.$mac.'): Last transition failed, blocking further.');
+
+                return false;
+            }
+        }
+
+        if ('2g' == $band and $signal > -65 and $connected > 100) {
+            if (!$client->getModeA()) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        if (array_key_exists($mac, $this->steeringState['state'])) {
+            if (time() <= $this->steeringState['state'][$mac]['timeout'] + $transition_timeout) {
+                $this->logger->error('steerClient('.$mac.'): ignoring request, another steering process is ongoing.', $this->steeringState['state'][$mac]);
+
+                return false;
+            }
+
+            if ($this->steeringState['state'][$mac]['try'] > 0) {
+                // totally ignore
+                return false;
+            }
+            $this->logger->error('steerClient('.$mac.'): Timeout reached, start new request.', $this->steeringState['state'][$mac]);
+            $try = $this->steeringState['state'][$mac]['try'] + 1;
+            unset($this->steeringState['state'][$mac]);
+        }
+
+        $mclient = $this->mqttFactory->getClient();
+        if (!$mclient) {
+            $this->logger->error('steerClient('.$mac.'): Failed to get mqtt client.');
+
+            return false;
+        }
+
+        if ('del_client' == $type) {
+            $opts = new \stdClass();
+            $opts->addr = $mac;
+            $opts->reason = 5;
+            $opts->deauth = false;
+            $opts->ban_time = 10;
+
+            $topic = 'apman/ap/'.$ap->getName().'/command';
+            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
+            $this->logger->warning('steerClient('.$mac.'): Sending del_client message to topic '.$topic.': '.json_encode($cmd), ['wnm_capable' => $wnm_capable]);
+            $res = $mclient->publish($topic, json_encode($cmd));
+            $this->steeringState['state'][$mac] = ['client' => $client, 'last_sent' => time(), 'timeout' => time() + $opts->ban_time, 'try' => $try];
+
+            return true;
+        } elseif ('bss_transition_request' == $type) {
+            $qb = $em->createQueryBuilder();
+            $query = $em->createQuery(
+            'SELECT d
+			 FROM ApManBundle:Device d
+			 LEFT JOIN d.radio r
+			 LEFT JOIN r.accesspoint ap
+			 LEFT JOIN d.ssid s
+			 WHERE ap.id=:ap_id
+			 AND d.id!=:curdev_id
+			 AND d.rrm IS NOT NULL
+			 AND s.id=:ssid_id
+			 AND r.config_band=:band'
+            );
+            $query->setParameter('ap_id', $ap->getId());
+            $query->setParameter('ssid_id', $ssid->getId());
+            $query->setParameter('curdev_id', $device->getId());
+            $query->setParameter('band', '5g');
+            $res = $query->getResult();
+            $targetDev = null;
+            foreach ($res as $t) {
+                $targetDev = $t;
+                break;
+            }
+            if (is_null($targetDev)) {
+                $this->logger->info('steerClient('.$mac.'): Failed to find a target device on the same access point.', ['device' => $device->getId(), 'ap' => $ap->getName()]);
+
+                return false;
+            }
+
+            $this->logger->error('steerClient('.$mac.'): Target Dev.', ['device' => $targetDev->getId(), 'ap' => $targetDev->getRadio()->getAccesspoint()->getName()]);
+            $opts = new \stdClass();
+            $opts->addr = $mac;
+            $opts->abridged = true;
+            $opts->neighbors = [];
+            $opts->disassociation_imminent = false;
+            $opts->disassociation_timer = 150;
+
+            $rrm = $targetDev->getRrm();
+            $rrm = json_decode(json_encode($rrm));
+            if (!is_object($rrm) || !property_exists($rrm, 'value') || !is_array($rrm->value)) {
+                $this->logger->error('steerClient('.$mac.'): Failed to get rrm.', ['device' => $device->getId()]);
+
+                return false;
+            }
+            $opts->neighbors = [$rrm->value[2]];
+
+            $topic = 'apman/ap/'.$ap->getName().'/command';
+            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
+            $this->logger->warning('steerClient('.$mac.'): Sending bss_transition_request message to topic '.$topic.': '.json_encode($cmd), ['wnm_capable' => $wnm_capable]);
+            $res = $mclient->publish($topic, json_encode($cmd));
+            $this->steeringState['state'][$mac] = ['client' => $client, 'last_sent' => time(), 'timeout' => time() + $opts->disassociation_timer / 10, 'try' => $try];
+
+            return true;
         }
     }
 }

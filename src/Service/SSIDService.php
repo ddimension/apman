@@ -22,7 +22,7 @@ class SSIDService
     /**
      * apply Location Constraints.
      *
-     * @param \Array                    $assocList
+     * @param \array                    $assocList
      * @param ApmanBundle\Entity\Device $device
      *
      * @return \boolean|\null
@@ -146,7 +146,7 @@ class SSIDService
      *
      * @param ApmanBundle\Entity\Client $client
      * @param ApmanBundle\Entity\Device $device
-     * @param \Integer                  $timeout
+     * @param \integer                  $timeout
      * @param $targetDevice
      *
      * @return \boolean|\null

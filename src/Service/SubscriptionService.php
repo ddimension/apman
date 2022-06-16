@@ -194,7 +194,7 @@ class SubscriptionService
             $data = [];
             $data[$tp[5]] = json_decode($message->payload, true);
             $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId(), $data);
-            $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId().'.'.$tp[5], $data[$tp[5]], 180*86400);
+            $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId().'.'.$tp[5], $data[$tp[5]], 180 * 86400);
 
             return true;
         } elseif ('properties' == $tp[3] && 'session' == $tp[4] && 'create' == $tp[5]) {
@@ -349,6 +349,8 @@ class SubscriptionService
 
         if (property_exists($data, 'stations')) {
             $raw = $data->stations;
+            $mac = '';
+            $added = false;
             foreach (explode("\n", $raw) as $value) {
                 $line = trim($value);
                 $search = strtolower('station ');
@@ -370,6 +372,7 @@ class SubscriptionService
                 if (!array_key_exists($mac, $stations)) {
                     $stations[$mac] = [];
                 }
+                $added = true;
                 $stations[$mac][$key] = $val;
             }
         }
@@ -386,6 +389,8 @@ class SubscriptionService
         $this->cacheFactory->addCacheItem($key, $data);
         $updated[] = $ap->getName().' '.$device->getIfname();
         $this->logger->info('Updated status.', ['status' => 0, 'devices_updated' => $updated]);
+        // handle station updates
+        $this->apService->handleStationUpdates($device, $data);
 
         return true;
     }
