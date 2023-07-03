@@ -59,9 +59,9 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     /**
      * @var string|null
      *
-     * @ORM\Column(name="config_channel_list", type="string", length=64, nullable=true)
+     * @ORM\Column(name="config_channels", type="string", length=64, nullable=true)
      */
-    private $config_channel_list;
+    private $config_channels;
 
     /**
      * @var string|null
@@ -729,27 +729,27 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     }
 
     /**
-     * Set configChannelList.
+     * Set configChannels.
      *
-     * @param string $configChannelList
+     * @param string $configChannels
      *
      * @return Radio
      */
-    public function setConfigChannelList($configChannelList)
+    public function setConfigChannels($configChannels)
     {
-        $this->config_channel_list = $configChannelList;
+        $this->config_channels = $configChannels;
 
         return $this;
     }
 
     /**
-     * Get configChannelList.
+     * Get configChannels.
      *
      * @return string
      */
-    public function getConfigChannelList()
+    public function getConfigChannels()
     {
-        return $this->config_channel_list;
+        return $this->config_channels;
     }
 
     /**

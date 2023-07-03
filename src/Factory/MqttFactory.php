@@ -21,7 +21,7 @@ class MqttFactory
         }
         $this->logger->info('Starting Mqtt client');
         if (empty($id)) {
-            $id = 'apmanwebclient';
+            #$id = 'apmanwebclient';
         }
         if (is_null($cleanSession)) {
             $cleanSession = true;

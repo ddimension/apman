@@ -290,7 +290,7 @@
 				{% if heatmap[client]  is defined %}
 					{% for probe in heatmap[client] %}
 						{% if data[system][device]['info'].ssid is defined and probe.device.ssid.getName() == data[system][device]['info'].ssid %}
-							<span title="{{ probe.getTs()|date }}">{{ probe.device.radio.accesspoint.name }}/{{ probe.device.radio.configHwmode }} {{ probe.signalstr }}</span><br />
+							<span title="{{ probe.getTs()|date }}">{{ probe.device.radio.accesspoint.name | split('.', 2)[0] }}/{{ probe.device.radio.configBand }} {{ probe.signalstr }}</span><br />
 						{% endif %}
 					{% endfor %}
 				{% endif %}

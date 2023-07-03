@@ -18,7 +18,7 @@ class RadioAdmin extends AbstractAdmin
         $formMapper->add('config_path');
         $formMapper->add('config_disabled');
         $formMapper->add('config_channel');
-        $formMapper->add('config_channel_list');
+        $formMapper->add('config_channels');
         $formMapper->add('config_band');
         $formMapper->add('config_hwmode');
         $formMapper->add('config_txpower');

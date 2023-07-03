@@ -78,6 +78,7 @@ class SubscriptionService
             });
             $this->logger->info('Connected');
             $this->client->subscribe('apman/#', 0);
+            $this->client->subscribe('apman/#', 1);
             $loopTime = 10;
             try {
                 $lStart = time();
@@ -90,7 +91,17 @@ class SubscriptionService
                 }
             } catch (\Exception $e) {
                 $this->logger->info('Exception occured: '.$e->getMessage());
-                sleep(10);
+                //if (strpos($e->getMessage(), 'PDOException: SQLSTATE[HY000]') !== false) {
+                // reconnect
+                $this->logger->warn('Database Connection Exception occured.');
+                $em = $this->doctrine->getManager();
+                if (false === $em->getConnection()->ping()) {
+                    $this->logger->warn('Database ping failed, reconnect.');
+                    $em->getConnection()->close();
+                    $em->getConnection()->connect();
+                }
+                //}
+                sleep(1);
                 continue;
             }
             $this->logger->info('Disconnected.');
@@ -125,12 +136,20 @@ class SubscriptionService
         } elseif ('ap' == $tp[1]) {
             $hostname = $tp[2];
             if ('device' == $tp[3]) {
-                $device = $tp[4];
-            } elseif ('notifications' == $tp[3]) {
-                $device = $tp[4];
-            } elseif ('properties' == $tp[3]) {
-                if ('hostapd.' == substr($tp[4], 0, 8)) {
+                if ('hostapd' == $tp[4]) {
+                    $device = $tp[5];
+                } else {
                     $device = $tp[4];
+                }
+            } elseif ('notifications' == $tp[3]) {
+                if ('hostapd' == $tp[4]) {
+                    $device = $tp[5];
+                } else {
+                    $device = $tp[4];
+                }
+            } elseif ('properties' == $tp[3]) {
+                if ('hostapd' == $tp[4]) {
+                    $device = $tp[5];
                 }
             } elseif ('booted' == $tp[3]) {
                 //$this->assignAllNeighbors();
@@ -150,6 +169,8 @@ class SubscriptionService
         if (false !== strpos($device, '.')) {
             $device = substr($device, strpos($device, '.') + 1);
         }
+        //$this->logger->info('handleMosquittoMessage(): AP Message.', [$hostname, $device, $message->topic]);
+
         /*
         // Cache Expiration
         if (isset($this->cacheCreated)) {
@@ -228,6 +249,7 @@ class SubscriptionService
             */
         }
         //echo "XX: ".$message->topic.' '.$message->payload."\n";
+        //$this->logger->info('handleMoqsquittoMessage(): debug '.$hostname, [$message->topic]);
 
         // Handle device specific messages
         if (!isset($this->cacheLocal['dev-by-ap-ifname'][$hostname])) {
@@ -246,7 +268,7 @@ class SubscriptionService
 
             return false;
         }
-        if ('device' == $tp[3] && 'status' == $tp[5]) {
+        if ('device' == $tp[3] && 'status' == $tp[6]) {
             $this->statusHandler($device, $message);
 
             return true;
@@ -268,6 +290,9 @@ class SubscriptionService
             return true;
         } elseif ('notifications' == $tp[3]) {
             $event = $tp[5];
+            if ($tp[6]) {
+                $event = $tp[6];
+            }
             $data = json_decode($message->payload);
             if ('probe' == $event) {
                 $obj = new \stdClass();
@@ -286,12 +311,12 @@ class SubscriptionService
                 }
 
                 $this->logger->info("handleMoqsquittoMessage(): saved $event as ClindHeatMap.",
-                [
+                    [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),
                     'ifName' => $device->getIfname(),
-                ]
-            );
+                    ]
+                );
 
                 return true;
             } else {
@@ -306,12 +331,12 @@ class SubscriptionService
                 }
                 $em->persist($devent);
                 $this->logger->info("handleMoqsquittoMessage(): saved $event as Event.",
-                [
+                    [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),
                     'ifName' => $device->getIfname(),
-                ]
-            );
+                    ]
+                );
                 $em->flush();
 
                 return true;

@@ -85,15 +85,20 @@ class DefaultController extends Controller
         if ($firewall_host) {
             $logger->debug('Building MAC cache');
             $session = $rpc->login($firewall_host, $firewall_user, $firewall_pwd);
+            $logger->debug('Result of firewall login:', ['session' => $session, 'host' => $firewall_host, 'user' => $firewall_user]);
             if (false !== $session) {
                 // Read dnsmasq leases
                 $opts = new \stdclass();
                 $opts->command = 'cat';
                 $opts->params = ['/tmp/dhcp.leases'];
                 $stat = $session->call('file', 'exec', $opts);
+
+                $logger->debug('L0', ['stat' => $stat]);
                 if (property_exists($stat, 'stdout') && is_array($stat->stdout)) {
+                    $logger->debug('L1');
                     $lines = explode("\n", $stat->stdout);
                     foreach ($lines as $line) {
+                        $logger->debug('L', ['line' => $line]);
                         $ds = explode(' ', $line);
                         if (!array_key_exists(3, $ds)) {
                             continue;
@@ -112,6 +117,7 @@ class DefaultController extends Controller
                 $opts->command = 'ip';
                 $opts->params = ['-4', 'neighb'];
                 $stat = $session->call('file', 'exec', $opts);
+                $logger->debug('L1', ['stat' => $stat]);
                 $lines = explode("\n", $stat->stdout);
                 foreach ($lines as $line) {
                     $ds = explode(' ', $line);
@@ -121,7 +127,7 @@ class DefaultController extends Controller
                     $mac = strtolower($ds[4]);
                     if (strlen($mac)) {
                         if (array_key_exists($mac, $neighbors) && array_key_exists('name', $neighbors[$mac])) {
-                            continue;
+                            //continue;
                         }
                         $neighbors[$mac] = ['ip' => $ds[0]];
                         $cache = $this->get('session')->get('name_cache', null);
@@ -156,6 +162,7 @@ class DefaultController extends Controller
             $logger->debug('MAC cache complete');
         }
         $aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
+        $logger->debug('Cache', ['cache' => $cache]);
         $logger->debug('Logging in to all APs');
         $sessions = [];
         $data = [];
@@ -261,6 +268,10 @@ class DefaultController extends Controller
                 $hme->setSignalstr($probe->signalstr);
             }
             $heatmap[$probe->address][] = $hme;
+        }
+        foreach ($heatmap as $pa => $ps) {
+            usort($ps, function ($a, $b) {return $a->getTs() < $b->getTs(); });
+            $heatmap[$pa] = $ps;
         }
 
         return $this->render('default/clients.html.twig', [
@@ -527,7 +538,7 @@ class DefaultController extends Controller
                     continue;
                 }
                 foreach ($ds['assoclist'] as $clientMac => $assocData) {
-                //print_r($ds);
+                    //print_r($ds);
                     //exit;
 
                     $status = [];
@@ -714,8 +725,8 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd));
-        $client->loop(1);
+        $res = $client->publish($topic, json_encode($cmd),1);
+        $client->loop(1000);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));
@@ -749,8 +760,8 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd));
-        $client->loop(1);
+        $res = $client->publish($topic, json_encode($cmd),1);
+        $client->loop(1000);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));
@@ -846,8 +857,8 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'wnm_disassoc_imminent', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd));
-        $client->loop(1);
+        $res = $client->publish($topic, json_encode($cmd),1);
+        $client->loop(1000);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));
@@ -927,10 +938,9 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'bss_transition_request', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd));
-        $client->loop(1);
+        $res = $client->publish($topic, json_encode($cmd),1);
+        $client->loop(1000);
         $client->disconnect();
-
         return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
@@ -984,8 +994,8 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'rrm_beacon_req', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd));
-        $client->loop(1);
+        $res = $client->publish($topic, json_encode($cmd),1);
+        $client->loop(1000);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));
@@ -1108,7 +1118,7 @@ class DefaultController extends Controller
 		LEFT JOIN d.radio r
 		LEFT JOIN r.accesspoint a
 		WHERE e.address = :mac
-		ORDER by e.ts DESC
+		ORDER by e.ts DESC,e.id DESC
 	");
         $query->setParameter('mac', $mac);
         $events = $query->getResult();

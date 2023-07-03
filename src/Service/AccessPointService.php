@@ -254,7 +254,7 @@ class AccessPointService
         $opts->type = 'wifi-device';
         $stat = $session->call('uci', 'get', $opts);
         if (!isset($stat->values) || !count(get_object_vars($stat->values))) {
-            $this->logger->warn('No radios found on AP '.$ap->getName());
+            $this->logger->warning('No radios found on AP '.$ap->getName());
 
             return false;
         }
@@ -686,6 +686,7 @@ class AccessPointService
             $pending = false;
             $up = false;
             $failed = false;
+
             foreach ($msg as $name => $rstate) {
                 //var_dump($rstate);
                 if ('timestamp' == $name or !is_array($rstate)) {
@@ -832,13 +833,15 @@ class AccessPointService
         // Cache update
         $state = $this->changeLifetimeState($ap, $state);
         $this->logger->debug("ApLifetimeHandler(): state '".\ApManBundle\Library\AccessPointState::getStateName($state)."' of ap ".$ap->getName());
+
+        return true;
     }
 
     public function lifetimeHouseKeeping(array $aps, array $devicesByAp)
     {
         $em = $this->doctrine->getManager();
         if (is_null($aps) || !is_array($aps) || !count($aps)) {
-            $this->output->writeln('No productive Accesspoints found.');
+            $this->logger->warn('No productive Accesspoints found.');
 
             return false;
         }
@@ -986,7 +989,9 @@ class AccessPointService
 
         foreach ($data['assoclist']['results'] as $r) {
             $mac = strtolower($r['mac']);
-            $this->stationRunner($device, $mac, $r, $clients[$mac]);
+            if (isset($clients[$mac])) {
+                $this->stationRunner($device, $mac, $r, $clients[$mac]);
+            }
         }
     }
 
