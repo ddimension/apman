@@ -82,25 +82,77 @@ class OweFeatureService implements iFeatureService
     public function getConfig(array $config)
     {
         $this->logger->info('OweFeatureService:getConfig(): called.');
-        $config['owwee'] = '1';
-        $this->logger->info('OweFeatureService:getConfig(): map: '.print_r($this->map->getConfig(), true));
 
-        $devId = $this->device->getId();
-        $myconf = $this->map->getConfig();
-        $devmap = $myconf['devmap'];
+        $fcfg = $this->feature->getConfig();
+        if (!isset($fcfg['ssid_open'])) {
+            $this->logger->error('OweFeatureService:getConfig(): No ssid_open config entry.');
 
+            return $config;
+        }
+        if (!isset($fcfg['ssid_owe'])) {
+            $this->logger->error('OweFeatureService:getConfig(): No ssid_owe config entry.');
+
+            return $config;
+        }
+
+        if (!isset($config['encryption'])) {
+            $this->logger->error('OweFeatureService:getConfig(): No encryption in device config.');
+
+            return $config;
+        }
+
+        $encryption = strtolower($config['encryption']);
+        if ('owe' == $encryption) {
+            $other_ssid_name = $fcfg['ssid_open'];
+        //$config['hidden'] = 1;
+        } else {
+            $other_ssid_name = $fcfg['ssid_owe'];
+        }
+
+        // get other SSID
         $em = $this->doctrine->getManager();
         $qb = $em->createQueryBuilder();
+        $query = $em->createQuery('SELECT c FROM ApManBundle\Entity\SSIDConfigOption c
+		LEFT JOIN c.ssid s
+		WHERE
+		c.name = :ssid AND c.value = :ssid_name'
+        );
+        $query->setParameter('ssid', 'ssid');
+        $query->setParameter('ssid_name', $other_ssid_name);
+        try {
+            $other_ssid_config = $query->getSingleResult();
+        } catch (\Doctrine\Orm\NoResultException $e) {
+            $this->logger->error('OweFeatureService:getConfig(): SSID '.$other_ssid_name.' not found.');
+
+            return $config;
+        }
+        $other_ssid = $other_ssid_config->getSSID();
+
+        //echo "SSID: ".$config['ssid']."\n";
+        //echo "Other SSID: ".$other_ssid_name."\n";
         $query = $em->createQuery(
             'SELECT d
 			FROM ApManBundle:Device d
-			WHERE d.id = :did'
+			WHERE d.ssid = :ssid AND d.radio = :radio'
         );
-        $query->setParameter('did', $devmap[$this->device->getId()]);
-        $other_device = $query->getSingleResult();
-        $other_ssid_cfg = $other_device->getSsid()->exportConfig();
-        $config['owe_transition_ssid'] = $other_ssid_cfg->ssid;
-        $config['owe_transition_bssid'] = $other_device->getAddress();
+        $query->setParameter('ssid', $other_ssid);
+        $query->setParameter('radio', $this->device->getRadio());
+        try {
+            $other_device = $query->getSingleResult();
+        } catch (\Doctrine\Orm\NoResultException $e) {
+            $this->logger->error('OweFeatureService:getConfig(): No device found for SSID '.$other_ssid_name.' and radio '.$this->device->getRadio->getName());
+
+            return $config;
+        }
+
+        if (strlen($other_device->getIfname())) {
+            $config['owe_transition_ifname'] = $other_device->getIfname();
+        } elseif (strlen($other_device->getAddress())) {
+            $config['owe_transition_ssid'] = $other_ssid_name;
+            $config['owe_transition_bssid'] = $other_device->getAddress();
+        } else {
+            $this->logger->error('OweFeatureService:getConfig(): Failed to get other device ifname or address.');
+        }
 
         return $config;
     }
@@ -128,7 +180,6 @@ class OweFeatureService implements iFeatureService
             $this->logger->info('OweFeatureService:applyConstraints(): owe map missing');
             $this->setupOweSsid();
         }
-
         foreach ($maps as $map) {
             $this->logger->info('OweFeatureService:applyConstraints(): loop.');
         }
