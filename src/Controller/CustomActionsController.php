@@ -65,7 +65,7 @@ class CustomActionsController extends CRUDController
                     }
                 }
             }
-            $client->loop(100);
+            // $client->loop(100);
             // Wait for evacuation
             if ($haveClients) {
                 sleep($deadline);
@@ -124,7 +124,7 @@ class CustomActionsController extends CRUDController
                     }
                 }
             }
-            $client->loop(100);
+            //$client->loop(100);
             // Wait for evacuation
             if ($haveClients) {
                 sleep($deadline);
@@ -188,7 +188,7 @@ class CustomActionsController extends CRUDController
                     }
                 }
             }
-            $client->loop(100);
+            //$client->loop(100);
             // Wait for evacuation
             if ($haveClients) {
                 sleep($deadline);
@@ -251,7 +251,7 @@ class CustomActionsController extends CRUDController
             $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'reboot', $opts);
             $this->logger->info($ap->getName().': Sent reboot command.');
             $res = $client->publish($topic, json_encode($cmd));
-            $client->loop(1);
+            //$client->loop(1);
         }
         $this->addFlash('sonata_flash_success', 'Reboot initiated.');
         $client->disconnect();

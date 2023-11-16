@@ -43,13 +43,7 @@
 	WMM
 </th>
 <th>
-	HT
-</th>
-<th>
-	VHT
-</th>
-<th>
-	HE
+	HT Mode
 </th>
 <th>
 	WPS
@@ -169,18 +163,14 @@
 				{% endif %}
 			</td>
 			<td>
-				{% if data[system][device]['assoclist'][client]['tx'].ht is defined %}
-					{{ data[system][device]['assoclist'][client]['tx'].ht }}
+				{% if data[system][device]['assoclist'][client]['tx'].ht is defined and data[system][device]['assoclist'][client]['tx'].ht %}
+					HT
 				{% endif %}
-			</td>
-			<td>
-				{% if data[system][device]['assoclist'][client]['tx'].vht is defined %}
-					{{ data[system][device]['assoclist'][client]['tx'].vht }}
+				{% if data[system][device]['assoclist'][client]['tx'].vht is defined and data[system][device]['assoclist'][client]['tx'].vht %}
+					VHT
 				{% endif %}
-			</td>
-			<td>
-				{% if data[system][device]['assoclist'][client]['tx'].he is defined %}
-					{{ data[system][device]['assoclist'][client]['tx'].he }}
+				{% if data[system][device]['assoclist'][client]['tx'].he is defined and data[system][device]['assoclist'][client]['tx'].he %}
+					HE
 				{% endif %}
 			</td>
 			<td>

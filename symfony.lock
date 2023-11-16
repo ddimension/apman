@@ -135,6 +135,9 @@
     "monolog/monolog": {
         "version": "1.25.5"
     },
+    "myclabs/php-enum": {
+        "version": "1.8.4"
+    },
     "nikic/php-parser": {
         "version": "v4.7.0"
     },
@@ -146,6 +149,9 @@
     },
     "php-cs-fixer/diff": {
         "version": "v2.0.2"
+    },
+    "php-mqtt/client": {
+        "version": "v1.8.0"
     },
     "phpdocumentor/reflection-common": {
         "version": "2.2.0"

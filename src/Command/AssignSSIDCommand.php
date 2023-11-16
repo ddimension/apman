@@ -80,7 +80,7 @@ class AssignSSIDCommand extends Command
                 }
 
                 $device = new \ApManBundle\Entity\Device();
-                $device->setName($radio->getName().'_'.str_replace(['-', '+', '/', '*', '$'], '_', $ssid->getName()));
+                $device->setName($radio->getName().'_'.str_replace(['-', '+', '/', '*', '$', ' '], '_', $ssid->getName()));
                 $device->setRadio($radio);
                 $device->setSSID($ssid);
 

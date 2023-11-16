@@ -725,8 +725,7 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd),1);
-        $client->loop(1000);
+        $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));
@@ -760,8 +759,7 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd),1);
-        $client->loop(1000);
+        $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));
@@ -857,8 +855,7 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'wnm_disassoc_imminent', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd),1);
-        $client->loop(1000);
+        $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));
@@ -938,9 +935,9 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'bss_transition_request', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd),1);
-        $client->loop(1000);
+        $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
+
         return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
@@ -994,8 +991,7 @@ class DefaultController extends Controller
         $topic = 'apman/ap/'.$ap->getName().'/command';
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'rrm_beacon_req', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-        $res = $client->publish($topic, json_encode($cmd),1);
-        $client->loop(1000);
+        $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
 
         return $this->redirect($this->generateUrl('apman_default_index'));

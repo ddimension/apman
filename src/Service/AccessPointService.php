@@ -162,7 +162,7 @@ class AccessPointService
         // $opts->section = $device->getName();
         $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
         //$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
-        $client->loop(1);
+        //$client->loop(1);
 
         foreach ($ap->getRadios() as $radio) {
             $logger->debug($ap->getName().': Configuring radio '.$radio->getName());
@@ -229,7 +229,7 @@ class AccessPointService
         $res = $client->publish($topic, json_encode($commands));
         $logger->debug($ap->getName().': '.$res.' Configuring radio, publishing to topic '.$topic.': '.json_encode($commands));
 
-        $client->loop(1);
+        //$client->loop(1);
 
         return true;
     }

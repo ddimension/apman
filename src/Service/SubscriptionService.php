@@ -41,7 +41,7 @@ class SubscriptionService
         while ($loop) {
             $srv = $this;
             unset($this->client);
-            $this->client = $this->mqttFactory->getClient('apmanserver', false);
+            $this->client = $this->mqttFactory->getClientMosquitto('apmanserver', false);
             $client = $this->client;
             /*
             $this->client->onConnect(function() use ($srv,$client) {
