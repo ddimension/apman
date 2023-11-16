@@ -104,7 +104,7 @@ class OweFeatureService implements iFeatureService
         $encryption = strtolower($config['encryption']);
         if ('owe' == $encryption) {
             $other_ssid_name = $fcfg['ssid_open'];
-        //$config['hidden'] = 1;
+            $config['hidden'] = 1;
         } else {
             $other_ssid_name = $fcfg['ssid_owe'];
         }
