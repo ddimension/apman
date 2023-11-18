@@ -58,4 +58,11 @@ interface iFeatureService
      * @return \array|\null
      */
     public function getConfig(array $config);
+
+    /**
+     * get AdditionalConfig.
+     *
+     * @return \array|\null
+     */
+    public function getAdditionalConfig(array $config);
 }

@@ -244,4 +244,9 @@ class OweFeatureService implements iFeatureService
         $em->flush();
         $this->logger->info('OweFeatureService:applyConstraints(): cloned ssid.');
     }
+
+    public function getAdditionalConfig(array $config)
+    {
+        return null;
+    }
 }

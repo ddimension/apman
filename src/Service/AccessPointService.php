@@ -100,6 +100,7 @@ class AccessPointService
         $this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): SSIDFeatureMap count: '.count($maps));
         // transform to array
         $cfg = json_decode(json_encode($config), true);
+        $additionalCfgs = [];
         foreach ($maps as $map) {
             $feature = $map->getFeature();
             $implementation = $feature->getImplementation();
@@ -112,9 +113,19 @@ class AccessPointService
             $instance->applyConstraints();
             $this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Implementation '.$implementation.' instance created.');
             $cfg = $instance->getConfig($cfg);
+            $additionalCfg = $instance->getAdditionalConfig($cfg);
+            if (is_array($additionalCfg) and count($additionalCfg)) {
+                $additionalCfgs = array_merge($additionalCfgs, $additionalCfg);
+            }
         }
 
-        return json_decode(json_encode($cfg));
+        $configObject = new \stdClass();
+        $configObject->config = 'wireless';
+        $configObject->type = 'wifi-iface';
+        $configObject->name = $device->getName();
+        $configObject->values = json_decode(json_encode($cfg));
+
+        return [$configObject, $additionalCfgs];
     }
 
     /**
@@ -151,16 +162,25 @@ class AccessPointService
         $opts->type = 'wifi-iface';
         // $opts->section = $device->getName();
         $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-device';
         // $opts->section = $device->getName();
         $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-vlan';
         // $opts->section = $device->getName();
         $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+
+        $opts = new \stdClass();
+        $opts->config = 'wireless';
+        $opts->type = 'wifi-station';
+        // $opts->section = $device->getName();
+        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+
         //$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
         //$client->loop(1);
 
@@ -178,24 +198,21 @@ class AccessPointService
             foreach ($radio->getDevices() as $device) {
                 $logger->debug($ap->getName().': Configuring device '.$device->getName());
 
-                $opts = new \stdClass();
-                $opts->config = 'wireless';
-                $opts->type = 'wifi-iface';
-                $opts->name = $device->getName();
+                list($config, $extraConfigs) = $this->getDeviceConfig($device);
 
-                $config = $this->getDeviceConfig($device);
-                $vlans = [];
-                if (property_exists($config, 'vlans')) {
-                    $vlans = $config->vlans;
-                    unset($config->vlans);
+                $logger->debug($ap->getName().': Configuring device '.$device->getName().' EX: '.print_r($extraConfigs, true));
+                $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $config);
+                if (is_array($extraConfigs) && count($extraConfigs)) {
+                    foreach ($extraConfigs as $extraConfig) {
+                        $logger->debug($ap->getName().': Configuring device '.$device->getName().' EX2: '.json_encode($extraConfig));
+                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $extraConfig);
+                    }
                 }
-
-                $opts->values = $config;
-                $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
 
                 $changed = true;
                 $logger->debug($ap->getName().': Configured device '.$device->getName());
 
+                continue;
                 if (!is_array($vlans)) {
                     continue;
                 }

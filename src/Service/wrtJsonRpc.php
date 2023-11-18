@@ -187,7 +187,7 @@ class wrtJsonRpc
         }
         $cmd->params['1'] = $namespace;
         $cmd->params['2'] = $procedure;
-        if (is_object($arguments)) {
+        if (is_object($arguments) or is_array($arguments)) {
             $cmd->params['3'] = $arguments;
         } else {
             $cmd->params['3'] = new \stdClass();

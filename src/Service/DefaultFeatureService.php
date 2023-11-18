@@ -129,4 +129,9 @@ class DefaultFeatureService implements iFeatureService
 
         $this->logger->info('DefaultFeatureService:applyConstraints(): finished.');
     }
+
+    public function getAdditionalConfig(array $config)
+    {
+        return null;
+    }
 }

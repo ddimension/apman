@@ -82,25 +82,54 @@ class VlanFeatureService implements iFeatureService
     public function getConfig(array $config)
     {
         $this->logger->info('VlanFeatureService:getConfig(): called.');
-
-        if (!array_key_exists('vlans', $config)) {
-            $config['vlans'] = [];
-        }
         $config['dynamic_vlan'] = 1;
         $fcfg = $this->feature->getConfig();
-        $config['vlans'][] = $fcfg;
-        /*
-        foreach ($fcfg as $key => $value) {
-            if (is_array($value) and array_key_exists($key, $config) and is_array($config[$key])) {
-                foreach ($value as $listKey => $listValue) {
-                    $config[$key][$listKey] = $listValue;
-                }
-            } else {
-                $config[$key] = $value;
-            }
-        }
-        */
+
         return $config;
+    }
+
+    public function getAdditionalConfig(array $config)
+    {
+        $this->logger->info('VlanFeatureService:getAdditionalConfig(): called.');
+
+        /* Example Structure
+        $res = [];
+        $cfg = new \stdClass();
+            $cfg->config = 'wireless';
+            $cfg->type = 'wifi-vlan';
+        #$cfg->name = $device->getName();
+        $cfg->values = [];
+        $cfg->values['name'] ='ops';
+        $cfg->values['iface'] = $this->device->getName();
+        $cfg->values['vid'] = 22;
+        $cfg->values['network'] = 'opennet';
+        $res[] = $cfg;
+
+        $cfg = new \stdClass();
+            $cfg->config = 'wireless';
+            $cfg->type = 'wifi-station';
+        #$cfg->name = $device->getName();
+        $cfg->values = [];
+        $cfg->values['iface'] = $this->device->getName();
+        $cfg->values['vid'] = 22;
+        $cfg->values['mac'] = '00:00:00:00:00:00';
+        $cfg->values['key'] = 'sdg3w46q34tysdfgggg54weardsyg3<355';
+        $res[] = $cfg;
+        echo json_encode($res);
+         */
+
+        $fcfg = $this->feature->getConfig();
+        foreach ($fcfg as $i => $entry) {
+            if (!array_key_exists('values', $entry)) {
+                continue;
+            }
+            if (!is_array($entry['values'])) {
+                continue;
+            }
+            $fcfg[$i]['values']['iface'] = $this->device->getName();
+        }
+
+        return $fcfg;
     }
 
     /**
@@ -111,28 +140,5 @@ class VlanFeatureService implements iFeatureService
     public function applyConstraints()
     {
         $this->logger->info('VlanFeatureService:applyConstraints(): called.');
-
-        return;
-        $em = $this->doctrine->getManager();
-        $qb = $em->createQueryBuilder();
-        $query = $em->createQuery(
-            'SELECT m
-			FROM ApManBundle:SSIDFeatureMap m
-			WHERE m.feature = :feature
-			AND m.id != :mapid'
-        );
-        $query->setParameter('feature', $this->feature);
-        $query->setParameter('mapid', $this->map->getId());
-        $maps = $query->getResult();
-        if (!count($maps)) {
-            $this->logger->info('VlanFeatureService:applyConstraints(): owe map missing');
-            $this->setupOweSsid();
-        }
-
-        foreach ($maps as $map) {
-            $this->logger->info('VlanFeatureService:applyConstraints(): loop.');
-        }
-
-        $this->logger->info('VlanFeatureService:applyConstraints(): finished.');
     }
 }

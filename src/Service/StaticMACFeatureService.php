@@ -103,4 +103,9 @@ class StaticMACFeatureService implements iFeatureService
         }
         $this->logger->info('StaticMACFeatureService:applyConstraints(): finished.');
     }
+
+    public function getAdditionalConfig(array $config)
+    {
+        return null;
+    }
 }
