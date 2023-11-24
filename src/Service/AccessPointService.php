@@ -118,7 +118,6 @@ class AccessPointService
                 $additionalCfgs = array_merge($additionalCfgs, $additionalCfg);
             }
         }
-
         $configObject = new \stdClass();
         $configObject->config = 'wireless';
         $configObject->type = 'wifi-iface';
@@ -136,6 +135,7 @@ class AccessPointService
     public function publishConfig($ap)
     {
         $logger = $this->logger;
+        $em = $this->doctrine->getManager();
         if (!$ap->getProvisioningEnabled()) {
             $logger->notice($ap->getName().': Ignore request to publish config sice ProvisioningEnabled is false.');
 
@@ -184,7 +184,20 @@ class AccessPointService
         //$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
         //$client->loop(1);
 
-        foreach ($ap->getRadios() as $radio) {
+        $opts = new \stdClass();
+        $opts->config = 'wireless';
+        // $opts->section = $device->getName();
+        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'commit', $opts);
+
+        $query = $em->createQuery(
+                'SELECT r
+			     FROM ApManBundle:Radio r
+			     WHERE r.accesspoint = :ap
+			     ORDER by r.name ASC'
+        );
+        $query->setParameter('ap', $ap);
+        $radios = $query->getResult();
+        foreach ($radios as $radio) {
             $logger->debug($ap->getName().': Configuring radio '.$radio->getName());
             $opts = new \stdClass();
             $opts->config = 'wireless';
@@ -194,8 +207,17 @@ class AccessPointService
             $opts->values = $radio->exportConfig();
             $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
             //$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'set', $opts);
+            $query = $em->createQuery(
+                'SELECT d
+			     FROM ApManBundle:Device d
+			     LEFT JOIN d.ssid s
+			     WHERE d.radio = :radio
+			     ORDER by s.setup_order ASC'
+            );
+            $query->setParameter('radio', $radio);
+            $devices = $query->getResult();
 
-            foreach ($radio->getDevices() as $device) {
+            foreach ($devices as $device) {
                 $logger->debug($ap->getName().': Configuring device '.$device->getName());
 
                 list($config, $extraConfigs) = $this->getDeviceConfig($device);

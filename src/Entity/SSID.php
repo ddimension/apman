@@ -64,6 +64,11 @@ class SSID
     private $feature_maps;
 
     /**
+     * @ORM\Column(type="integer", nullable=true)
+     */
+    private $setup_order;
+
+    /**
      * Constructor.
      */
     public function __construct()
@@ -473,5 +478,17 @@ class SSID
     public function getSSIDFeatureMaps()
     {
         return $this->feature_maps;
+    }
+
+    public function getSetupOrder(): ?int
+    {
+        return $this->setup_order;
+    }
+
+    public function setSetupOrder(?int $setup_order): self
+    {
+        $this->setup_order = $setup_order;
+
+        return $this;
     }
 }

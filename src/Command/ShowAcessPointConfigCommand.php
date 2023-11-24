@@ -31,6 +31,7 @@ class ShowAcessPointConfigCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $em = $this->doctrine->getManager();
         $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),
     ]);
@@ -40,7 +41,17 @@ class ShowAcessPointConfigCommand extends Command
             return 1;
         }
         foreach ($ap->getRadios() as $radio) {
-            foreach ($radio->getDevices() as $device) {
+            $query = $em->createQuery(
+                'SELECT d
+                             FROM ApManBundle:Device d
+                             LEFT JOIN d.ssid s
+                             WHERE d.radio = :radio
+                             ORDER by s.setup_order ASC'
+            );
+            $query->setParameter('radio', $radio);
+            $devices = $query->getResult();
+
+            foreach ($devices as $device) {
                 $result = $this->apservice->getDeviceConfig($device);
                 $output->writeln('Device '.$device->getIfname());
                 print_r($result);

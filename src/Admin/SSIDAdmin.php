@@ -14,6 +14,7 @@ class SSIDAdmin extends AbstractAdmin
     {
         $formMapper->with('Basics')
         ->add('name')
+        ->add('setup_order')
         ->add('config_options', CollectionType::class, [
                 // Prevents the "Delete" option from being displayed
             'type_options' => ['delete' => true],
@@ -168,5 +169,6 @@ class SSIDAdmin extends AbstractAdmin
         $listMapper->addIdentifier('name');
         $listMapper->addIdentifier('is_enabled', 'boolean');
         $listMapper->add('device_count', null, ['label' => 'Radios']);
+        $listMapper->addIdentifier('setup_order');
     }
 }
