@@ -122,7 +122,7 @@ class AccessPointService
         $configObject->config = 'wireless';
         $configObject->type = 'wifi-iface';
         $configObject->name = $device->getName();
-        $configObject->values = json_decode(json_encode($cfg));
+        $configObject->values = json_decode(json_encode($cfg),true);
 
         return [$configObject, $additionalCfgs];
     }

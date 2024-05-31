@@ -85,10 +85,14 @@ class DefaultFeatureService implements iFeatureService
 
         $fcfg = $this->feature->getConfig();
         foreach ($fcfg as $key => $value) {
-            if (is_array($value) and array_key_exists($key, $config) and is_array($config[$key])) {
-                foreach ($value as $listKey => $listValue) {
-                    $config[$key][$listKey] = $listValue;
+            if (is_array($value)) {
+                if (!array_key_exists($key, $config) or !is_array($config[$key])) {
+                    $config[$key] = [];
                 }
+                foreach ($value as $listKey => $listValue) {
+                    $config[$key][] = $listValue;
+                }
+                $config[$key] = array_values(array_unique($config[$key]));
             } else {
                 $config[$key] = $value;
             }
@@ -111,9 +115,9 @@ class DefaultFeatureService implements iFeatureService
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT m
-			FROM ApManBundle:SSIDFeatureMap m
-			WHERE m.feature = :feature
-			AND m.id != :mapid'
+                        FROM ApManBundle:SSIDFeatureMap m
+                        WHERE m.feature = :feature
+                        AND m.id != :mapid'
         );
         $query->setParameter('feature', $this->feature);
         $query->setParameter('mapid', $this->map->getId());
