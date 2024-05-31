@@ -58,12 +58,6 @@ services:
         tags:
             - {name: sonata.block}
         public: true
-    admin.syslogservice:
-        class: ApManBundle\Library\SyslogSocketServer
-        arguments: [ '%syslog.bindaddr%', '%syslog.port%', '@logger', '@doctrine' , '@apman.accesspointservice' ]
-        tags:
-                - { name: apmanbundle.syslogservice }
-        public: true
     admin.accesspoint:
         class: ApManBundle\Admin\AccessPointAdmin
         arguments: [~, ApManBundle\Entity\AccessPoint, ApManBundle\Controller\CustomActionsController ]
