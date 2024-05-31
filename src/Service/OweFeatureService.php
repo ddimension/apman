@@ -140,7 +140,7 @@ class OweFeatureService implements iFeatureService
         try {
             $other_device = $query->getSingleResult();
         } catch (\Doctrine\Orm\NoResultException $e) {
-            $this->logger->error('OweFeatureService:getConfig(): No device found for SSID '.$other_ssid_name.' and radio '.$this->device->getRadio->getName());
+            $this->logger->error('OweFeatureService:getConfig(): No device found for SSID '.$other_ssid_name.' and radio '.$this->device->getRadio()->getName());
 
             return $config;
         }
