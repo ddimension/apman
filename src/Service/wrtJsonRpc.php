@@ -128,7 +128,7 @@ class wrtJsonRpc
         $start = microtime(true);
         $stopwatch = new Stopwatch();
         $stopwatch->start('Call '.$url.' '.$procedure);
-        $this->logger->debug('wrtJsonRpc: Calling '.$url.' namespace '.$namespace.' procedure '.$procedure.' arguments: '.json_encode($arguments));
+        //$this->logger->debug('wrtJsonRpc: Calling '.$url.' namespace '.$namespace.' procedure '.$procedure.' arguments: '.json_encode($arguments));
         $cmd = new \stdClass();
         $cmd->jsonrpc = '2.0';
         $cmd->id = 1;

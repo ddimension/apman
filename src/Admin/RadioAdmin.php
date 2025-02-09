@@ -52,6 +52,7 @@ class RadioAdmin extends AbstractAdmin
         ->addIdentifier('name')
         ->addIdentifier('is_enabled', 'boolean')
     ->addIdentifier('config_channel', null, ['label' => 'Channel'])
+    ->addIdentifier('config_channels', null, ['label' => 'Channel List'])
     ->addIdentifier('config_band', null, ['label' => 'Band'])
     ->addIdentifier('config_hwmode', null, ['label' => 'HW Mode'])
     ->addIdentifier('config_htmode', null, ['label' => 'HT Mode'])

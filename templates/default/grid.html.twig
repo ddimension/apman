@@ -1,0 +1,137 @@
+{% extends 'frontend.html.twig' %}
+{% block header %}
+<!-- <meta http-equiv="refresh" content="5"> -->
+{% endblock %}
+
+{% block body %}
+<div id="wrapper"></div>
+<div id="clients"></div>
+<script>
+
+timeout = 5000
+function updateGrid(grid) {
+	grid.forceRender();
+	setTimeout(() => {
+		updateGrid(grid);
+	}, timeout);
+	
+}
+
+function getStringHeaderField(field) {
+	return {
+		id: field,
+		name: gridjs.html('<bold title="'+field+'">'+field+'</bold>')
+	};
+}
+
+function getNumericHeaderField(field) {
+	return { 
+		id: field,
+		name: gridjs.html('<bold title="'+field+'">'+field+'</span>'),
+		sort: {
+		        compare: (a, b) => {
+		          if (Number(a) > Number(b)) {
+		            return 1;
+		          } else if (b > a) {
+		            return -1;
+		          } else {
+		            return 0;
+		          }
+		        }
+	        } 
+	};
+}
+
+grid = new gridjs.Grid({
+  search: true,
+  resizable: true,
+  sort: true,
+  columns: [
+	getStringHeaderField("AP"),
+	getStringHeaderField("IF"),
+	getStringHeaderField("MAC"),
+	getStringHeaderField("HW"),
+	getStringHeaderField("SSID"),
+	getNumericHeaderField("Channel"),
+	getNumericHeaderField("Frequency"),
+	getStringHeaderField("Auth Type"),
+	getStringHeaderField("WDS"),
+	getStringHeaderField("WMM"),
+	getStringHeaderField("HT Mode"),
+	getStringHeaderField("MFP"),
+	getNumericHeaderField("Connected"),
+	getNumericHeaderField("Inactive"),
+	getNumericHeaderField("RX Bytes"),
+	getNumericHeaderField("TX Bytes"),
+	getNumericHeaderField("RX Rate"),
+	getNumericHeaderField("TX Rate"),
+	getNumericHeaderField("Signal"),
+	getNumericHeaderField("Noise"),
+	getStringHeaderField("IP"),
+	getStringHeaderField("DNS"),
+	getStringHeaderField("Manufacturer"),
+        { 
+          name: 'Actions',
+          formatter: (cell, row) => {
+            return [ 
+            gridjs.h('button', {
+              className: 'py-2 mb-4 px-4 border rounded-md text-white bg-blue-600',
+              onClick: () => window.open(`{{ path('apman_default_station') }}?system=${row.cells[0].data}&device=${row.cells[1].data}&mac=${row.cells[2].data}`)
+            }, 'Info'),
+            gridjs.h('button', {
+              className: 'py-2 mb-4 px-4 border rounded-md text-white bg-blue-600',
+              onClick: () => window.open(`{{ path('apman_default_disconnect') }}?system=${row.cells[0].data}&device=${row.cells[1].data}&mac=${row.cells[2].data}`)
+            }, 'Disconnect'),
+            gridjs.h('button', {
+              className: 'py-2 mb-4 px-4 border rounded-md text-white bg-blue-600',
+              onClick: () => window.open(`{{ path('apman_default_wnmbsstransitionprepare') }}?system=${row.cells[0].data}&device=${row.cells[1].data}&mac=${row.cells[2].data}&ssid=${row.cells[4].data}`)
+            }, 'BSS Transition') ];
+          }
+        }
+  ],
+  server: {
+    url: 'http://app1.kalnet.hooya.de/apman/index.php/griddata',
+    then: data => data.results.map(client => [
+	client.ap, client.interface, client.mac, client.interface_hardware_model, client.ssid, client.channel, client.frequency, client.authtype, client.wds, client.wmm, client.ht_mode, client.mfp, client.connected_time, client.inactive, client.rx_bytes, client.tx_bytes, client.rx_rate, client.tx_rate, client.signal, client.noise, client.ip, client.dnsname, client.manufacturer
+    ]),
+  },
+  style: {
+    table: {
+      border: '1px solid #ccc',
+      'font-size': '14px',
+    },
+    th: {
+      'background-color': 'rgba(0, 0, 0, 0.1)',
+      color: '#000',
+      'border-bottom': '1px solid #ccc',
+      'text-align': 'center',
+      'padding-left': '2px',
+      'padding-right': '2px'
+    },
+    td: {
+      'text-align': 'right',
+      'padding-top': '2px',
+      'padding-bottom': '2px',
+      'padding-left': '2px',
+      'padding-right': '2px'
+    }
+  }
+});
+
+grid.render(document.getElementById("clients"));
+setTimeout(() => { updateGrid(grid);}, timeout);
+
+
+</script>
+
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+
+</style>
+{% endblock %}
+
+{% block javascripts %}
+{% endblock %}
+

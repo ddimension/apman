@@ -49,13 +49,13 @@ class AddAccessPointCommand extends Command
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-device';
-	$stat = $session->call('uci', 'get', $opts);
-        if (!isset($stat->values) || !count((array)$stat->values)) {
+        $stat = $session->call('uci', 'get', $opts);
+        if (!isset($stat->values) || !count((array) $stat->values)) {
             $output->writeln('No radios found on AP '.$ap->getName());
 
             return false;
         }
-        foreach ((array)$stat->values as $name => $cfg) {
+        foreach ((array) $stat->values as $name => $cfg) {
             $output->writeln('Adding radio '.$name);
             $radio = new \ApManBundle\Entity\Radio();
             $radio->setAccessPoint($ap);

@@ -10,7 +10,7 @@ Move Client to: <br />
 <select name="target" />
 	<option value="0">device decides</option>
 {% for device in devices %}
-	<option value="{{device.id}}">{{ device.radio.accesspoint.name }}/{{ device.radio.name }} {{ device.radio.configHwmode }}</option>
+	<option value="{{device.id}}">{{ device.radio.accesspoint.name }}/{{ device.radio.name }} {{ device.radio.configband }} {{ device.radio.confightmode }}</option>
 {% endfor %}
 </select>
 <br />
