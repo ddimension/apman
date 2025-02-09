@@ -55,8 +55,10 @@ grid = new gridjs.Grid({
 	getNumericHeaderField("Channel"),
 	getNumericHeaderField("Frequency"),
 	getStringHeaderField("Auth Type"),
+	getStringHeaderField("Private MAC"),
 	getStringHeaderField("WDS"),
 	getStringHeaderField("WMM"),
+	getStringHeaderField("MBO"),
 	getStringHeaderField("HT Mode"),
 	getStringHeaderField("MFP"),
 	getNumericHeaderField("Connected"),
@@ -92,7 +94,7 @@ grid = new gridjs.Grid({
   server: {
     url: 'http://app1.kalnet.hooya.de/apman/index.php/griddata',
     then: data => data.results.map(client => [
-	client.ap, client.interface, client.mac, client.interface_hardware_model, client.ssid, client.channel, client.frequency, client.authtype, client.wds, client.wmm, client.ht_mode, client.mfp, client.connected_time, client.inactive, client.rx_bytes, client.tx_bytes, client.rx_rate, client.tx_rate, client.signal, client.noise, client.ip, client.dnsname, client.manufacturer
+	client.ap, client.interface, client.mac, client.interface_hardware_model, client.ssid, client.channel, client.frequency, client.authtype, client.mac_private, client.wds, client.wmm, client.mbo, client.ht_mode, client.mfp, client.connected_time, client.inactive, client.rx_bytes, client.tx_bytes, client.rx_rate, client.tx_rate, client.signal, client.noise, client.ip, client.dnsname, client.manufacturer
     ]),
   },
   style: {

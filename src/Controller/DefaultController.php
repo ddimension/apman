@@ -38,22 +38,22 @@ class DefaultController extends Controller
     }
 
     /**
-     * @Route("/oldStatus")
+     * @Route("/")
      */
     public function indexAction(\ApManBundle\Service\wrtJsonRpc $rpc)
+    {
+        return $this->render('default/grid.html.twig', [
+    ]);
+    }
+
+    /**
+     * @Route("/oldStatus")
+     */
+    public function indexOldAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
         $status = $this->getStatusDump($rpc);
 
         return $this->render('default/clients.html.twig', $status);
-    }
-
-    /**
-     * @Route("/")
-     */
-    public function gridAction(\ApManBundle\Service\wrtJsonRpc $rpc)
-    {
-        return $this->render('default/grid.html.twig', [
-    ]);
     }
 
     /**
@@ -62,113 +62,144 @@ class DefaultController extends Controller
     public function gridDataAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
         $status = $this->getStatusDump($rpc);
-        $s = [];
-
+	$s = [];
         foreach ($status['data'] as $apName => $apData) {
             foreach ($status['data'][$apName] as $ifName => $ifData) {
-                if (!isset($status['data'][$apName][$ifName]['assoclist'])) {
-                    continue;
-                }
-                foreach ($status['data'][$apName][$ifName]['assoclist'] as $clientName => $clientData) {
+		$clients = [];
+		if (isset($ifData['clients'])) {
+			foreach ($ifData['clients'] as $clientName => $clientData) {
+				$clients[$clientName] = true;
+			}
+		}
+		if (isset($ifData['assoclist'])) {
+			foreach ($ifData['assoclist'] as $clientName => $clientData) {
+				$clients[$clientName] = true;
+			}
+		}
+		if (isset($ifData['clientstats'])) {
+			foreach ($ifData['clientstats'] as $clientName => $clientData) {
+				$clients[$clientName] = true;
+			}
+		}
+		
+		foreach ($clients as $clientName => $clientData) {
                     $key = $clientName.$apName.$ifName;
                     $client = [
-                    'ap' => $apName,
-                    'interface' => $ifName,
-                    'mac' => $clientName,
-                    'interface_hardware_model' => null,
-                    'ssid' => null,
-                    'channel' => null,
-                    'frequency' => null,
-                    'authtype' => 'NONE',
-                    'authenticated' => null,
-                    'associated' => null,
-                    'authorized' => null,
-                    'preauth' => null,
-                    'wds' => null,
-                    'wmm' => null,
-                    'ht_mode' => '',
-                    'wps' => null,
-                    'mfp' => null,
-                    'connected_time' => null,
-                    'inactive' => null,
-                    'rx_bytes' => null,
-                    'tx_bytes' => null,
-                    'rx_rate' => null,
-                    'tx_rate' => null,
-                    'signal' => null,
-                    'noise' => null,
-                    'ip' => null,
-                    'dnsname' => null,
-                    'manufacturer' => null,
-                ];
-                    if (isset($clientData['signal'])) {
-                        $client['signal'] = $clientData['signal'];
+			    'ap' => $apName,
+			    'interface' => $ifName,
+			    'mac' => $clientName,
+			    'mac_private' => 'no',
+			    'interface_hardware_model' => null,
+			    'ssid' => null,
+			    'channel' => null,
+			    'frequency' => null,
+			    'authtype' => 'NONE',
+			    'authenticated' => null,
+			    'associated' => null,
+			    'authorized' => null,
+			    'preauth' => null,
+			    'wds' => null,
+			    'wmm' => null,
+			    'mbo' => 'no',
+			    'ht_mode' => '',
+			    'wps' => null,
+			    'mfp' => null,
+			    'connected_time' => null,
+			    'inactive' => null,
+			    'rx_bytes' => null,
+			    'tx_bytes' => null,
+			    'rx_rate' => null,
+			    'tx_rate' => null,
+			    'signal' => null,
+			    'noise' => null,
+			    'ip' => null,
+			    'dnsname' => null,
+			    'manufacturer' => null,
+                    ];
+                    if (isset($ifData['clients'][$clientName]['signal'])) {
+                        $client['signal'] = $ifData['clients'][$clientName]['signal'];
+                    } elseif (isset($ifData['assoclist'][$clientName]['signal'])) {
+                        $client['signal'] = $ifData['assoclist'][$clientName]['signal'];
                     }
-                    if (isset($clientData['inactive'])) {
-                        $client['inactive'] = intval($clientData['inactive'] / 1000);
+                    if (isset($ifData['assoclist'][$clientName]['noise'])) {
+                        $client['noise'] = $ifData['assoclist'][$clientName]['noise'];
                     }
-                    if (isset($clientData['tx']['ht']) && $clientData['tx']['ht']) {
+                    if (isset($ifData['assoclist'][$clientName]['inactive'])) {
+                        $client['inactive'] = intval($ifData['assoclist'][$clientName]['inactive'] / 1000);
+		    }
+
+		    if (isset($ifData['clients'][$clientName]['ht']) && intval($ifData['clients'][$clientName]['ht'])) {
+                        $client['ht_mode'] = 'HT';
+		    } elseif (isset($ifData['assoclist'][$clientName]['tx']['ht']) && $ifData['assoclist'][$clientName]['tx']['ht']) {
                         $client['ht_mode'] = 'HT';
                     }
-                    if (isset($clientData['tx']['vht']) && $clientData['tx']['vht']) {
+		    if (isset($ifData['clients'][$clientName]['vht']) && intval($ifData['clients'][$clientName]['vht'])) {
+                        $client['ht_mode'] = 'VHT';
+		    } elseif (isset($ifData['assoclist'][$clientName]['tx']['vht']) && $ifData['assoclist'][$clientName]['tx']['vht']) {
                         $client['ht_mode'] = 'VHT';
                     }
-                    if (isset($clientData['tx']['vht']) && $clientData['tx']['he']) {
+		    if (isset($ifData['clients'][$clientName]['he']) && intval($ifData['clients'][$clientName]['he'])) {
                         $client['ht_mode'] = 'HE';
-                    }
-                    if (isset($clientData['noise'])) {
-                        $client['noise'] = $clientData['noise'];
-                    }
-                    if (isset($status['data'][$apName][$ifName]['info']['hardware']['name'])) {
+		    } elseif (isset($ifData['assoclist'][$clientName]['tx']['he']) && $ifData['assoclist'][$clientName]['tx']['he']) {
+                        $client['ht_mode'] = 'HE';
+		    }
+
+                    if (isset($ifData['info']['hardware']['name'])) {
                         $client['interface_hardware_model'] = str_replace(
-                        ['Qualcomm Atheros ', 'MediaTek '],
-                        [],
-                        $status['data'][$apName][$ifName]['info']['hardware']['name']);
+                        ['Qualcomm Atheros ', 'MediaTek ','/'],
+                        ['','',' / '],
+                        $ifData['info']['hardware']['name']);
                     }
-                    if (isset($status['data'][$apName][$ifName]['info']['ssid'])) {
-                        $client['ssid'] = $status['data'][$apName][$ifName]['info']['ssid'];
+                    if (isset($ifData['info']['ssid'])) {
+                        $client['ssid'] = $ifData['info']['ssid'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['info']['channel'])) {
-                        $client['channel'] = $status['data'][$apName][$ifName]['info']['channel'];
+                    if (isset($ifData['info']['channel'])) {
+                        $client['channel'] = $ifData['info']['channel'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['info']['frequency'])) {
-                        $client['frequency'] = $status['data'][$apName][$ifName]['info']['frequency'];
+                    if (isset($ifData['info']['frequency'])) {
+                        $client['frequency'] = $ifData['info']['frequency'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['authenticated'])) {
-                        $client['authenticated'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['authenticated'];
+                    if (isset($ifData['clientstats'][$clientName]['authenticated'])) {
+                        $client['authenticated'] = $ifData['clientstats'][$clientName]['authenticated'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['associated'])) {
-                        $client['associated'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['associated'];
+                    if (isset($ifData['clientstats'][$clientName]['associated'])) {
+                        $client['associated'] = $ifData['clientstats'][$clientName]['associated'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['authorized'])) {
-                        $client['authorized'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['authorized'];
+                    if (isset($ifData['clientstats'][$clientName]['authorized'])) {
+                        $client['authorized'] = $ifData['clientstats'][$clientName]['authorized'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['preauth'])) {
-                        $client['preauth'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['preauth'];
+                    if (isset($ifData['clientstats'][$clientName]['preauth'])) {
+                        $client['preauth'] = $ifData['clientstats'][$clientName]['preauth'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['wds'])) {
-                        $client['wds'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['wds'];
+                    if (isset($ifData['clientstats'][$clientName]['wds'])) {
+                        $client['wds'] = $ifData['clientstats'][$clientName]['wds'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['WMM_WME'])) {
-                        $client['wmm'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['WMM_WME'];
+                    if (isset($ifData['clientstats'][$clientName]['WMM_WME'])) {
+                        $client['wmm'] = $ifData['clientstats'][$clientName]['WMM_WME'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['MFP'])) {
-                        $client['mfp'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['MFP'];
+                    if (isset($ifData['clientstats'][$clientName]['MFP'])) {
+                        $client['mfp'] = $ifData['clientstats'][$clientName]['MFP'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['rx_bytes'])) {
-                        $client['rx_bytes'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['rx_bytes'];
+                    if (isset($ifData['clientstats'][$clientName]['rx_bytes'])) {
+                        $client['rx_bytes'] = $ifData['clientstats'][$clientName]['rx_bytes'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['tx_bytes'])) {
-                        $client['tx_bytes'] = $status['data'][$apName][$ifName]['clientstats'][$clientName]['tx_bytes'];
+                    if (isset($ifData['clientstats'][$clientName]['tx_bytes'])) {
+                        $client['tx_bytes'] = $ifData['clientstats'][$clientName]['tx_bytes'];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['tx_bitrate'])) {
-                        $client['tx_rate'] = explode(' ', $status['data'][$apName][$ifName]['clientstats'][$clientName]['tx_bitrate'], 2)[0];
+                    if (isset($ifData['clientstats'][$clientName]['tx_bitrate'])) {
+                        $client['tx_rate'] = explode(' ', $ifData['clientstats'][$clientName]['tx_bitrate'], 2)[0];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['rx_bitrate'])) {
-                        $client['rx_rate'] = explode(' ', $status['data'][$apName][$ifName]['clientstats'][$clientName]['rx_bitrate'], 2)[0];
+                    if (isset($ifData['clientstats'][$clientName]['rx_bitrate'])) {
+                        $client['rx_rate'] = explode(' ', $ifData['clientstats'][$clientName]['rx_bitrate'], 2)[0];
                     }
-                    if (isset($status['data'][$apName][$ifName]['clientstats'][$clientName]['connected_time'])) {
-                        $client['connected_time'] = explode(' ', $status['data'][$apName][$ifName]['clientstats'][$clientName]['connected_time'])[0];
+                    if (isset($ifData['clientstats'][$clientName]['connected_time'])) {
+                        $client['connected_time'] = explode(' ', $ifData['clientstats'][$clientName]['connected_time'])[0];
+                    }
+                    if (isset($ifData['clientstats'][$clientName]['inactive_time'])) {
+                        $client['inactive'] = explode(' ', $ifData['clientstats'][$clientName]['inactive_time'])[0];
+                    }
+                    if (isset($ifData['clients'][$clientName]['mbo']) && $ifData['clients'][$clientName]['mbo']) {
+                        $client['mbo'] = 'yes';
                     }
                     if (isset($status['neighbors'][$clientName]['name'])) {
                         $client['dnsname'] = $status['neighbors'][$clientName]['name'];
@@ -185,7 +216,12 @@ class DefaultController extends Controller
                     if (isset($ifData['info']['encryption']['authentication'])) {
                         $client['authtype'] = join(' ', $ifData['info']['encryption']['authentication']);
                     }
-                    $client['manufacturer'] = $status['apsrv']->getMacManufacturer($clientName);
+		    $client['manufacturer'] = $status['apsrv']->getMacManufacturer($clientName);
+
+		    if (preg_match('/^.[26AEae].*/', $clientName)) {
+			$client['mac_private'] = 'yes';
+		    }
+
                     $s[$key] = $client;
                 }
             }
