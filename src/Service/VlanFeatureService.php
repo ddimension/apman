@@ -25,7 +25,7 @@ class VlanFeatureService implements iFeatureService
         wrtJsonRpc $rpcService,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
         \Symfony\Component\HttpKernel\KernelInterface $kernel
-           ) {
+    ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;

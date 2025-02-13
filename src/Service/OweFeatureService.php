@@ -25,7 +25,7 @@ class OweFeatureService implements iFeatureService
         wrtJsonRpc $rpcService,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
         \Symfony\Component\HttpKernel\KernelInterface $kernel
-           ) {
+    ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
@@ -112,7 +112,8 @@ class OweFeatureService implements iFeatureService
         // get other SSID
         $em = $this->doctrine->getManager();
         $qb = $em->createQueryBuilder();
-        $query = $em->createQuery('SELECT c FROM ApManBundle\Entity\SSIDConfigOption c
+        $query = $em->createQuery(
+            'SELECT c FROM ApManBundle\Entity\SSIDConfigOption c
 		LEFT JOIN c.ssid s
 		WHERE
 		c.name = :ssid AND c.value = :ssid_name'

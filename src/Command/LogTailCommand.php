@@ -47,7 +47,7 @@ class LogTailCommand extends Command
 			     WHERE
 			     sl.id>:id
 			     ORDER BY sl.id ASC'
-        );
+            );
             $query->setParameter('id', $last->getId());
             $entries = $query->getResult();
             foreach ($entries as $entry) {

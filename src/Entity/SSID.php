@@ -116,7 +116,7 @@ class SSID
         // Options
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
-                    'SELECT cfg
+            'SELECT cfg
                      FROM ApManBundle:SSIDConfigOption cfg
 		     WHERE
 		     cfg.ssid = :ssid
@@ -132,7 +132,7 @@ class SSID
             $foundKeys[] = $name;
         }
         $query = $em->createQuery(
-                    'DELETE
+            'DELETE
                      FROM ApManBundle:SSIDConfigOption cfg
 		     WHERE
                      cfg.ssid = :ssid
@@ -146,7 +146,7 @@ class SSID
         // Lists
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
-                    'SELECT cfg
+            'SELECT cfg
                      FROM ApManBundle:SSIDConfigList cfg
 		     WHERE
                      cfg.ssid = :ssid
@@ -176,12 +176,12 @@ class SSID
             $foundKeys[] = $name;
         }
         $query = $em->createQuery(
-                'DELETE
+            'DELETE
 			     FROM ApManBundle:SSIDConfigList cfg
 			     WHERE
 			     cfg.ssid = :ssid
 			     AND cfg.name NOT IN (:names)'
-            );
+        );
         $query->setParameter('ssid', $this);
         $query->setParameter('names', array_keys((array) $config));
         $query->getResult();

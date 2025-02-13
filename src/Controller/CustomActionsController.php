@@ -13,8 +13,11 @@ class CustomActionsController extends CRUDController
     private $mqttFactory;
     private $cacheFactory;
 
-    public function __construct(\ApManBundle\Service\wrtJsonRpc $rpcService, \Psr\Log\LoggerInterface $logger,
-        \ApManBundle\Factory\MqttFactory $mqttFactory, \ApManBundle\Factory\CacheFactory $cacheFactory
+    public function __construct(
+        \ApManBundle\Service\wrtJsonRpc $rpcService,
+        \Psr\Log\LoggerInterface $logger,
+        \ApManBundle\Factory\MqttFactory $mqttFactory,
+        \ApManBundle\Factory\CacheFactory $cacheFactory
     ) {
         $this->rpcService = $rpcService;
         $this->logger = $logger;
@@ -132,14 +135,36 @@ class CustomActionsController extends CRUDController
         }
 
         foreach ($selectedModels as $ap) {
-            $this->container->get('apman.accesspointservice')->stopRadio($ap);
+            $topic = 'apman/ap/'.$ap->getName().'/command/bulk';
+            $cmds = [
+            'list' => [],
+            'options' => [
+            'cancel_on_error' => false,
+            ],
+            ];
+
+            $cmds['list'][] = $this->container->get('apman.accesspointservice')->stopRadio($ap, true);
+
+            $eopts = new \stdclass();
+            $eopts->command = 'sleep';
+            $eopts->params = ['15'];
+            $cmds['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'file', 'exec', $eopts);
+
+            $tmp = $this->container->get('apman.accesspointservice')->publishConfig($ap, true);
+            $cmds['list'] = array_merge($cmds['list'], $tmp['list']);
+
+            $eopts = new \stdclass();
+            $eopts->command = 'sleep';
+            $eopts->params = ['15'];
+            $cmds['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'file', 'exec', $eopts);
+
+            $opts = new \stdClass();
+            $cmds['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'reboot', $opts);
+
+            $res = $client->publish($topic, json_encode($cmds));
+            $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmds));
         }
-        foreach ($selectedModels as $ap) {
-            $this->container->get('apman.accesspointservice')->publishConfig($ap);
-        }
-        foreach ($selectedModels as $ap) {
-            $this->container->get('apman.accesspointservice')->startRadio($ap);
-        }
+
         $this->addFlash('sonata_flash_success', 'Reconfigured and Restarted successfully');
 
         return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));

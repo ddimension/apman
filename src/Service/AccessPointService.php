@@ -21,8 +21,8 @@ class AccessPointService
         wrtJsonRpc $rpcService,
         \Symfony\Component\HttpKernel\KernelInterface $kernel,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
-    \ApManBundle\Factory\CacheFactory $cacheFactory,
-    WifiIeParser $ieparser
+        \ApManBundle\Factory\CacheFactory $cacheFactory,
+        WifiIeParser $ieparser
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -89,7 +89,7 @@ class AccessPointService
         $maps = $device->getSsid()->getSSIDFeatureMaps();
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
-                'SELECT fm
+            'SELECT fm
 			     FROM ApManBundle:SSIDFeatureMap fm
 			     WHERE fm.ssid = :ssid
 			     AND fm.enabled = true
@@ -130,9 +130,9 @@ class AccessPointService
     /**
      * publish config.
      *
-     * @return \boolean|\null
+     * @return \boolean|\object|\null
      */
-    public function publishConfig($ap)
+    public function publishConfig($ap, $return = false)
     {
         $logger = $this->logger;
         $em = $this->doctrine->getManager();
@@ -190,7 +190,7 @@ class AccessPointService
         $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'commit', $opts);
 
         $query = $em->createQuery(
-                'SELECT r
+            'SELECT r
 			     FROM ApManBundle:Radio r
 			     WHERE r.accesspoint = :ap
 			     ORDER by r.name ASC'
@@ -265,8 +265,14 @@ class AccessPointService
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'commit', $opts);
 
         $commands['list'][] = $cmd;
+
+        if ($return) {
+            $logger->debug($ap->getName().':Configuring radio, returned commaneds: '.json_encode($commands));
+            return $commands;
+        }
+
         $res = $client->publish($topic, json_encode($commands));
-        $logger->debug($ap->getName().': '.$res.' Configuring radio, publishing to topic '.$topic.': '.json_encode($commands));
+        $logger->debug($ap->getName().':Configuring radio, publishing to topic '.$topic.': '.json_encode($commands));
 
         //$client->loop(1);
 
@@ -339,9 +345,9 @@ class AccessPointService
     /**
      * stop radio.
      *
-     * @return \boolean|\null
+     * @return \boolean|\object|\null
      */
-    public function stopRadio($ap)
+    public function stopRadio($ap, $return = false)
     {
         $logger = $this->logger;
         $changed = false;
@@ -354,8 +360,12 @@ class AccessPointService
         }
         $opts = [];
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'network.wireless', 'down', $opts);
+        if ($return) {
+            $logger->debug($ap->getName().':Stopping radio, returned: '.json_encode($cmd));
+            return $cmd;
+        }
         $client->publish($topic, json_encode($cmd));
-        $logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
+        $logger->debug($ap->getName().': Stopping radio, publishing to topic '.$topic.': '.json_encode($cmd));
 
         return true;
     }
@@ -363,9 +373,9 @@ class AccessPointService
     /**
      * start radio.
      *
-     * @return \boolean|\null
+     * @return \boolean|\object|\null
      */
-    public function startRadio($ap)
+    public function startRadio($ap, $return = false)
     {
         $logger = $this->logger;
         $changed = false;
@@ -378,8 +388,12 @@ class AccessPointService
         }
         $opts = [];
         $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'network.wireless', 'up', $opts);
+        if ($return) {
+            $logger->debug($ap->getName().':Start radio, returned: '.json_encode($cmd));
+            return $cmd;
+        }
         $client->publish($topic, json_encode($cmd));
-        $logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
+        $logger->debug($ap->getName().':Start radio, publishing to topic '.$topic.': '.json_encode($cmd));
 
         return true;
     }
@@ -636,11 +650,11 @@ class AccessPointService
         $em = $this->doctrine->getManager();
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
-        'SELECT ap
+            'SELECT ap
 	     FROM ApManBundle:AccessPoint ap
 	     WHERE
 	     ap.id = :id'
-    );
+        );
         $query->setFetchMode("ApManBundle\AccessPoint", 'ap', 'EAGER');
         $query->setParameter('id', $apId);
         $ap = $query->getSingleResult();
@@ -1043,7 +1057,7 @@ class AccessPointService
         if (!array_key_exists($mac, $this->steeringState['clients'])) {
             $qb = $em->createQueryBuilder();
             $query = $em->createQuery(
-            'SELECT c
+                'SELECT c
 			 FROM ApManBundle:Client c
 			 WHERE c.mac=:mac'
             );
@@ -1188,7 +1202,7 @@ class AccessPointService
         } elseif ('bss_transition_request' == $type) {
             $qb = $em->createQueryBuilder();
             $query = $em->createQuery(
-            'SELECT d
+                'SELECT d
 			 FROM ApManBundle:Device d
 			 LEFT JOIN d.radio r
 			 LEFT JOIN r.accesspoint ap

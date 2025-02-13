@@ -18,12 +18,14 @@ class SubscriptionService
     private $cache;
     private $cacheLocal = ['ap-by-name' => [], 'dev-by-ap-ifname' => []];
 
-    public function __construct(\Psr\Log\LoggerInterface $logger,
+    public function __construct(
+        \Psr\Log\LoggerInterface $logger,
         \Doctrine\Persistence\ManagerRegistry $doctrine,
         wrtJsonRpc $rpcService,
         AccessPointService $apService,
         MqttFactory $mqttFactory,
-        CacheFactory $cacheFactory)
+        CacheFactory $cacheFactory
+    )
     {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -79,6 +81,7 @@ class SubscriptionService
             $this->logger->info('Connected');
             $this->client->subscribe('apman/#', 0);
             $this->client->subscribe('apman/#', 1);
+            $this->client->subscribe('radius/#', 0);
             $loopTime = 10;
             try {
                 $lStart = time();
@@ -113,9 +116,9 @@ class SubscriptionService
         $em = $this->doctrine->getManager();
         if (!$em->isOpen()) {
             $em = $em->create(
-            $em->getConnection(),
-            $em->getConfiguration()
-                );
+                $em->getConnection(),
+                $em->getConfiguration()
+            );
         }
         /*
                 if (strpos($message->topic, 'ap-outdoor.kalnet.hooya.de') !== false) {
@@ -126,7 +129,10 @@ class SubscriptionService
         $tp = explode('/', $message->topic);
         $length = count($tp);
         $device = '';
-        if ('command_result' == $tp[1]) {
+        if ('radius' == $tp[0]) {
+            $this->handleRadiusMessage($message);
+            return true;
+        } elseif ('command_result' == $tp[1]) {
             $this->logger->info('handleMosquittoMessage(): command result.', [
                 'topic' => $message->topic,
                 'payload' => $message->payload,
@@ -235,13 +241,19 @@ class SubscriptionService
             $device = $bssmsg['name'];
         //$this->logger->info('handleMoqsquittoMessage(): prehandled accesspoint bss add notification '.$tp[5].' for device '.$device.' from '.$hostname,(array)$message);
         } elseif ('wireless' == $tp[3] && 'status' == $tp[4]) {
-            return $this->apService->lifetimeMessageHandler($ap, $message,
+            return $this->apService->lifetimeMessageHandler(
+                $ap,
+                $message,
                 $this->cacheLocal['dev-by-ap-ifname'][$hostname],
-                    $this->client);
+                $this->client
+            );
         } elseif ('online' == $tp[3]) {
-            return $this->apService->lifetimeMessageHandler($ap, $message,
+            return $this->apService->lifetimeMessageHandler(
+                $ap,
+                $message,
                 $this->cacheLocal['dev-by-ap-ifname'][$hostname],
-                    $this->client);
+                $this->client
+            );
             /*
             } elseif ($tp[3] == 'properties') {
             $this->logger->info('handleMoqsquittoMessage(): implement properties handler for message from '.$hostname,(array)$message);
@@ -310,7 +322,8 @@ class SubscriptionService
                     $this->cacheFactory->addCacheItem($key, $data->raw_elements, 86400);
                 }
 
-                $this->logger->info("handleMoqsquittoMessage(): saved $event as ClindHeatMap.",
+                $this->logger->info(
+                    "handleMoqsquittoMessage(): saved $event as ClindHeatMap.",
                     [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),
@@ -330,7 +343,8 @@ class SubscriptionService
                     $devent->setSignalstr($data->signal);
                 }
                 $em->persist($devent);
-                $this->logger->info("handleMoqsquittoMessage(): saved $event as Event.",
+                $this->logger->info(
+                    "handleMoqsquittoMessage(): saved $event as Event.",
                     [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),
@@ -418,5 +432,57 @@ class SubscriptionService
         $this->apService->handleStationUpdates($device, $data);
 
         return true;
+    }
+
+    private function handleRadiusMessage($message)
+    {
+        $this->logger->info('handleRadiusMessage(): radius', [
+                'topic' => $message->topic,
+                'payload' => $message->payload,
+        ]);
+        $attribs = new \stdclass();
+        $data = json_decode($message->payload);
+        if (isset($data->request)) {
+            $attribs->request = new \stdclass();
+            foreach ($data->request as $value) {
+                $attribs->request->{$value[0]} = $value[1];
+            }
+        }
+        if (isset($data->reply)) {
+            $attribs->reply = new \stdclass();
+            foreach ($data->reply as $key => $value) {
+                $attribs->reply->{$value[0]} = $value[1];
+            }
+        }
+        $this->logger->info('handleRadiusMessage(): radius attribs', [$attribs->request]);
+        $expires = 7*86400;
+
+        $mac = null;
+        $username = null;
+        $ssid = null;
+        if (property_exists($attribs, 'request')) {
+            if (property_exists($attribs->request, 'Calling-Station-Id')) {
+                $mac = $attribs->request->{'Calling-Station-Id'};
+                $mac = strtolower($mac);
+                $mac = str_replace('-', ':', $mac);
+            }
+            if (property_exists($attribs->request, 'Called-Station-SSID')) {
+                $ssid = $attribs->request->{'Called-Station-SSID'};
+            }
+            if (property_exists($attribs->request, 'User-Name')) {
+                $username = $attribs->request->{'User-Name'};
+            }
+
+            $data = [
+            'mac' => $mac,
+            'ssid' => $ssid,
+            'username' => $username,
+            'auth' => [ 'query' => $attribs->reply, 'post_auth' => $attribs->request ],
+            'timestamp' => time()
+        ];
+            $key = "client.authtablev2.".$ssid.$mac;
+            $this->cacheFactory->addCacheItem($key, json_encode($data), $expires);
+            $this->logger->info('handleRadiusMessage(): final', $data);
+        }
     }
 }

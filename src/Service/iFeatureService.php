@@ -15,7 +15,7 @@ interface iFeatureService
         wrtJsonRpc $rpcService,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
         \Symfony\Component\HttpKernel\KernelInterface $kernel
-           );
+    );
 
     /**
      * set Feature.

@@ -59,12 +59,13 @@ class MqttFactory
             $_SERVER['MQTT_PORT'] = 1883;
         }
         $this->client = new MqttClient(
-        $_SERVER['MQTT_HOST'],
-        $_SERVER['MQTT_PORT'],
-        $id,
-        \PhpMqtt\Client\MqttClient::MQTT_3_1,
-        new \PhpMqtt\Client\Repositories\MemoryRepository(),
-        $this->logger);
+            $_SERVER['MQTT_HOST'],
+            $_SERVER['MQTT_PORT'],
+            $id,
+            \PhpMqtt\Client\MqttClient::MQTT_3_1,
+            new \PhpMqtt\Client\Repositories\MemoryRepository(),
+            $this->logger
+        );
         $connectionSettings = new \PhpMqtt\Client\ConnectionSettings();
         if (!empty($_SERVER['MQTT_USERNAME']) and !empty($_SERVER['MQTT_PASSWORD'])) {
             $connectionSettings = $connectionSettings->setUsername($_SERVER['MQTT_USERNAME']);

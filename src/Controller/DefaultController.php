@@ -62,59 +62,60 @@ class DefaultController extends Controller
     public function gridDataAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
         $status = $this->getStatusDump($rpc);
-	$s = [];
+        $s = [];
         foreach ($status['data'] as $apName => $apData) {
             foreach ($status['data'][$apName] as $ifName => $ifData) {
-		$clients = [];
-		if (isset($ifData['clients'])) {
-			foreach ($ifData['clients'] as $clientName => $clientData) {
-				$clients[$clientName] = true;
-			}
-		}
-		if (isset($ifData['assoclist'])) {
-			foreach ($ifData['assoclist'] as $clientName => $clientData) {
-				$clients[$clientName] = true;
-			}
-		}
-		if (isset($ifData['clientstats'])) {
-			foreach ($ifData['clientstats'] as $clientName => $clientData) {
-				$clients[$clientName] = true;
-			}
-		}
-		
-		foreach ($clients as $clientName => $clientData) {
+                $clients = [];
+                if (isset($ifData['clients'])) {
+                    foreach ($ifData['clients'] as $clientName => $clientData) {
+                        $clients[$clientName] = true;
+                    }
+                }
+                if (isset($ifData['assoclist'])) {
+                    foreach ($ifData['assoclist'] as $clientName => $clientData) {
+                        $clients[$clientName] = true;
+                    }
+                }
+                if (isset($ifData['clientstats'])) {
+                    foreach ($ifData['clientstats'] as $clientName => $clientData) {
+                        $clients[$clientName] = true;
+                    }
+                }
+
+                foreach ($clients as $clientName => $clientData) {
                     $key = $clientName.$apName.$ifName;
                     $client = [
-			    'ap' => $apName,
-			    'interface' => $ifName,
-			    'mac' => $clientName,
-			    'mac_private' => 'no',
-			    'interface_hardware_model' => null,
-			    'ssid' => null,
-			    'channel' => null,
-			    'frequency' => null,
-			    'authtype' => 'NONE',
-			    'authenticated' => null,
-			    'associated' => null,
-			    'authorized' => null,
-			    'preauth' => null,
-			    'wds' => null,
-			    'wmm' => null,
-			    'mbo' => 'no',
-			    'ht_mode' => '',
-			    'wps' => null,
-			    'mfp' => null,
-			    'connected_time' => null,
-			    'inactive' => null,
-			    'rx_bytes' => null,
-			    'tx_bytes' => null,
-			    'rx_rate' => null,
-			    'tx_rate' => null,
-			    'signal' => null,
-			    'noise' => null,
-			    'ip' => null,
-			    'dnsname' => null,
-			    'manufacturer' => null,
+                'ap' => $apName,
+                'interface' => $ifName,
+                'mac' => $clientName,
+                'mac_private' => 'no',
+                'interface_hardware_model' => null,
+                'ssid' => null,
+                'channel' => null,
+                'frequency' => null,
+                'authtype' => 'NONE',
+                'authenticated' => null,
+                'associated' => null,
+                'authorized' => null,
+                'preauth' => null,
+                'wds' => 'no',
+                'wmm' => null,
+                'mbo' => 'no',
+                'ht_mode' => '',
+                'wps' => null,
+                'mfp' => null,
+                'connected_time' => null,
+                'inactive' => null,
+                'rx_bytes' => null,
+                'tx_bytes' => null,
+                'rx_rate' => null,
+                'tx_rate' => null,
+                'signal' => null,
+                'noise' => null,
+                'ip' => null,
+                'dnsname' => null,
+                'manufacturer' => null,
+                'authuser' => null,
                     ];
                     if (isset($ifData['clients'][$clientName]['signal'])) {
                         $client['signal'] = $ifData['clients'][$clientName]['signal'];
@@ -126,29 +127,30 @@ class DefaultController extends Controller
                     }
                     if (isset($ifData['assoclist'][$clientName]['inactive'])) {
                         $client['inactive'] = intval($ifData['assoclist'][$clientName]['inactive'] / 1000);
-		    }
+                    }
 
-		    if (isset($ifData['clients'][$clientName]['ht']) && intval($ifData['clients'][$clientName]['ht'])) {
+                    if (isset($ifData['clients'][$clientName]['ht']) && intval($ifData['clients'][$clientName]['ht'])) {
                         $client['ht_mode'] = 'HT';
-		    } elseif (isset($ifData['assoclist'][$clientName]['tx']['ht']) && $ifData['assoclist'][$clientName]['tx']['ht']) {
+                    } elseif (isset($ifData['assoclist'][$clientName]['tx']['ht']) && $ifData['assoclist'][$clientName]['tx']['ht']) {
                         $client['ht_mode'] = 'HT';
                     }
-		    if (isset($ifData['clients'][$clientName]['vht']) && intval($ifData['clients'][$clientName]['vht'])) {
+                    if (isset($ifData['clients'][$clientName]['vht']) && intval($ifData['clients'][$clientName]['vht'])) {
                         $client['ht_mode'] = 'VHT';
-		    } elseif (isset($ifData['assoclist'][$clientName]['tx']['vht']) && $ifData['assoclist'][$clientName]['tx']['vht']) {
+                    } elseif (isset($ifData['assoclist'][$clientName]['tx']['vht']) && $ifData['assoclist'][$clientName]['tx']['vht']) {
                         $client['ht_mode'] = 'VHT';
                     }
-		    if (isset($ifData['clients'][$clientName]['he']) && intval($ifData['clients'][$clientName]['he'])) {
+                    if (isset($ifData['clients'][$clientName]['he']) && intval($ifData['clients'][$clientName]['he'])) {
                         $client['ht_mode'] = 'HE';
-		    } elseif (isset($ifData['assoclist'][$clientName]['tx']['he']) && $ifData['assoclist'][$clientName]['tx']['he']) {
+                    } elseif (isset($ifData['assoclist'][$clientName]['tx']['he']) && $ifData['assoclist'][$clientName]['tx']['he']) {
                         $client['ht_mode'] = 'HE';
-		    }
+                    }
 
                     if (isset($ifData['info']['hardware']['name'])) {
                         $client['interface_hardware_model'] = str_replace(
-                        ['Qualcomm Atheros ', 'MediaTek ','/'],
-                        ['','',' / '],
-                        $ifData['info']['hardware']['name']);
+                            ['Qualcomm Atheros ', 'MediaTek ','/'],
+                            ['','',' / '],
+                            $ifData['info']['hardware']['name']
+                        );
                     }
                     if (isset($ifData['info']['ssid'])) {
                         $client['ssid'] = $ifData['info']['ssid'];
@@ -196,7 +198,7 @@ class DefaultController extends Controller
                         $client['connected_time'] = explode(' ', $ifData['clientstats'][$clientName]['connected_time'])[0];
                     }
                     if (isset($ifData['clientstats'][$clientName]['inactive_time'])) {
-                        $client['inactive'] = explode(' ', $ifData['clientstats'][$clientName]['inactive_time'])[0];
+                        $client['inactive'] = explode(' ', $ifData['clientstats'][$clientName]['inactive_time'])[0]/1000;
                     }
                     if (isset($ifData['clients'][$clientName]['mbo']) && $ifData['clients'][$clientName]['mbo']) {
                         $client['mbo'] = 'yes';
@@ -216,11 +218,40 @@ class DefaultController extends Controller
                     if (isset($ifData['info']['encryption']['authentication'])) {
                         $client['authtype'] = join(' ', $ifData['info']['encryption']['authentication']);
                     }
-		    $client['manufacturer'] = $status['apsrv']->getMacManufacturer($clientName);
+                    $client['manufacturer'] = $status['apsrv']->getMacManufacturer($clientName);
 
-		    if (preg_match('/^.[26AEae].*/', $clientName)) {
-			$client['mac_private'] = 'yes';
-		    }
+                    if (preg_match('/^.[26AEae].*/', $clientName)) {
+                        $client['mac_private'] = 'yes';
+                    }
+
+                    $auth = null;
+                    $key = "client.authtablev2.".$client['ssid'].$clientName;
+                    $value = $this->cacheFactory->getCacheItemValue($key);
+                    if ($value && strlen($value)>2) {
+                        if (is_string($value) && strlen($value)>2) {
+                            $auth = @json_decode($value);
+                        }
+                    }
+                    if (is_object($auth)) {
+                        if (property_exists($auth, 'username')) {
+                            $client['authuser'] = $auth->username;
+                        }
+                        if (property_exists($auth, 'auth')) {
+                            if (property_exists($auth->auth->query, 'APMAN-PSK-Type')
+                        and $auth->auth->query->{'APMAN-PSK-Type'} == 'ppsk') {
+                                $client['authtype'] = 'ppsk';
+                            }
+                            if (property_exists($auth->auth->query, 'APMAN-Client-Name')
+                        and strlen($auth->auth->query->{'APMAN-Client-Name'})) {
+                                $client['authuser'] = $auth->auth->query->{'APMAN-Client-Name'};
+                            }
+                            if (property_exists($auth->auth->post_auth, 'EAP-Type')) {
+                                $client['authtype'] = ' EAP-'.
+                        $auth->auth->post_auth->{'EAP-Type'};
+                            }
+                        }
+                    }
+                    $client['authuser'] = str_replace('.kalnet.hooya.de', '', $client['authuser']);
 
                     $s[$key] = $client;
                 }
@@ -328,15 +359,16 @@ class DefaultController extends Controller
             exit();
         }
 
-        return $this->render('default/wnm_disassoc_imminent.html.twig',
-        [
+        return $this->render(
+            'default/wnm_disassoc_imminent.html.twig',
+            [
             'devices' => $ssid->getDevices(),
             'mac' => $request->get('mac'),
             'system' => $request->get('system'),
             'device' => $request->get('device'),
             'ssid' => $request->get('ssid'),
         ]
-    );
+        );
     }
 
     /**
@@ -424,15 +456,16 @@ class DefaultController extends Controller
         'name' => $request->get('ssid'),
     ]);
 
-        return $this->render('default/bss_transition_request.html.twig',
-        [
+        return $this->render(
+            'default/bss_transition_request.html.twig',
+            [
             'devices' => $ssid->getDevices(),
             'mac' => $request->get('mac'),
             'system' => $request->get('system'),
             'device' => $request->get('device'),
             'ssid' => $request->get('ssid'),
         ]
-    );
+        );
     }
 
     /**
@@ -639,6 +672,18 @@ class DefaultController extends Controller
             $output .= json_encode($status['ap_status'], JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
         }
 
+        // Get authtable from Cache
+        $auth = null;
+        $key = "client.authtablev2.".$status['ap_status']['ssid'].$mac;
+        $value = $this->cacheFactory->getCacheItemValue($key);
+        if ($value && strlen($value)>2) {
+            $auth = @json_decode($value);
+        }
+        if (is_object($auth)) {
+            $output .= "Radius Authentication Request:\n";
+            $output .= json_encode($auth, JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)."\n";
+        }
+
         /*
         $heatmap = [];
         $query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
@@ -743,8 +788,8 @@ class DefaultController extends Controller
         // client_uuid=ac998afb-1cea-5cd7-a63c-2f817e3f466b&ap_id=24&ap_if=wap-knet0&wps_pin=XXXX
 
         $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->find(
-        $request->query->get('ap_id')
-    );
+            $request->query->get('ap_id')
+        );
         $session = $this->rpcService->getSession($ap);
         if (false === $session) {
             $logger->debug('Failed to log in to: '.$ap->getName());
@@ -773,18 +818,67 @@ class DefaultController extends Controller
     }
 
     /**
-     * @Route("/radius/user//mac/{called}")
-     * @Route("/radius/user/{username}/mac/{called}")
      * @Route("/radius/user//sessions/")
      * @Route("/radius/user/{username}/sessions/")
+     * @Route("/radius/user/{username}/sessions/{session}")
+     */
+    public function receiveRadiusAccounting(Request $request, $caller = null, $called = null)
+    {
+        $response = new JsonResponse();
+        $response->setStatusCode(JsonResponse::HTTP_NO_CONTENT);
+        $response->headers->set('Content-Type', 'application/json');
+        return $response;
+    }
+
+
+    /**
+     * @Route("/radius/user//mac/")
+     * @Route("/radius/user//mac/{called}")
+     * @Route("/radius/user/{username}/mac/")
+     * @Route("/radius/user/{username}/mac/{called}")
      */
     public function receiveRadius(Request $request, $caller = null, $called = null)
     {
-        //$this->logger->info($request->request->all());
+        $expires = 7*86400;
+
         $response = new JsonResponse();
         $response->setStatusCode(JsonResponse::HTTP_NO_CONTENT);
         $response->headers->set('Content-Type', 'application/json');
 
+        $content = $request->getContent();
+        $attribs = @json_decode($content);
+        if (!is_object($attribs)) {
+            $this->logger->debug('expected json object');
+            return $response;
+        }
+        $query = $request->query->all();
+
+        $mac = null;
+        $username = null;
+        $ssid = null;
+        if (property_exists($attribs, 'Calling-Station-Id')) {
+            $mac = $attribs->{'Calling-Station-Id'}->value[0];
+            $mac = strtolower($mac);
+            $mac = str_replace('-', ':', $mac);
+        }
+        if (property_exists($attribs, 'Called-Station-SSID')) {
+            $ssid = $attribs->{'Called-Station-SSID'}->value[0];
+        }
+        if (property_exists($attribs, 'User-Name')) {
+            $username = $attribs->{'User-Name'}->value[0];
+        }
+
+        $data = [
+        'mac' => $mac,
+        'ssid' => $ssid,
+        'username' => $username,
+        'auth' => [ 'query' => $query, 'post_auth' => $attribs ],
+        'timestamp' => time()
+    ];
+        $key = "client.authtable.".$mac;
+        $this->cacheFactory->addCacheItem($key, json_encode($data), $expires);
+        $response->setStatusCode(JsonResponse::HTTP_NO_CONTENT);
+        $response->headers->set('Content-Type', 'application/json');
         return $response;
         //@Route("/radius/user/{caller}")
     }
@@ -1037,7 +1131,9 @@ class DefaultController extends Controller
             $heatmap[$probe->address][] = $hme;
         }
         foreach ($heatmap as $pa => $ps) {
-            usort($ps, function ($a, $b) {return $a->getTs() < $b->getTs(); });
+            usort($ps, function ($a, $b) {
+                return $a->getTs() < $b->getTs();
+            });
             $heatmap[$pa] = $ps;
         }
 

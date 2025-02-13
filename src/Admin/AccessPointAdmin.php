@@ -62,7 +62,7 @@ class AccessPointAdmin extends AbstractAdmin
         $actions = parent::getBatchActions();
 
 //        if ($this->hasRoute('print') && $this->isGranted('VIEW')) {
-        $actions['configure_and_restart'] = ['label' => 'Stop, Configure and Start', 'ask_confirmation' => true];
+        $actions['configure_and_restart'] = ['label' => 'Stop, Configure and Reboot', 'ask_confirmation' => true];
         $actions['configure'] = ['label' => 'Configure', 'ask_confirmation' => true];
         $actions['stop_radio'] = ['label' => 'Stop Radio', 'ask_confirmation' => true];
         $actions['start_radio'] = ['label' => 'Start Radio', 'ask_confirmation' => true];

@@ -15,7 +15,8 @@ class MqttSubscriberCommand extends Command
 
     public function __construct(
         \ApManBundle\Service\SubscriptionService $subs,
-        $name = null)
+        $name = null
+    )
     {
         parent::__construct($name);
         $this->subs = $subs;

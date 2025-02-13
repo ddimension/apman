@@ -70,11 +70,11 @@ class DaemonCommand extends Command
                 $em->getConnection()->connect();
                 $qb = $em->createQueryBuilder();
                 $query = $em->createQuery(
-                'SELECT ap
+                    'SELECT ap
 			     FROM ApManBundle:AccessPoint ap
 			     WHERE
 			     ap.id = :id'
-            );
+                );
                 $query->setFetchMode("ApManBundle\AccessPoint", 'ap', 'EAGER');
                 $query->setParameter('id', $apId);
                 $ap = $query->getSingleResult();
