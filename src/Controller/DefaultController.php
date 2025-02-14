@@ -7,6 +7,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\Controller;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Amp;
 
 class DefaultController extends Controller
 {
@@ -212,9 +213,6 @@ class DefaultController extends Controller
                     if (isset($status['neighbors'][$clientName]['name'])) {
                         $client['dnsname'] = $status['neighbors'][$clientName]['name'];
                     }
-                    if (isset($status['neighbors'][$clientName]['name'])) {
-                        $client['dnsname'] = $status['neighbors'][$clientName]['name'];
-                    }
                     if (isset($ifData['info']['encryption']['authentication'])) {
                         $client['authtype'] = join(' ', $ifData['info']['encryption']['authentication']);
                     }
@@ -237,17 +235,14 @@ class DefaultController extends Controller
                             $client['authuser'] = $auth->username;
                         }
                         if (property_exists($auth, 'auth')) {
-                            if (property_exists($auth->auth->query, 'APMAN-PSK-Type')
-                        and $auth->auth->query->{'APMAN-PSK-Type'} == 'ppsk') {
+                            if (property_exists($auth->auth, 'reply') and property_exists($auth->auth->reply, 'APMAN-PSK-Type') and $auth->auth->reply->{'APMAN-PSK-Type'} == 'ppsk') {
                                 $client['authtype'] = 'ppsk';
                             }
-                            if (property_exists($auth->auth->query, 'APMAN-Client-Name')
-                        and strlen($auth->auth->query->{'APMAN-Client-Name'})) {
-                                $client['authuser'] = $auth->auth->query->{'APMAN-Client-Name'};
+                            if (property_exists($auth->auth, 'reply') and  property_exists($auth->auth->reply, 'APMAN-Client-Name') and strlen($auth->auth->reply->{'APMAN-Client-Name'})) {
+                                $client['authuser'] = $auth->auth->reply->{'APMAN-Client-Name'};
                             }
-                            if (property_exists($auth->auth->post_auth, 'EAP-Type')) {
-                                $client['authtype'] = ' EAP-'.
-                        $auth->auth->post_auth->{'EAP-Type'};
+                            if (property_exists($auth->auth, 'post_auth') and property_exists($auth->auth->post_auth, 'EAP-Type')) {
+                                $client['authtype'] = 'EAP-'.$auth->auth->post_auth->{'EAP-Type'};
                             }
                         }
                     }
@@ -860,24 +855,20 @@ class DefaultController extends Controller
                 $neighbors[$data[1]]['ip'] = $data[3];
                 if ('-NA-' != $data[5]) {
                     $neighbors[$data[1]]['name'] = $data[5];
-                } else {
-                    $name = gethostbyaddr($data[3]);
-                    if ($name == $data[3]) {
-                        continue;
-                    }
-                    $neighbors[$data[1]]['name'] = $name;
                 }
             }
         }
-
-        $query = $em->createQuery("SELECT c FROM ApManBundle\Entity\Client c");
-        $result = $query->getResult();
-        foreach ($result as $client) {
-            $mac = $client->getMac();
-            $neighbors[$mac] = [];
-            $neighbors[$mac]['name'] = $client->getName();
-        }
-
+        /*
+        print_r($neighbors);
+        exit();
+            $query = $em->createQuery("SELECT c FROM ApManBundle\Entity\Client c");
+            $result = $query->getResult();
+            foreach ($result as $client) {
+                $mac = $client->getMac();
+                $neighbors[$mac] = [];
+                $neighbors[$mac]['name'] = $client->getName();
+            }
+        */
         if ($firewall_host) {
             $logger->debug('Building MAC cache');
             $session = $rpc->login($firewall_host, $firewall_user, $firewall_pwd);
@@ -911,55 +902,27 @@ class DefaultController extends Controller
                 // Read neighbor information
                 $opts = new \stdclass();
                 $opts->command = 'ip';
-                $opts->params = ['-4', 'neighb'];
+                $opts->params = ['-j', '-4', 'neighb'];
                 $stat = $session->call('file', 'exec', $opts);
-                $logger->debug('L1', ['stat' => $stat]);
-                $lines = explode("\n", $stat->stdout);
-                foreach ($lines as $line) {
-                    $ds = explode(' ', $line);
-                    if (!array_key_exists(4, $ds)) {
+                $lines = json_decode($stat->stdout, true);
+                foreach ($lines as $row) {
+                    if (!isset($row['lladdr'])) {
                         continue;
                     }
-                    $mac = strtolower($ds[4]);
+                    $mac = strtolower($row['lladdr']);
                     if (strlen($mac)) {
-                        if (array_key_exists($mac, $neighbors) && array_key_exists('name', $neighbors[$mac])) {
-                            //continue;
+                        if (!isset($neighbors[$mac])) {
+                            $neighbors[$mac] = [];
                         }
-                        $neighbors[$mac] = ['ip' => $ds[0]];
-                        $cache = $this->get('session')->get('name_cache', null);
-                        if (!is_array($cache)) {
-                            $cache = [];
-                        }
-                        if (array_key_exists($mac, $cache)) {
-                            $name = $cache[$mac];
-                            if (false === $name) {
-                                $logger->debug('skipping because of negative entry: '.$name);
-                                continue;
-                            }
-                            $logger->debug('found '.$name);
-                        } else {
-                            $name = gethostbyaddr($ds[0]);
-                            if ($name == $ds[0]) {
-                                $name = '';
-                            }
-                            if (empty($name)) {
-                                $cache[$mac] = false;
-                            } else {
-                                $cache[$mac] = $name;
-                            }
-                        }
-                        if ($name) {
-                            $neighbors[$mac]['name'] = $name;
-                        }
-                        $this->get('session')->set('name_cache', $cache);
+                        $neighbors[$mac]['ip'] = $row['dst'];
                     }
                 }
             }
             $logger->debug('MAC cache complete');
         }
         $aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
-        $logger->debug('Cache', ['cache' => $cache]);
-        $logger->debug('Logging in to all APs');
+        #$logger->debug('Cache', ['cache' => $cache]);
+        #$logger->debug('Logging in to all APs');d
         $sessions = [];
         $data = [];
         $history = [];
@@ -1030,6 +993,41 @@ class DefaultController extends Controller
                 }
             }
         }
+
+        // Resolve names
+        $cache = $this->get('session')->get('name_cache', null);
+        if (!is_array($cache)) {
+            $cache = [];
+	}
+	$ips = [];
+	function keyedQuery($ip, $mac) {
+            return [ 'mac' => $mac, 'name' => Amp\Dns\query($ip, \Amp\Dns\DnsRecord::PTR)];
+	}
+        foreach ($neighbors as $mac => $neighbor) {
+            /*
+            if (!empty($neighbor['name'])) {
+                continue;
+            }
+            */
+            if (empty($neighbor['ip'])) {
+                continue;
+	    }
+	    $ips[] = Amp\async(fn() => keyedQuery($neighbor['ip'], $mac));
+	}
+        $this->get('session')->set('name_cache', $cache);
+	$rres = Amp\Future\awaitAll($ips);
+	if (isset($rres[1])) {
+		foreach ($rres[1] as $result) {
+			$mac = $result['mac'];
+			$name = $result['name'][0]->getValue();
+			if (!strlen($name)) {
+				continue;
+			}
+			$neighbors[$mac]['name'] = $name;
+		}
+	}
+
+        // Build heatmap
         $heatmap = [];
         $query = $em->createQuery("SELECT d FROM ApManBundle\Entity\Device d
 		LEFT JOIN d.radio r

@@ -25,8 +25,7 @@ class SubscriptionService
         AccessPointService $apService,
         MqttFactory $mqttFactory,
         CacheFactory $cacheFactory
-    )
-    {
+    ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
@@ -454,7 +453,6 @@ class SubscriptionService
                 $attribs->reply->{$value[0]} = $value[1];
             }
         }
-        $this->logger->info('handleRadiusMessage(): radius attribs', [$attribs->request]);
         $expires = 7*86400;
 
         $mac = null;
@@ -477,12 +475,12 @@ class SubscriptionService
             'mac' => $mac,
             'ssid' => $ssid,
             'username' => $username,
-            'auth' => [ 'query' => $attribs->reply, 'post_auth' => $attribs->request ],
+            'auth' => [ 'reply' => $attribs->reply, 'post_auth' => $attribs->request ],
             'timestamp' => time()
-        ];
+            ];
             $key = "client.authtablev2.".$ssid.$mac;
             $this->cacheFactory->addCacheItem($key, json_encode($data), $expires);
-            $this->logger->info('handleRadiusMessage(): final', $data);
+            $this->logger->info('handleRadiusMessage(): sending radius message to '.$key, $data);
         }
     }
 }
