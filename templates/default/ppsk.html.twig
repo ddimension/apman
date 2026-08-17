@@ -1,0 +1,144 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Per device PSK{% endblock %}
+
+{% block body %}
+<h2>Per device PSK</h2>
+<p class="small">
+	The controller owns these keys. They are written into the wireless config as
+	<i>wifi-station</i> sections (persistent, survives a reboot) and pushed into the
+	running <i>wpa_psk_file</i> of every access point carrying the SSID, followed by
+	<i>reload_wpa_psk</i> — which only disconnects stations whose key stopped matching.
+	That is why a device enrolled on one AP can roam to any other one seconds later.
+	Editing happens in <a href="{{ path('admin_apman_ppsk_list') }}">Admin → Per device PSK</a>.
+</p>
+
+<div id="result" class="small"></div>
+
+<details>
+	<summary><b>Take ownership of existing keys</b></summary>
+	<p class="small">
+		Access points already carrying <i>wifi-station</i> sections keep them only
+		until the next full provisioning, which deletes all of them before writing
+		the config. Import them once per AP, then the controller owns them.
+	</p>
+	<p>
+		{% for ap in aps %}
+			<button type="button" class="imp" data-ap="{{ ap.id }}">{{ ap.name }}</button>
+		{% endfor %}
+	</p>
+</details>
+
+{% for row in rows %}
+	<h3>{{ row.ssid.name }}
+		<span class="small">{{ row.keys|length }} key(s), {{ row.bss|length }} BSS</span>
+		<button type="button" class="dist" data-ssid="{{ row.ssid.id }}">Distribute now</button>
+	</h3>
+
+	{% if row.keys|length %}
+	<table class="aps">
+		<tr><th>Name</th><th>MAC</th><th>VLAN</th><th>Source</th><th>Key</th><th>Created</th></tr>
+		{% for k in row.keys %}
+			<tr>
+				<td>{{ k.name }}</td>
+				<td>{{ k.mac == '00:00:00:00:00:00' ? 'any (not mac bound)' : k.mac }}</td>
+				<td>{{ k.vid }}</td>
+				<td>{{ k.source }}</td>
+				<td class="small">{{ k.isRawPsk ? 'raw psk' : 'passphrase' }},
+					{{ k.psk|slice(0, 4) }}…{{ k.isValid ? '' : ' <span class="warn">invalid</span>'|raw }}</td>
+				<td class="small">{{ k.created|date('Y-m-d') }}</td>
+			</tr>
+		{% endfor %}
+	</table>
+	{% else %}
+		<p class="small">no keys yet</p>
+	{% endif %}
+
+	<details>
+		<summary class="small">Enrol a device via WPS</summary>
+		<p class="small">
+			The registration is opened on <b>all {{ row.bss|length }} interfaces</b> of this
+			SSID at once — the device stands somewhere, not next to a particular radio.
+			Hand the PIN to whoever holds it, then import: hostapd writes the generated
+			key on the access point the device happened to use, and only there, so it
+			would be lost on the next wifi reload. Importing adopts it, distributes it to
+			every AP and closes the window again.
+		</p>
+		<p>
+			<button type="button" class="wps" data-ssid="{{ row.ssid.id }}" data-action="start">Open window (push button)</button>
+			<button type="button" class="wps" data-ssid="{{ row.ssid.id }}" data-action="status">Status</button>
+			<button type="button" class="wps" data-ssid="{{ row.ssid.id }}" data-action="cancel">Close</button>
+			<button type="button" class="wps" data-ssid="{{ row.ssid.id }}" data-action="import">Import key</button>
+		</p>
+		<p class="small">
+			Opening and closing runs over ubus (<i>wps_start</i> / <i>wps_cancel</i>) —
+			no reload, no client is disturbed. It requires WPS to be enabled in the
+			configuration of the SSID (<i>wps_pushbutton</i>); without it every
+			interface answers "not supported".
+			A PIN instead of the button would need <i>hostapd-utils</i> on the APs.
+		</p>
+		<p class="small">
+			{% for b in row.bss %}{{ b.ap }}/{{ b.ifname }}{% if not loop.last %} · {% endif %}{% endfor %}
+		</p>
+	</details>
+{% endfor %}
+
+<script>
+const out = document.getElementById('result');
+function show(msg, ok) {
+	out.className = 'small ' + (ok ? 'ok' : 'warn');
+	out.textContent = msg;
+}
+async function post(url, body) {
+	const res = await fetch(url, { method: 'POST', body: new URLSearchParams(body) });
+	return await res.json();
+}
+document.querySelectorAll('button.imp').forEach((b) => {
+	b.addEventListener('click', async () => {
+		show('importing...', true);
+		try {
+			const d = await post('{{ path('ppsk') }}/import/' + b.dataset.ap, {});
+			show(d.ok ? 'imported ' + d.imported + ' key(s), skipped ' + d.skipped
+			          : 'failed: ' + (d.error || '?'), d.ok);
+			if (d.ok && d.imported) { setTimeout(() => location.reload(), 1200); }
+		} catch (e) { show('failed: ' + e, false); }
+	});
+});
+document.querySelectorAll('button.dist').forEach((b) => {
+	b.addEventListener('click', async () => {
+		show('distributing...', true);
+		try {
+			const d = await post('{{ path('ppsk') }}/' + b.dataset.ssid + '/distribute', {});
+			show(d.ok ? 'distributed to ' + Object.keys(d.result || {}).length + ' AP(s)'
+			          : 'failed: ' + (d.result.error || '?'), d.ok);
+		} catch (e) { show('failed: ' + e, false); }
+	});
+});
+document.querySelectorAll('button.wps').forEach((b) => {
+	b.addEventListener('click', async () => {
+		const ssid = b.dataset.ssid;
+		const action = b.dataset.action;
+		show(action + '...', true);
+		try {
+			const d = await post('{{ path('ppsk') }}/wps/' + ssid, {
+				action: action,
+				pin: (document.getElementById('pin' + ssid) || {}).value || ''
+			});
+			if (!d.ok && d.error) { show('failed: ' + d.error, false); return; }
+			if (action === 'import') {
+				show(d.imported ? 'imported and distributed: ' + d.macs.join(', ')
+				                : 'nothing new on any AP of this SSID', d.imported > 0);
+				if (d.imported) { setTimeout(() => location.reload(), 1500); }
+			} else {
+				let msg = action + ': ' + d.active.length + '/' + d.interfaces + ' interface(s) ok';
+				if (d.offline.length) { msg += ', ' + d.offline.length + ' no answer'; }
+				const failed = Object.entries(d.failed || {});
+				if (failed.length) {
+					msg += ' — ' + failed.slice(0, 3).map(([k, v]) => k + ': ' + v).join('; ');
+				}
+				show(msg, d.active.length > 0);
+			}
+		} catch (e) { show('failed: ' + e, false); }
+	});
+});
+</script>
+{% endblock %}

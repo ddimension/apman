@@ -1,0 +1,306 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}iPSK{% endblock %}
+
+{% block body %}
+<h2>iPSK — a key that is an identity</h2>
+<p class="small">
+	Pick the network, give the key a name, press <b>Go</b>. The controller generates a
+	random passphrase, stores it, and pushes it to every access point carrying that
+	SSID — the key works fleet wide within seconds and no client is disconnected.
+	The key is bound to no MAC address, so it can be handed to a person rather than
+	to a device; what identifies it is the <i>keyid</i> that travels with it, which
+	the access points report back for every station that uses it. That is how the
+	list below can tell a key that was handed out from one that was actually used.
+</p>
+
+<form id="new" class="card">
+	<label>Network
+		<select name="ssid" required>
+			{% for s in ssids %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+		</select>
+	</label>
+	<label>Name <span class="small">the identity, e.g. a person or a device</span>
+		<input type="text" name="name" maxlength="64" required placeholder="Guest Anna">
+	</label>
+	<label>VLAN <span class="small">optional</span>
+		<input type="number" name="vid" min="1" max="4094" style="width:6em">
+	</label>
+	<label>Bind to device <span class="small">the first device that uses it keeps it</span>
+		<input type="checkbox" name="pin" value="1" checked>
+	</label>
+	<button type="submit">Go</button>
+	<span id="busy" class="small"></span>
+</form>
+
+<div id="issued" class="card" style="display:none">
+	<h3>Key for <span id="i-name"></span> <span class="small">on <span id="i-ssid"></span></span></h3>
+	<div class="keybox">
+		<div>
+			<div class="psk" id="i-psk"></div>
+			<p class="small">
+				<button type="button" id="copy">Copy</button>
+				<span id="copied" class="ok small"></span>
+				&nbsp;identity <code id="i-keyid"></code>
+			</p>
+			<p class="small" id="i-dist"></p>
+				<p class="small warn" id="i-note" style="display:none"></p>
+			<p class="small" id="i-seen">Waiting for the first login…</p>
+		</div>
+		<div id="qr" title="Scan to join"></div>
+	</div>
+	<p class="small stale">
+		Written down once — the key is stored and can be looked up again here, but
+		treat it like a password: anyone holding it is this identity.
+	</p>
+</div>
+
+<h3>Issued keys</h3>
+<table class="aps">
+	<tr><th>Name</th><th>Network</th><th>Identity</th><th>Created</th><th>First used</th><th>Last seen</th><th>Last device</th><th></th></tr>
+	{% for k in keys %}
+		<tr class="{{ k.enabled ? (k.firstSeen ? '' : 'dim') : 'revoked' }}">
+			<td><a href="#" class="show" data-id="{{ k.id }}">{{ k.name }}</a></td>
+			<td class="small">{{ k.ssid.name }}</td>
+			<td class="small"><code>{{ k.keyid }}</code></td>
+			<td class="small">{{ k.created|date('Y-m-d H:i') }}</td>
+			<td class="small">
+				{% if k.firstSeen %}
+					<span class="pill up">used</span> {{ k.firstSeen|date('Y-m-d H:i') }}
+				{% else %}
+					<span class="pill down">never used</span>
+				{% endif %}
+			</td>
+			<td class="small">{{ k.lastSeen ? k.lastSeen|date('Y-m-d H:i') : '' }}</td>
+			<td class="small">
+				{% if k.pinned %}<span class="pill up" title="only this device can use the key">bound</span>
+					{{ k.mac }}
+				{% elseif k.pinPending %}<span class="pill" title="the first device to use it will keep it">binds on first use</span>
+					{{ k.lastMac }}
+				{% else %}{{ k.lastMac }}{% endif %}
+			</td>
+			<td class="small">
+				{% if k.enabled %}
+					<button type="button" class="revoke" data-id="{{ k.id }}">Revoke</button>
+				{% else %}
+					<span class="pill down">revoked</span>
+					<button type="button" class="revoke" data-id="{{ k.id }}" data-purge="1">Delete</button>
+				{% endif %}
+				<span class="small result"></span>
+			</td>
+		</tr>
+	{% else %}
+		<tr><td colspan="8" class="small stale">no iPSK issued yet</td></tr>
+	{% endfor %}
+</table>
+{% endblock %}
+
+{% block javascripts %}
+<script src="{{ asset('vendor/qrcode.js') }}"></script>
+<script>
+let pollTimer = null;
+
+function renderQr(payload) {
+	const box = document.getElementById('qr');
+	box.innerHTML = '';
+	// type 0 = pick the smallest version that fits, M = 15 % recovery, which
+	// survives a phone camera at an angle
+	const qr = qrcode(0, 'M');
+	qr.addData(payload);
+	qr.make();
+	box.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
+}
+
+async function poll(id) {
+	try {
+		const res = await fetch('{{ path('ipsk_status', {'id': '__ID__'}) }}'.replace('__ID__', id));
+		const d = await res.json();
+		const out = document.getElementById('i-seen');
+		if (d.used) {
+			let html = '<span class="pill up">used</span> first login ' + d.first_seen;
+			if (d.online && d.online.length) {
+				html += ' — online now on ' + d.online.map(o =>
+					o.ap + '/' + o.ifname + (o.signal != null ? ' (' + o.signal + ' dBm)' : '')).join(', ');
+			}
+			out.className = 'small ok';
+			out.innerHTML = html;
+			clearInterval(pollTimer);
+		}
+	} catch (e) { /* keep polling, the page is allowed to be open for a while */ }
+}
+
+// show an existing key again: the code is worth nothing if it can only be
+// seen in the second it was created
+function display(d) {
+	document.getElementById('i-name').textContent = d.name;
+	document.getElementById('i-ssid').textContent = d.ssid;
+	document.getElementById('i-psk').textContent = d.psk;
+	document.getElementById('i-keyid').textContent = d.keyid || '';
+	renderQr(d.qr);
+	document.getElementById('issued').style.display = 'block';
+	document.getElementById('copy').onclick = async () => {
+		try {
+			await navigator.clipboard.writeText(d.psk);
+			document.getElementById('copied').textContent = 'copied';
+			setTimeout(() => document.getElementById('copied').textContent = '', 2000);
+		} catch (e) {
+			const r = document.createRange();
+			r.selectNode(document.getElementById('i-psk'));
+			window.getSelection().removeAllRanges();
+			window.getSelection().addRange(r);
+			document.getElementById('copied').textContent = 'selected — press ctrl+c';
+		}
+	};
+	const note = document.getElementById('i-note');
+	if (note) { note.style.display = 'none'; }
+	document.getElementById('issued').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+document.querySelectorAll('a.show').forEach((a) => {
+	a.addEventListener('click', async (ev) => {
+		ev.preventDefault();
+		const res = await fetch('{{ path('ipsk_status', {'id': '__ID__'}) }}'.replace('__ID__', a.dataset.id));
+		const d = await res.json();
+		if (!d.ok) { return; }
+		display(d);
+		document.getElementById('i-dist').textContent = '';
+		const out = document.getElementById('i-seen');
+		if (d.used) {
+			out.className = 'small ok';
+			out.innerHTML = '<span class="pill up">used</span> first login ' + d.first_seen +
+				(d.online && d.online.length ? ' — online now on ' +
+					d.online.map(o => o.ap + '/' + o.ifname).join(', ') : '');
+		} else {
+			out.className = 'small';
+			out.textContent = 'never used yet';
+		}
+		if (pollTimer) clearInterval(pollTimer);
+		pollTimer = setInterval(() => poll(a.dataset.id), 5000);
+	});
+});
+
+// Withdrawing a key needs no dialog: the button arms itself on the first
+// click, which keeps the page free of modal windows and is just as hard to hit
+// by accident.
+document.querySelectorAll('button.revoke').forEach((b) => {
+	const purge = b.dataset.purge === '1';
+	b.dataset.label = b.textContent;
+	b.addEventListener('click', async () => {
+		const out = b.parentElement.querySelector('.result');
+		if (b.dataset.armed !== '1') {
+			b.dataset.armed = '1';
+			b.textContent = purge ? 'delete for good?' : 'really revoke?';
+			b.classList.add('armed');
+			setTimeout(() => {
+				if (b.dataset.armed === '1') {
+					b.dataset.armed = '0';
+					b.textContent = b.dataset.label;
+					b.classList.remove('armed');
+				}
+			}, 4000);
+			return;
+		}
+		b.disabled = true;
+		b.textContent = purge ? 'deleting…' : 'revoking…';
+		try {
+			const res = await fetch('{{ path('ipsk_revoke', {'id': '__ID__'}) }}'.replace('__ID__', b.dataset.id), {
+				method: 'POST', body: new URLSearchParams(purge ? { purge: '1' } : {})
+			});
+			const d = await res.json();
+			if (!d.ok) {
+				out.className = 'small warn';
+				out.textContent = d.error || 'failed';
+				b.disabled = false;
+				b.textContent = b.dataset.label;
+				return;
+			}
+			out.className = 'small ok';
+			out.textContent = (purge ? 'deleted' : 'revoked') +
+				(d.reloaded ? ', ' + d.reloaded + ' bss reloaded' : '');
+			setTimeout(() => location.reload(), 1200);
+		} catch (e) {
+			out.className = 'small warn';
+			out.textContent = 'failed: ' + e;
+			b.disabled = false;
+		}
+	});
+});
+
+document.getElementById('new').addEventListener('submit', async (ev) => {
+	ev.preventDefault();
+	const busy = document.getElementById('busy');
+	const btn = ev.target.querySelector('button[type=submit]');
+	btn.disabled = true;
+	busy.className = 'small';
+	busy.textContent = 'generating and distributing…';
+	try {
+		const res = await fetch('{{ path('ipsk_create') }}', {
+			method: 'POST', body: new URLSearchParams(new FormData(ev.target))
+		});
+		const d = await res.json();
+		if (!d.ok) {
+			busy.className = 'small warn';
+			busy.textContent = d.error || 'failed';
+			btn.disabled = false;
+			return;
+		}
+		busy.textContent = '';
+		document.getElementById('i-name').textContent = d.name;
+		document.getElementById('i-ssid').textContent = d.ssid;
+		document.getElementById('i-psk').textContent = d.psk;
+		document.getElementById('i-keyid').textContent = d.keyid;
+		// with SAE there is nothing to reload, so the note below explains the
+		// state instead of a warning that would be wrong
+		document.getElementById('i-dist').innerHTML = d.reloaded > 0
+			? '<span class="ok">live on ' + d.reloaded + ' bss</span>' +
+			  (d.pending ? ', ' + d.pending + ' not reloaded' : '')
+			: (d.note ? '<span class="stale">stored in the wireless configuration</span>'
+			          : '<span class="warn">distributed, but no access point confirmed the reload</span>');
+		const note = document.getElementById('i-note');
+		note.style.display = d.note ? 'block' : 'none';
+		note.textContent = d.note || '';
+		renderQr(d.qr);
+		document.getElementById('issued').style.display = 'block';
+		document.getElementById('copy').onclick = async () => {
+			try {
+				await navigator.clipboard.writeText(d.psk);
+				document.getElementById('copied').textContent = 'copied';
+				setTimeout(() => document.getElementById('copied').textContent = '', 2000);
+			} catch (e) {
+				// clipboard needs https or localhost, so fall back to selecting
+				const r = document.createRange();
+				r.selectNode(document.getElementById('i-psk'));
+				window.getSelection().removeAllRanges();
+				window.getSelection().addRange(r);
+				document.getElementById('copied').textContent = 'selected — press ctrl+c';
+			}
+		};
+		if (pollTimer) clearInterval(pollTimer);
+		pollTimer = setInterval(() => poll(d.id), 5000);
+		poll(d.id);
+	} catch (e) {
+		busy.className = 'small warn';
+		busy.textContent = 'failed: ' + e;
+	}
+	btn.disabled = false;
+});
+</script>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+	.card { border: 1px solid #dde; border-radius: 4px; padding: .75rem; margin-bottom: 1rem; }
+	form#new label { display: inline-block; margin-right: 1rem; vertical-align: top; }
+	form#new label span.small { display: block; color: #778; }
+	form#new input, form#new select { display: block; margin-top: .15rem; }
+	.keybox { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
+	.psk { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	       font-size: 1.8rem; letter-spacing: .06em; padding: .4rem .6rem;
+	       background: #f4f6fa; border: 1px solid #dde; border-radius: 4px;
+	       user-select: all; }
+	#qr svg { width: 180px; height: 180px; }
+	tr.dim { opacity: .6; }
+	tr.revoked { opacity: .55; }
+	tr.revoked td:first-child { text-decoration: line-through; }
+	button.armed { background: #fdd; border-color: #c66; }
+</style>
+{% endblock %}
