@@ -1,0 +1,62 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Networks{% endblock %}
+
+{% block body %}
+<h2>Networks</h2>
+<p class="small">
+	Every SSID the controller knows, with the switches that decide what kind of network it is.
+	The access points are configured from these — a change here reaches them at the next
+	provisioning run, not immediately.
+</p>
+
+<table class="aps">
+	<tr>
+		<th>Name</th><th>Broadcast as</th><th>Security</th><th>Bridged to</th>
+		<th>Reach</th><th>Keys</th><th>Set options</th><th>Properties</th>
+	</tr>
+	{% for s in ssids %}
+		<tr class="{{ s.disabled ? 'dim' : '' }}">
+			<td>
+				<a href="{{ path('ssid_detail', {'id': s.id}) }}"><b>{{ s.name }}</b></a>
+				{% if s.disabled %}<span class="pill down">disabled</span>{% endif %}
+			</td>
+			<td class="small">{{ s.ssid }}{% if s.mode and s.mode != 'ap' %}
+				<span class="pill">{{ s.mode }}</span>{% endif %}</td>
+			<td class="small">
+				{% if s.encryption in ['none', ''] or s.encryption is null %}
+					<span class="pill down">open</span>
+				{% else %}
+					<span class="pill up">{{ s.encryption }}</span>
+				{% endif %}
+			</td>
+			<td class="small">{{ s.network }}</td>
+			<td class="small">
+				{% if s.devices %}{{ s.devices }} bss on {{ s.aps }} ap{{ s.aps > 1 ? 's' : '' }}
+				{% else %}<span class="stale">nowhere</span>{% endif %}
+			</td>
+			<td class="small">{{ s.keys ? s.keys : '' }}</td>
+			<td class="small">{{ s.options }}{% if s.lists %} + {{ s.lists }} lists{% endif %}</td>
+			<td class="small">
+				{% for t in s.traits %}<span class="pill">{{ t }}</span> {% endfor %}
+				{% if s.hints %}<span class="pill down" title="{{ s.hints|join(' ') }}">{{ s.hints|length }} warning{{ s.hints|length > 1 ? 's' : '' }}</span>{% endif %}
+			</td>
+		</tr>
+	{% endfor %}
+</table>
+
+<p class="small stale">
+	„Set options" counts what deviates from the OpenWrt default. Everything else follows the
+	default and is not stored — which is why a network with nine entries is not less complete
+	than one with twenty one, only less opinionated.
+</p>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+	tr.dim { opacity: .55; }
+	.pill { background: #eef2f8; border: 1px solid #dde; border-radius: 10px;
+	        padding: 0 .45em; font-size: .85em; white-space: nowrap; }
+	.pill.up { background: #e8f5e9; border-color: #b8ddb9; }
+	.pill.down { background: #fdecea; border-color: #f0b7b2; }
+</style>
+{% endblock %}
