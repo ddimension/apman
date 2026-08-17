@@ -824,7 +824,7 @@ class AccessPointService
     //echo "Polled ".$ap->getName().", took ".sprintf('%0.3f',$stop-$start)."s\n";
     }
 
-    public function lifetimeMessageHandler($ap, \Mosquitto\Message $message, $deviceList = null, \Mosquitto\Client $client)
+    public function lifetimeMessageHandler($ap, \ApManBundle\Mqtt\Message $message, $deviceList = null, \ApManBundle\Mqtt\Publisher $client)
     {
         //    var_dump($message);
         $cache = $this->cacheFactory->getCache();

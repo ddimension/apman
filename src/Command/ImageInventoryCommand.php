@@ -82,27 +82,30 @@ class ImageInventoryCommand extends Command
         $wait = max(1, (int) $input->getOption('wait'));
         $only = array_map('strtolower', (array) $input->getOption('ap'));
 
-        $client = $this->mqttFactory->getClientMosquitto('apman-inventory-'.getmypid(), true);
+        $client = $this->mqttFactory->getClient('apman-inventory-'.getmypid(), true);
         if (!$client) {
             $err->writeln('<error>no mqtt connection</error>');
 
             return 1;
         }
 
-        $client->onMessage(function ($msg) use ($only) {
-            $this->onProperty($msg, $only);
-        });
+        $collect = function ($topic, $payload) use ($only) {
+            $this->onProperty(new \ApManBundle\Mqtt\Message($topic, $payload), $only);
+        };
         // both are retained, so the broker replays the whole fleet at once
-        $client->subscribe('apman/ap/+/properties/system/board', 1);
-        $client->subscribe('apman/ap/+/properties/agent', 1);
+        $client->subscribe('apman/ap/+/properties/system/board', $collect, 1);
+        $client->subscribe('apman/ap/+/properties/agent', $collect, 1);
         // the periodic status is the liveness test — see below
-        $client->subscribe('apman/ap/+/device/hostapd/+/status', 0);
+        $client->subscribe('apman/ap/+/device/hostapd/+/status', $collect, 0);
 
         $err->writeln(sprintf('collecting for %d s ...', $wait), OutputInterface::VERBOSITY_VERBOSE);
         $deadline = microtime(true) + $wait;
         while (microtime(true) < $deadline) {
-            $client->loop(200);
+            // 20 ms of sleep when nothing is pending: idle enough not to spin,
+            // short enough to drain a retained flood without falling behind
+            $client->loopOnce(microtime(true), true, 20000);
         }
+        $client->disconnect();
 
         if (!$this->devices) {
             $err->writeln('<error>no device answered — is the agent running and is the topic prefix apman/?</error>');

@@ -22,6 +22,11 @@ class SubscriptionService
     /** ssid ids whose keys changed and have to go out again */
     private $ppskPending = [];
     private const CACHE_REFRESH_INTERVAL = 60;
+    private const HOUSEKEEPING_INTERVAL = 10;
+    /** the RADIUS server sharing this loop, null when it is switched off */
+    private $radius;
+    private $reconnecting = false;
+    private $reconnectDelay = 0;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -30,8 +35,10 @@ class SubscriptionService
         AccessPointService $apService,
         MqttFactory $mqttFactory,
         CacheFactory $cacheFactory,
-        PpskService $ppskService
+        PpskService $ppskService,
+        RadiusServerService $radius = null
     ) {
+        $this->radius = $radius;
         $this->ppskService = $ppskService;
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -41,87 +48,160 @@ class SubscriptionService
         $this->cacheFactory = $cacheFactory;
     }
 
+    /**
+     * Telemetry is replaced every interval, so QoS 0 is enough and saves an
+     * acknowledgement per message in both directions. Command results and
+     * retained properties are worth QoS 1. Overlapping filters are fine: the
+     * broker delivers one copy at the highest matching QoS (verified against
+     * this mosquitto).
+     */
+    private const SUBSCRIPTIONS = [
+        'apman/#' => 0,
+        'apman/+/+/command_result/#' => 1,
+        'apman/+/+/properties/#' => 1,
+        'apman/+/+/online' => 1,
+        'apman/+/+/booted' => 1,
+        'radius/#' => 0,
+    ];
+
+    /**
+     * The daemon's one event loop.
+     *
+     * It used to be a blocking `Mosquitto\Client::loop(10000)` inside a while
+     * loop — which meant everything else in this process had to wait up to ten
+     * seconds for its turn. Now MQTT, the RADIUS socket and the housekeeping
+     * tick all hang off the same select, and each of them gets served the
+     * moment there is something to do.
+     */
     public function runMqttLoop()
     {
         $this->logger->info('Starting MqttLoop');
         $this->cache = $this->cacheFactory->getCache();
-        $loop = true;
-        while ($loop) {
-            $srv = $this;
-            unset($this->client);
-            $this->client = $this->mqttFactory->getClientMosquitto('apmanserver', false);
-            $client = $this->client;
-            /*
-            $this->client->onConnect(function() use ($srv,$client) {
-                $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'info', null);
-                $client->publish('apman/command', json_encode($cmd), 2);
-            });
-             */
-            $this->client->onMessage(function ($msg) use ($srv) {
-                try {
-                    if (!$srv->handleMosquittoMessage($msg)) {
-                        $this->logger->debug('Failed to handle message. '.json_encode($msg));
-                    }
-                } catch (\Exception $e) {
-                    $this->logger->error('Failed to handle message. '.$e.' '.$e->getTraceAsString());
-                }
-            });
-            if (!empty($_SERVER['MQTT_USERNAME']) and !empty($_SERVER['MQTT_PASSWORD'])) {
-                $success = $this->client->setCredentials($_SERVER['MQTT_USERNAME'], $_SERVER['MQTT_PASSWORD']);
-            }
-            if (empty($_SERVER['MQTT_PORT'])) {
-                $_SERVER['MQTT_PORT'] = 1883;
-            }
-            $success = $this->client->connect($_SERVER['MQTT_HOST'], $_SERVER['MQTT_PORT']);
-            if ($success) {
-                $this->logger->info('Failed to connected.');
-                continue;
-            }
-            $this->client->onDisconnect(function () {
-                $this->logger->warn("Disconnected, reconnect\n");
-                $success = $this->client->connect('192.168.203.38', 1883);
-                if ($success) {
-                    $this->logger->info('Failed to connect.');
-                }
-            });
-            $this->logger->info('Connected');
-            // Telemetry is replaced every interval, so QoS 0 is enough and
-            // saves an acknowledgement per message in both directions. Command
-            // results and retained properties are worth QoS 1. Overlapping
-            // filters are fine: the broker delivers one copy at the highest
-            // matching QoS (verified against this mosquitto).
-            $this->client->subscribe('apman/#', 0);
-            $this->client->subscribe('apman/+/+/command_result/#', 1);
-            $this->client->subscribe('apman/+/+/properties/#', 1);
-            $this->client->subscribe('apman/+/+/online', 1);
-            $this->client->subscribe('apman/+/+/booted', 1);
-            $this->client->subscribe('radius/#', 0);
-            $loopTime = 10;
+        $loop = \React\EventLoop\Loop::get();
+
+        $this->connectMqtt($loop);
+        $loop->addPeriodicTimer(self::HOUSEKEEPING_INTERVAL, function () {
             try {
-                $lStart = time();
-                while (true) {
-                    $this->client->loop($loopTime * 1000);
-                    if (($lStart + $loopTime) <= time()) {
-                        $this->doHouseKeeping();
-                        $lStart = time();
-                    }
-                }
-            } catch (\Exception $e) {
-                $this->logger->info('Exception occured: '.$e->getMessage());
-                //if (strpos($e->getMessage(), 'PDOException: SQLSTATE[HY000]') !== false) {
-                // reconnect
-                $this->logger->warn('Database Connection Exception occured.');
-                $em = $this->doctrine->getManager();
-                if (false === $em->getConnection()->ping()) {
-                    $this->logger->warn('Database ping failed, reconnect.');
-                    $em->getConnection()->close();
-                    $em->getConnection()->connect();
-                }
-                //}
-                sleep(1);
-                continue;
+                $this->doHouseKeeping();
+            } catch (\Throwable $e) {
+                $this->logger->error('Housekeeping failed: '.$e->getMessage());
+                $this->reviveDatabase();
             }
-            $this->logger->info('Disconnected.');
+        });
+        if ($this->radius) {
+            $this->radius->listen($loop);
+        }
+
+        $loop->run();
+
+        return 0;
+    }
+
+    /**
+     * Build a client, connect it, subscribe. Every reconnect starts here again
+     * with a fresh client — the old one is done once its stream is closed.
+     */
+    private function connectMqtt(\React\EventLoop\LoopInterface $loop)
+    {
+        $client = $this->mqttFactory->getReactClient($loop);
+        // false: keep the session, so the subscriptions and any in flight QoS 1
+        // messages survive a short disconnect — same as before.
+        [$host, $port, $connection] = $this->mqttFactory->getReactConnection('apmanserver', false);
+        $this->client = new \ApManBundle\Mqtt\ReactPublisher($client, $this->logger);
+
+        $client->on('message', function (\BinSoul\Net\Mqtt\Message $message) {
+            $this->dispatch(new \ApManBundle\Mqtt\Message(
+                $message->getTopic(),
+                $message->getPayload(),
+                $message->getQosLevel(),
+                $message->isRetained()
+            ));
+        });
+        $client->on('warning', function (\Throwable $e) {
+            $this->logger->warning('Mqtt: '.$e->getMessage());
+        });
+        $client->on('error', function (\Throwable $e) use ($loop) {
+            $this->logger->error('Mqtt: '.$e->getMessage());
+            $this->scheduleReconnect($loop);
+        });
+        $client->on('close', function () use ($loop) {
+            $this->logger->warning('Mqtt: connection closed');
+            $this->scheduleReconnect($loop);
+        });
+
+        $client->connect($host, $port, $connection)->then(
+            function () use ($client) {
+                $this->reconnectDelay = 0;
+                $this->logger->info('Connected');
+                foreach (self::SUBSCRIPTIONS as $filter => $qos) {
+                    $client->subscribe(new \BinSoul\Net\Mqtt\DefaultSubscription($filter, $qos))->then(
+                        null,
+                        function (\Throwable $e) use ($filter) {
+                            $this->logger->error('Mqtt: subscribe '.$filter.' failed: '.$e->getMessage());
+                        }
+                    );
+                }
+            },
+            function (\Throwable $e) use ($loop) {
+                $this->logger->error('Mqtt: connect failed: '.$e->getMessage());
+                $this->scheduleReconnect($loop);
+            }
+        );
+    }
+
+    /**
+     * Reconnect with a growing delay, but never faster than once a second and
+     * never slower than every half minute. A single pending timer at a time:
+     * 'error' and 'close' usually arrive together and would otherwise start
+     * two clients.
+     */
+    private function scheduleReconnect(\React\EventLoop\LoopInterface $loop)
+    {
+        if ($this->reconnecting) {
+            return;
+        }
+        $this->reconnecting = true;
+        $this->reconnectDelay = min(30, max(1, $this->reconnectDelay * 2));
+        $this->logger->info('Mqtt: reconnecting in '.$this->reconnectDelay.'s');
+        $loop->addTimer($this->reconnectDelay, function () use ($loop) {
+            $this->reconnecting = false;
+            $this->reviveDatabase();
+            $this->connectMqtt($loop);
+        });
+    }
+
+    /**
+     * A connection that died while the process kept running leaves Doctrine
+     * with a handle that throws on first use. The old loop caught that as an
+     * exception around the whole loop body; here it is checked where it can
+     * actually be repaired.
+     */
+    private function reviveDatabase()
+    {
+        try {
+            $connection = $this->doctrine->getManager()->getConnection();
+            if (false === $connection->ping()) {
+                $this->logger->warning('Database ping failed, reconnect.');
+                $connection->close();
+                $connection->connect();
+            }
+        } catch (\Throwable $e) {
+            $this->logger->error('Database revive failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * One message, with the failure of a single message kept local: a station
+     * report that trips over its own payload must not take the loop down.
+     */
+    private function dispatch(\ApManBundle\Mqtt\Message $message)
+    {
+        try {
+            if (!$this->handleMosquittoMessage($message)) {
+                $this->logger->debug('Failed to handle message. '.$message->topic);
+            }
+        } catch (\Throwable $e) {
+            $this->logger->error('Failed to handle message. '.$e.' '.$e->getTraceAsString());
         }
     }
 
