@@ -1,140 +1,386 @@
 {% extends 'frontend.html.twig' %}
-{% block header %}
-<!-- <meta http-equiv="refresh" content="5"> -->
-{% endblock %}
+{% block header %}{% endblock %}
 
 {% block body %}
+<div class="gridbar">
+	<label>Refresh
+		<select id="refreshsel">
+			<option value="5000">5s</option>
+			<option value="15000">15s</option>
+			<option value="60000">60s</option>
+		</select>
+	</label>
+	<button id="pausebtn" type="button"></button>
+	<button id="nowbtn" type="button">Refresh now</button>
+	<span id="lastload" class="small"></span>
+	<span class="spacer"></span>
+	<label class="small"><input type="checkbox" id="onlyproblems"> only problems</label>
+	<span id="summary" class="small"></span>
+</div>
 <div id="wrapper"></div>
 <div id="clients"></div>
+
 <script>
+// ---- refresh control -------------------------------------------------------
+let timeout = parseInt(localStorage.getItem('apman.refresh') || '15000');
+let paused = localStorage.getItem('apman.paused') === '1';
+let lastLoad = null;
+let refreshHandle = null;
 
-timeout = 5000
-function updateGrid(grid) {
-	grid.forceRender();
-	setTimeout(() => {
-		updateGrid(grid);
-	}, timeout);
-	
+function updateGrid() {
+	if (!paused) { loadData(); }
+	clearTimeout(refreshHandle);
+	refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
+}
+function renderAge() {
+	const el = document.getElementById('lastload');
+	if (!el) return;
+	if (paused) { el.textContent = 'paused'; return; }
+	if (!lastLoad) { el.textContent = 'loading...'; return; }
+	el.textContent = 'updated ' + Math.round((Date.now() - lastLoad) / 1000) + 's ago';
+}
+setInterval(renderAge, 1000);
+
+// ---- rendering helpers -----------------------------------------------------
+const esc = (s) => String(s === null || s === undefined ? '' : s)
+	.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function signalBar(dbm, noise) {
+	if (dbm === null || dbm === undefined || dbm === '') return '<span class="muted">–</span>';
+	const pct = Math.max(0, Math.min(100, Math.round((dbm + 100) * 100 / 60)));
+	const cls = dbm < -75 ? 'bad' : (dbm < -65 ? 'weak' : 'good');
+	const snr = (noise !== null && noise !== undefined && noise !== '') ? ' · SNR ' + (dbm - noise) + ' dB' : '';
+	return '<span class="metric" title="' + esc(dbm + ' dBm' + (noise ? ', noise ' + noise + ' dBm' : '') + snr) + '">' +
+		'<span class="bar ' + cls + '"><span style="width:' + pct + '%"></span></span>' +
+		'<span class="num">' + dbm + '</span></span>';
 }
 
-function getStringHeaderField(field) {
-	return {
-		id: field,
-		name: gridjs.html('<bold title="'+field+'">'+field+'</bold>')
-	};
+// griddata already delivers Mbit/s (parsed out of the station dump), so no
+// conversion here; the bar is against a fixed ceiling to keep rows comparable
+function rateCell(rx, tx) {
+	const fmt = (v) => (v === null || v === undefined || v === '') ? null : Math.round(parseFloat(v));
+	const r = fmt(rx), t = fmt(tx);
+    if (r === null && t === null) return '<span class="muted">–</span>';
+	const worst = Math.min(r === null ? 9999 : r, t === null ? 9999 : t);
+	const cls = worst < 25 ? 'bad' : (worst < 100 ? 'weak' : 'good');
+	const pct = Math.max(4, Math.min(100, Math.round(Math.max(r || 0, t || 0) / 866 * 100)));
+	return '<span class="metric" title="rx ' + (r ?? '?') + ' / tx ' + (t ?? '?') + ' Mbit/s">' +
+		'<span class="bar ' + cls + '"><span style="width:' + pct + '%"></span></span>' +
+		'<span class="num">' + (r ?? '?') + '/' + (t ?? '?') + '</span></span>';
 }
 
-function getNumericHeaderField(field) {
-	return { 
-		id: field,
-		name: gridjs.html('<bold title="'+field+'">'+field+'</span>'),
-		sort: {
-		        compare: (a, b) => {
-		          if (Number(a) > Number(b)) {
-		            return 1;
-		          } else if (b > a) {
-		            return -1;
-		          } else {
-		            return 0;
-		          }
-		        }
-	        } 
-	};
+function bytes(n) {
+	if (n === null || n === undefined || n === '') return '–';
+	if (n > 1073741824) return (n / 1073741824).toFixed(1) + ' G';
+	if (n > 1048576) return (n / 1048576).toFixed(1) + ' M';
+	if (n > 1024) return (n / 1024).toFixed(0) + ' K';
+	return n + ' B';
+}
+
+function duration(sec) {
+	if (sec === null || sec === undefined || sec === '') return '–';
+	if (sec > 86400) return Math.floor(sec / 86400) + 'd ' + Math.floor((sec % 86400) / 3600) + 'h';
+	if (sec > 3600) return Math.floor(sec / 3600) + 'h ' + Math.floor((sec % 3600) / 60) + 'm';
+	if (sec > 60) return Math.floor(sec / 60) + 'm';
+	return sec + 's';
+}
+
+function pill(text, cls) { return '<span class="tag ' + (cls || '') + '">' + esc(text) + '</span>'; }
+
+// ---- sorting ---------------------------------------------------------------
+// merged cells carry objects, so every column gets a comparator that pulls the
+// value a human would sort by out of it
+const num = (v) => {
+	const n = parseFloat(v);
+
+	return isNaN(n) ? Number.NEGATIVE_INFINITY : n;
+};
+const txt = (v) => String(v === null || v === undefined ? '' : v).toLowerCase();
+const by = (fn) => ({ compare: (a, b) => {
+	const x = fn(a), y = fn(b);
+	if (typeof x === 'number' || typeof y === 'number') { return (x || 0) - (y || 0); }
+
+	return String(x).localeCompare(String(y), undefined, { numeric: true });
+} });
+// band first, then channel, so 2.4 and 5 GHz do not interleave
+const bandKey = (c) => num(c.band) * 1000 + num(c.channel);
+
+// ---- columns ---------------------------------------------------------------
+// identity, location and link quality are merged; everything that should stay
+// sortable keeps its raw value as cell data and is only formatted here
+const columns = [
+	{
+		id: 'client', name: 'Client', sort: by((c) => txt(c.dnsname || c.mac)),
+		formatter: (c) => {
+			const name = c.dnsname || '';
+			const short = name.length > 22 ? name.slice(0, 21) + '…' : name;
+			let html = '<a class="mac" href="{{ path('aps') }}/../client/' + encodeURIComponent(c.mac) + '">' + esc(c.mac) + '</a>';
+			if (c.private === 'yes') html += pill('random', 'warn');
+			html += '<div class="sub">';
+			if (name) html += '<span title="' + esc(name) + '">' + esc(short) + '</span> ';
+			if (c.ip) html += '<span class="muted">' + esc(c.ip) + '</span>';
+			if (!name && !c.ip && c.vendor) html += '<span class="muted">' + esc(c.vendor) + '</span>';
+			html += '</div>';
+			if (name && c.vendor) html += '<div class="sub muted" title="' + esc(c.vendor) + '">' + esc(c.vendor.slice(0, 24)) + '</div>';
+			return gridjs.html(html);
+		}
+	},
+	{
+		id: 'where', name: 'Where', sort: by((c) => txt(c.ap) + ' ' + txt(c.iface)),
+		formatter: (c) => gridjs.html(
+			'<a href="{{ path('aps') }}/../ap/' + encodeURIComponent(c.ap) + '">' + esc(c.ap) + '</a>' +
+			'<div class="sub">' + esc(c.iface) + (c.vlan && c.vlan !== c.iface ? ' <span class="tag">' + esc(c.vlan) + '</span>' : '') + '</div>' +
+			'<div class="sub muted">' + esc(c.ssid || '') + '</div>')
+	},
+	{
+		id: 'radio', name: 'Radio', sort: by(bandKey),
+		formatter: (c) => gridjs.html(
+			'<span class="tag ' + (c.band === '5' || c.band === '6' ? 'band5' : 'band2') + '">' + esc(c.band) + ' GHz</span>' +
+			'<div class="sub">ch ' + esc(c.channel || '?') + ' · ' + esc(c.htmode || '') + '</div>')
+	},
+	{ id: 'signal', name: 'Signal', sort: by(num), formatter: (cell, row) => gridjs.html(signalBar(cell, row.cells[9].data)) },
+	{ id: 'rate', name: 'Rate Mbit', sort: by((c) => Math.min(num(c.rx), num(c.tx))), formatter: (c) => gridjs.html(rateCell(c.rx, c.tx)) },
+	{
+		id: 'traffic', name: 'Traffic', sort: by((c) => num(c.rx) + num(c.tx)),
+		formatter: (c) => gridjs.html('<span class="muted">↓</span> ' + bytes(c.rx) + '<div class="sub"><span class="muted">↑</span> ' + bytes(c.tx) + '</div>')
+	},
+	{
+		id: 'time', name: 'Time', sort: by((c) => num(c.connected)),
+		formatter: (c) => gridjs.html(duration(c.connected) + '<div class="sub muted" title="idle">idle ' + duration(c.inactive) + '</div>')
+	},
+	{
+		id: 'security', name: 'Security', sort: by((c) => txt(c.identity) + txt(c.akm) + txt(c.auth) + txt(c.user)),
+		formatter: (c) => {
+			let html = pill(c.auth || 'NONE', c.auth && c.auth !== 'NONE' ? 'ok' : 'warn');
+			if (c.mfp === 'yes') html += pill('MFP', 'ok');
+			// what the client actually negotiated, which can differ from what
+			// the bss offers — only known once hostapd has been asked
+			// the issued key a client came in with — the only handle on a
+			// device whose address is randomised
+			if (c.identity) {
+				html += '<div class="sub ok" title="iPSK identity ' + esc(c.keyid || '') + '">' +
+					esc(c.identity) + '</div>';
+			}
+			if (c.akm) {
+				html += '<div class="sub" title="negotiated AKM' +
+					(c.cipher ? ', cipher ' + esc(c.cipher) : '') + '">' + esc(c.akm) + '</div>';
+			}
+			if (c.user) html += '<div class="sub" title="' + esc(c.user) + '">' + esc(String(c.user).slice(0, 18)) + '</div>';
+			return gridjs.html(html);
+		}
+	},
+	{
+		id: 'caps', name: 'Caps', sort: by((c) => txt(c.ht) + (c.mbo === 'yes' ? '1' : '0') + (c.wmm === 'yes' ? '1' : '0')),
+		formatter: (c) => {
+			let html = '';
+			if (c.ht) html += pill(c.ht, 'ok');
+			['wmm', 'mbo', 'wds', 'wps'].forEach((k) => { if (c[k] === 'yes') html += pill(k.toUpperCase()); });
+			return gridjs.html(html || '<span class="muted">–</span>');
+		}
+	},
+	{ id: 'noise', name: 'Noise', hidden: true },
+	// merged cells hold objects, which the search would stringify to
+	// "[object Object]"; this hidden column keeps every row findable by mac,
+	// name, ip, ap, interface, ssid or vendor
+	{ id: 'haystack', name: 'search', hidden: true },
+	{
+		id: 'age', name: 'Age', sort: by(num),
+		formatter: (cell) => {
+			if (cell === null || cell === undefined) return gridjs.html('<span class="muted">?</span>');
+			const cls = cell > 60 ? 'stale' : '';
+			return gridjs.html('<span class="' + cls + '">' + cell + 's</span>');
+		}
+	},
+	{
+		name: 'Actions', sort: false,
+		formatter: (cell, row) => {
+			// identity lives in the first cell, location in the second
+			const id = row.cells[0].data;
+			const loc = row.cells[1].data;
+			const mk = (label, url, cls) => gridjs.h('button', {
+				className: 'act ' + (cls || ''),
+				onClick: () => window.open(url)
+			}, label);
+			const q = 'system=' + encodeURIComponent(loc.ap) + '&device=' + encodeURIComponent(loc.iface) +
+				'&mac=' + encodeURIComponent(id.mac) + '&ssid=' + encodeURIComponent(loc.ssid || '');
+			return [
+				mk('Steer', '{{ path('apman_default_wnmbsstransitionprepare') }}?' + q),
+				mk('Kick', '{{ path('apman_default_disconnect') }}?' + q, 'danger'),
+				mk('Details', '{{ path('aps') }}/../client/' + encodeURIComponent(id.mac))
+			];
+		}
+	}
+];
+
+// ---- data loading ----------------------------------------------------------
+// The grid used to run in server mode, so every refresh tore the table down and
+// only then waited for the request: loading overlay, lost scroll position and a
+// reset of search and sorting. Now the fetch happens in the background and the
+// table is only updated once the data is there.
+function mapRows(results) {
+	return results.map((c) => [
+			{ mac: c.mac, dnsname: c.dnsname, ip: c.ip, vendor: c.manufacturer, private: c.mac_private },
+				{ ap: c.ap, iface: c.interface, vlan: c.vlan_device, ssid: c.ssid },
+				{ band: c.frequency > 5900 ? '6' : (c.frequency > 3000 ? '5' : '2.4'), channel: c.channel, htmode: c.ht_mode },
+				c.signal,
+				{ rx: c.rx_rate, tx: c.tx_rate },
+				{ rx: c.rx_bytes, tx: c.tx_bytes },
+				{ connected: c.connected_time, inactive: c.inactive },
+				{ auth: c.authtype, mfp: c.mfp, user: c.authuser, akm: c.akm, cipher: c.cipher,
+				  identity: c.identity, keyid: c.keyid },
+				{ ht: c.ht_mode, wmm: c.wmm, mbo: c.mbo, wds: c.wds, wps: c.wps },
+				c.noise,
+				[c.mac, c.dnsname, c.ip, c.ap, c.interface, c.ssid, c.manufacturer, c.vlan_device]
+					.filter(Boolean).join(' '),
+		c.age,
+		'',
+	]);
+}
+
+let loading = false;
+let pendingRows = null;
+
+async function loadData(force) {
+	if (loading) { return; }
+	loading = true;
+	document.getElementById('lastload').classList.add('loading');
+	try {
+		const res = await fetch('{{ path('apman_default_griddata') }}', { headers: { 'Accept': 'application/json' } });
+		const data = await res.json();
+		window.apmanRows = data.results;
+		updateSummary(data.results);
+		const rows = mapRows(data.results).filter((r, i) => !onlyProblems() || isProblem(data.results[i]));
+		lastLoad = new Date();
+		// do not yank the table away while the user is typing in the search box
+		// or has a text selection open; keep the rows and apply them later
+		if (busy()) { pendingRows = rows; } else { applyRows(rows); }
+	} catch (e) {
+		document.getElementById('summary').innerHTML = '<span class="warn">refresh failed: ' + e + '</span>';
+	}
+	loading = false;
+	document.getElementById('lastload').classList.remove('loading');
+	renderAge();
+}
+
+function busy() {
+	const el = document.activeElement;
+	if (el && el.classList && el.classList.contains('gridjs-search-input')) { return true; }
+	const sel = window.getSelection();
+
+	return !!(sel && String(sel).length > 2);
+}
+
+// keep search term, sort state and scroll position across the update
+function applyRows(rows) {
+	const input = document.querySelector('.gridjs-search-input');
+	const term = input ? input.value : '';
+	const wrapper = document.querySelector('.gridjs-wrapper');
+	const scroll = wrapper ? wrapper.scrollTop : 0;
+	const y = window.scrollY;
+
+	grid.updateConfig({ data: rows }).forceRender();
+
+	requestAnimationFrame(() => {
+		const el = document.querySelector('.gridjs-search-input');
+		if (el && term) {
+			el.value = term;
+			el.dispatchEvent(new Event('input', { bubbles: true }));
+		}
+		const w = document.querySelector('.gridjs-wrapper');
+		if (w) { w.scrollTop = scroll; }
+		window.scrollTo(0, y);
+	});
 }
 
 grid = new gridjs.Grid({
-  search: true,
-  resizable: true,
-  sort: true,
-  columns: [
-	getStringHeaderField("AP"),
-	getStringHeaderField("IF"),
-	getStringHeaderField("MAC"),
-	getStringHeaderField("HW"),
-	getStringHeaderField("SSID"),
-	getNumericHeaderField("Channel"),
-	getNumericHeaderField("Frequency"),
-	getStringHeaderField("Auth Type"),
-	getStringHeaderField("Auth User"),
-	getStringHeaderField("Private MAC"),
-	getStringHeaderField("WDS"),
-	getStringHeaderField("WMM"),
-	getStringHeaderField("MBO"),
-	getStringHeaderField("HT Mode"),
-	getStringHeaderField("MFP"),
-	getNumericHeaderField("Connected"),
-	getNumericHeaderField("Inactive"),
-	getNumericHeaderField("RX Bytes"),
-	getNumericHeaderField("TX Bytes"),
-	getNumericHeaderField("RX Rate"),
-	getNumericHeaderField("TX Rate"),
-	getNumericHeaderField("Signal"),
-	getNumericHeaderField("Noise"),
-	getStringHeaderField("IP"),
-	getStringHeaderField("DNS"),
-	getStringHeaderField("Manufacturer"),
-        { 
-          name: 'Actions',
-          formatter: (cell, row) => {
-            return [ 
-            gridjs.h('button', {
-              className: 'py-2 mb-4 px-4 border rounded-md text-white bg-blue-600',
-              onClick: () => window.open(`{{ path('apman_default_station') }}?system=${row.cells[0].data}&device=${row.cells[1].data}&mac=${row.cells[2].data}`)
-            }, 'Info'),
-            gridjs.h('button', {
-              className: 'py-2 mb-4 px-4 border rounded-md text-white bg-blue-600',
-              onClick: () => window.open(`{{ path('apman_default_disconnect') }}?system=${row.cells[0].data}&device=${row.cells[1].data}&mac=${row.cells[2].data}`)
-            }, 'Disconnect'),
-            gridjs.h('button', {
-              className: 'py-2 mb-4 px-4 border rounded-md text-white bg-blue-600',
-              onClick: () => window.open(`{{ path('apman_default_wnmbsstransitionprepare') }}?system=${row.cells[0].data}&device=${row.cells[1].data}&mac=${row.cells[2].data}&ssid=${row.cells[4].data}`)
-            }, 'BSS Transition') ];
-          }
-        }
-  ],
-  server: {
-    url: 'http://app1.kalnet.hooya.de/apman/index.php/griddata',
-    then: data => data.results.map(client => [
-	client.ap, client.interface, client.mac, client.interface_hardware_model, client.ssid, client.channel, client.frequency, client.authtype, client.authuser, client.mac_private, client.wds, client.wmm, client.mbo, client.ht_mode, client.mfp, client.connected_time, client.inactive, client.rx_bytes, client.tx_bytes, client.rx_rate, client.tx_rate, client.signal, client.noise, client.ip, client.dnsname, client.manufacturer
-    ]),
-  },
-  style: {
-    table: {
-      border: '1px solid #ccc',
-      'font-size': '14px',
-    },
-    th: {
-      'background-color': 'rgba(0, 0, 0, 0.1)',
-      color: '#000',
-      'border-bottom': '1px solid #ccc',
-      'text-align': 'center',
-      'padding-left': '2px',
-      'padding-right': '2px'
-    },
-    td: {
-      'text-align': 'right',
-      'padding-top': '2px',
-      'padding-bottom': '2px',
-      'padding-left': '2px',
-      'padding-right': '2px'
-    }
-  }
+	search: true,
+	resizable: true,
+	sort: true,
+	columns: columns,
+	data: [],
+	
+	style: { table: { 'font-size': '13px' }, td: { padding: '3px 6px' } }
 });
 
+// a row is worth looking at when the link is weak, the rate collapsed or the
+// state stale
+function isProblem(c) {
+	return (c.signal !== null && c.signal < -72)
+		|| (c.tx_rate !== null && c.tx_rate < 25000)
+		|| (c.age !== null && c.age > 60);
+}
+function onlyProblems() { return document.getElementById('onlyproblems').checked; }
+
+function updateSummary(rows) {
+	const n = rows.length;
+	const weak = rows.filter((c) => c.signal !== null && c.signal < -72).length;
+	const slow = rows.filter((c) => c.tx_rate !== null && c.tx_rate < 25000).length;
+	const bands = {};
+	rows.forEach((c) => { const b = c.frequency > 5900 ? '6' : (c.frequency > 3000 ? '5' : '2.4'); bands[b] = (bands[b] || 0) + 1; });
+	document.getElementById('summary').innerHTML =
+		n + ' clients · ' + Object.entries(bands).map(([b, v]) => v + '×' + b + 'G').join(' · ') +
+		(weak ? ' · <span class="warn">' + weak + ' weak</span>' : '') +
+		(slow ? ' · <span class="warn">' + slow + ' slow</span>' : '');
+}
+
 grid.render(document.getElementById("clients"));
-setTimeout(() => { updateGrid(grid);}, timeout);
+loadData();
 
-
+function setPauseLabel() { document.getElementById('pausebtn').textContent = paused ? 'Resume' : 'Pause'; }
+document.getElementById('refreshsel').value = String(timeout);
+document.getElementById('refreshsel').addEventListener('change', (e) => {
+	timeout = parseInt(e.target.value);
+	localStorage.setItem('apman.refresh', String(timeout));
+	updateGrid();
+});
+document.getElementById('pausebtn').addEventListener('click', () => {
+	paused = !paused;
+	localStorage.setItem('apman.paused', paused ? '1' : '0');
+	setPauseLabel(); renderAge();
+	if (!paused) { updateGrid(); }
+});
+document.getElementById('nowbtn').addEventListener('click', () => { loadData(true); });
+document.getElementById('onlyproblems').addEventListener('change', () => {
+	if (window.apmanRows) {
+		applyRows(mapRows(window.apmanRows).filter((r, i) => !onlyProblems() || isProblem(window.apmanRows[i])));
+	}
+});
+// apply an update that was held back while the user was busy
+document.addEventListener('click', () => {
+	if (pendingRows && !busy()) { applyRows(pendingRows); pendingRows = null; }
+});
+setPauseLabel(); renderAge();
+refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 </script>
-
 {% endblock %}
 
 {% block stylesheets %}
 <style>
-
+	.gridbar { display: flex; gap: .75rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
+	.gridbar .spacer { flex: 1; }
+	.gridbar button, .gridbar select { padding: .2rem .5rem; }
+	.sub { font-size: 85%; line-height: 1.25; }
+	.muted { color: #99a; }
+	.stale { color: #b90; font-style: italic; }
+	a.mac { font-family: ui-monospace, monospace; }
+	.tag { display: inline-block; padding: 0 .35em; margin-right: .2em; border-radius: 3px;
+	       background: #eef; color: #335; font-size: 84%; }
+	.tag.ok { background: #dfd; color: #060; }
+	.tag.warn { background: #fdd; color: #900; }
+	.tag.band5 { background: #e5eeff; color: #24457a; }
+	.tag.band2 { background: #fff0e0; color: #7a4a24; }
+	.metric { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
+	.metric .num { font-variant-numeric: tabular-nums; }
+	.bar { display: inline-block; height: .55rem; width: 46px; background: #e6e6ea;
+	       border-radius: 2px; overflow: hidden; }
+	.bar > span { display: block; height: 100%; background: #4a8; }
+	.bar.good > span { background: #4a8; }
+	.bar.weak > span { background: #d90; }
+	.bar.bad > span { background: #c33; }
+	button.act { font-size: 85%; padding: 1px 6px; margin-right: 2px; }
+	button.act.danger { color: #900; }
+	.gridjs-td { vertical-align: top; }
 </style>
 {% endblock %}
 
-{% block javascripts %}
-{% endblock %}
-
+{% block javascripts %}{% endblock %}

@@ -1,0 +1,438 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}{{ mac }}{% endblock %}
+
+{% macro bar(value, warn, bad) %}
+	{% set pct = ((value + 100) * 100 / 60)|round %}
+	<span class="bar {{ value < bad ? 'bad' : (value < warn ? 'weak' : '') }}">
+		<span style="width: {{ pct < 0 ? 0 : (pct > 100 ? 100 : pct) }}%"></span></span>
+	{{ value }} dBm
+{% endmacro %}
+
+{% macro bytes(n) %}
+	{%- if n is null %}—
+	{%- elseif n > 1073741824 %}{{ (n / 1073741824)|round(1) }} GiB
+	{%- elseif n > 1048576 %}{{ (n / 1048576)|round(1) }} MiB
+	{%- elseif n > 1024 %}{{ (n / 1024)|round(1) }} KiB
+	{%- else %}{{ n }} B
+	{%- endif %}
+{% endmacro %}
+
+{% import _self as fmt %}
+
+{% block body %}
+<h2>{{ mac }}
+	{% if client and client.name %}<span class="small">{{ client.name }}</span>{% endif %}
+	{% if current|length %}<span class="pill up">connected</span>{% else %}<span class="pill down">not associated</span>{% endif %}
+</h2>
+
+<p class="small">
+	{% if manufacturer %}{{ manufacturer }} · {% endif %}
+	{% if client %}
+		bands: {{ client.modeA ? '5G ' : '' }}{{ client.modeG ? '2.4G' : '' }}
+		{% if client.steeringDisabled %} · <span class="warn">steering disabled</span>{% endif %}
+	{% else %}
+		<span class="stale">not in the database yet</span>
+	{% endif %}
+</p>
+
+{% if current|length > 1 %}
+	<p class="small">
+		This client is listed on {{ current|length }} access points. Only the first one is live —
+		a client that roams away does not deauthenticate, so the previous AP keeps the
+		station entry until <i>ap_max_inactivity</i> (300 s by default) expires. The idle
+		time tells them apart.
+	</p>
+{% endif %}
+
+{% for c in current %}
+	<div class="card{{ c.stale ? ' stalecard' : '' }}">
+		<h3>
+			<a href="{{ path('ap_detail', {'name': c.ap}) }}">{{ c.ap }}</a> / {{ c.device }}
+			{% if c.ssid %}<span class="small">{{ c.ssid }}</span>{% endif %}
+			{% if c.channel %}<span class="small">ch {{ c.channel }}{% if c.frequency %} · {{ c.frequency }} MHz{% endif %}</span>{% endif %}
+			{% if c.age is not null %}<span class="small {{ c.age > 60 ? 'stale' : '' }}">{{ c.age }}s old</span>{% endif %}
+			{% if c.stale %}
+				<span class="pill down">stale entry</span>
+				<div class="small warn">This AP has not heard from the client for
+					{{ (c.inactive / 1000)|round }} s — it has roamed away and this entry
+					will disappear when the inactivity timer expires.</div>
+			{% elseif c.primary and current|length > 1 %}
+				<span class="pill up">live</span>
+			{% endif %}
+		</h3>
+
+		<div class="grid">
+			<div>
+				<h4>Link</h4>
+				<table class="kv">
+					<tr><td>Signal</td><td>{{ c.signal is not null ? fmt.bar(c.signal, -65, -75) : '—' }}</td></tr>
+					{% if c.signal_avg %}<tr><td>Signal avg</td><td>{{ c.signal_avg }}</td></tr>{% endif %}
+					{% if c.noise is not null %}<tr><td>Noise</td><td>{{ c.noise }} dBm
+						{% if c.signal is not null %}<span class="small">(SNR {{ c.signal - c.noise }} dB)</span>{% endif %}</td></tr>{% endif %}
+					<tr><td>Rate rx / tx</td><td>
+						{{ c.rx_rate is not null ? (c.rx_rate / 1000)|round : '?' }} /
+						{{ c.tx_rate is not null ? (c.tx_rate / 1000)|round : '?' }} Mbit/s
+						<div class="small">
+							{% for dir in ['rx', 'tx'] %}
+								{% set r = attribute(c, dir) %}
+								{{ dir }}: {{ r.mhz|default('?') }} MHz
+								{%- if r.eht is defined and r.eht %}, EHT{% elseif r.he is defined and r.he %}, HE{% elseif r.vht is defined and r.vht %}, VHT{% elseif r.ht is defined and r.ht %}, HT{% endif %}
+								{%- if r.mcs is defined %}, MCS {{ r.mcs }}{% endif %}
+								{%- if r.nss is defined %}, {{ r.nss }}×{% endif %}
+								{%- if r.short_gi is defined and r.short_gi %}, SGI{% endif %}<br>
+							{% endfor %}
+						</div>
+					</td></tr>
+					<tr><td>Idle</td><td>{{ c.inactive is not null ? (c.inactive / 1000)|round : '?' }} s</td></tr>
+					{% if c.connected_time %}<tr><td>Connected</td><td>{{ (c.connected_time / 60)|round }} min</td></tr>{% endif %}
+					{% if c.aid %}<tr><td>AID</td><td>{{ c.aid }}</td></tr>{% endif %}
+				</table>
+			</div>
+
+			<div>
+				<h4>Traffic</h4>
+				<table class="kv">
+					{% for key, value in c.counters %}
+						<tr><td>{{ key }}</td><td>
+							{%- if 'bytes' in key %}{{ fmt.bytes(value) }}
+							{%- elseif 'airtime' in key %}{{ (value / 1000000)|round(1) }} s
+							{%- else %}{{ value }}{% endif %}
+						</td></tr>
+					{% endfor %}
+					{% if c.counters['tx packets'] is defined and c.counters['tx retries'] is defined and c.counters['tx packets'] > 0 %}
+						<tr><td>Retry rate</td>
+							<td class="{{ (c.counters['tx retries'] / c.counters['tx packets']) > 0.2 ? 'warn' : '' }}">
+								{{ (c.counters['tx retries'] * 100 / c.counters['tx packets'])|round(1) }} %</td></tr>
+					{% endif %}
+				</table>
+			</div>
+
+			{% if c.security|length %}
+			<div>
+				<h4>Negotiated security
+					<span class="small">what this station actually uses, from hostapd</span></h4>
+				<table class="kv">
+					{% for key, value in c.security %}
+						<tr><td>{{ key }}</td>
+							<td class="{{ (key == 'key handshake' and 'not completed' in value) or 'MIC failures' in key ? 'warn' : '' }}">{{ value }}</td></tr>
+					{% endfor %}
+				</table>
+			</div>
+			{% endif %}
+
+			{% if ctrl_events|length %}
+			<div>
+				<h4>hostapd events <span class="small">what the access point reported about this client</span></h4>
+				<table class="kv">
+					{% for e in ctrl_events %}
+						<tr>
+							<td>{{ e.age }}s ago</td>
+							<td class="{{ e.bad ? 'warn' : '' }}">{{ e.event }}
+								{% if e.detail %}<span class="small stale">{{ e.detail }}</span>{% endif %}
+								{% if e.ifname %}<span class="small stale">on {{ e.ifname }}</span>{% endif %}</td>
+						</tr>
+					{% endfor %}
+				</table>
+			</div>
+			{% endif %}
+
+			<div>
+				<h4>Capabilities</h4>
+				<p>
+					{% for name, on in c.flags %}
+						<span class="pill {{ on ? 'up' : 'off' }}">{{ name }}</span>
+					{% endfor %}
+				</p>
+				<table class="kv">
+					{% for key, value in c.radio %}
+						<tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+					{% endfor %}
+				</table>
+			</div>
+
+			<div>
+				<h4>Announced by the client</h4>
+				{% if c.taxonomy %}
+					<p>
+						<span class="pill up">{{ c.taxonomy.generation }}</span>
+						{% if c.taxonomy.streams is defined %}
+							<span class="pill up">{{ c.taxonomy.streams }} stream{{ c.taxonomy.streams > 1 ? 's' : '' }}</span>
+						{% endif %}
+						{% for cap in c.taxonomy.capabilities %}
+							<span class="pill cap">{{ cap }}</span>
+						{% endfor %}
+					</p>
+					{% if c.taxonomy.roaming|length %}
+						<div class="small"><b>Roaming support:</b>
+							{% for cap in c.taxonomy.roaming %}{{ cap }}{% if not loop.last %} · {% endif %}{% endfor %}
+						</div>
+					{% else %}
+						<div class="small stale">announces no 802.11k/v roaming capability</div>
+					{% endif %}
+					<details>
+						<summary class="small">{{ c.taxonomy.elements|length }} information elements,
+							{{ c.taxonomy.extended|length }} extended capabilities</summary>
+						<div class="small">
+							<b>Elements:</b>
+							{% for name in c.taxonomy.elements %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %}
+						</div>
+						<div class="small">
+							<b>Extended:</b>
+							{% for cap in c.taxonomy.extended %}{{ cap }}{% if not loop.last %}; {% endif %}{% endfor %}
+						</div>
+						<div class="small">
+							<b>Raw fields:</b>
+							{% for k, v in c.taxonomy.fields %}{{ k }}={{ v }} {% endfor %}
+						</div>
+						<div class="small"><code>{{ c.signature }}</code></div>
+					</details>
+				{% else %}
+					<span class="small stale">no taxonomy signature
+						<br>(hostapd without CONFIG_TAXONOMY, or the client never associated)</span>
+				{% endif %}
+			</div>
+		</div>
+
+		<details>
+			<summary class="small">All {{ c.station|length }} fields from the station dump</summary>
+			<table class="kv small">
+				{% for key, value in c.station %}
+					<tr><td>{{ key|replace({'_': ' '}) }}</td><td>{{ value }}</td></tr>
+				{% endfor %}
+			</table>
+		</details>
+
+		<p class="small">
+			<button type="button" class="act" data-ap="{{ c.ap }}" data-object="hostapd.{{ c.ifname }}"
+				data-client="{{ mac }}" data-scope="live"
+				data-method="del_client"
+				data-args='{"addr":"{{ mac }}","reason":5,"deauth":false,"ban_time":10}'
+				title="only on this bss: the ban list is per bss, so this is never fanned out">Kick here</button>
+			<button type="button" class="act" data-ap="{{ c.ap }}" data-object="hostapd.{{ c.ifname }}"
+				data-client="{{ mac }}" data-scope="ssid"
+				data-method="rrm_beacon_req"
+				data-args='{"addr":"{{ mac }}","mode":2,"duration":100,"channel":255,"op_class":0}'
+				title="sent to every bss of this ssid — whichever holds the client answers">Beacon request</button>
+			<span id="actionresult" class="small"></span>
+		</p>
+	</div>
+{% endfor %}
+
+<h3>Coverage
+	<span class="small">both directions — how well the AP hears the client (probe request)
+	and how well the client hears the AP (802.11k beacon report)</span>
+	<button type="button" id="measure">Measure now</button>
+	{% if current|length %}<button type="button" id="scan">Scan neighbours</button>{% endif %}
+	<span id="measureresult" class="small"></span>
+</h3>
+<table class="aps" id="coverage">
+	<tr>
+		<th>Access point</th><th>SSIDs</th>
+		<th>AP hears client</th><th>Client hears AP</th><th>Measured</th>
+	</tr>
+	{% for row in coverage %}
+		<tr{% if current|length and row.ap == current[0].ap %} class="here"{% endif %}>
+			<td>
+				{% if row.ap %}
+					<a href="{{ path('ap_detail', {'name': row.ap}) }}">{{ row.ap }}</a>
+					{% if current|length and row.ap == current[0].ap %}<span class="pill up">associated</span>{% endif %}
+				{% else %}
+					{% if row.info.ssid %}
+						<b>{{ row.info.ssid }}</b>
+					{% elseif row.info.local %}
+						<span class="stale">virtual BSS</span>
+					{% else %}
+						<span class="stale">unknown network</span>
+					{% endif %}
+					<div class="small">{{ row.bssids|first }}
+						{%- if row.info.vendor %} · {{ row.info.vendor }}{% endif %}
+						{%- if row.info.local %} · locally administered{% endif %}
+						{%- if row.info.scan_signal is defined and row.info.scan_signal %} · scan {{ row.info.scan_signal }} dBm{% endif %}
+					</div>
+				{% endif %}
+				{% if row.channel %}<div class="small">ch {{ row.channel }}{% if row.bssids|length > 1 %} · {{ row.bssids|length }} BSS{% endif %}</div>{% endif %}
+			</td>
+			<td class="small">{{ row.ssids|join(', ') }}</td>
+			<td>
+				{% if row.probe_signal is not null %}
+					{{ fmt.bar(row.probe_signal, -65, -75) }}
+					<div class="small">{{ row.probe_ifname }}{% if row.probe_ts %} · {{ row.probe_ts|date('m-d H:i') }}{% endif %}</div>
+				{% else %}<span class="stale small">no probe seen</span>{% endif %}
+			</td>
+			<td>
+				{% if row.beacon_dbm is not null %}
+					{{ fmt.bar(row.beacon_dbm, -65, -75) }}
+					<div class="small">RCPI {{ row.beacon_rcpi }}{% if row.beacon_rsni is not null %} · RSNI {{ row.beacon_rsni }} dB{% endif %}</div>
+					{% if row.beacon_flags|length %}<div class="small warn">{{ row.beacon_flags|join(', ') }}</div>{% endif %}
+				{% else %}<span class="stale small">no beacon report</span>{% endif %}
+			</td>
+			<td class="small">
+				{% if row.beacon_age is not null %}
+					{{ row.beacon_age < 90 ? 'just now' : (row.beacon_age > 3600 ? (row.beacon_age // 3600) ~ ' h ago' : (row.beacon_age // 60) ~ ' min ago') }}
+				{% endif %}
+			</td>
+		</tr>
+	{% endfor %}
+</table>
+<p class="small">
+	A client that hears another AP clearly better than the one it is on is the case
+	steering exists for. Empty on the right means the client either does not support
+	802.11k or refused the measurement — the taxonomy above says which.
+	The dBm on the right is derived from RCPI (dBm = RCPI/2 − 110); clients are known
+	to apply their own offset, so compare the values against each other rather than
+	against the AP side measurement. Identical values across several BSSIDs of the
+	same access point are expected, they share one radio.
+</p>
+
+<h3>Steering
+	<span class="small">
+		<span class="ok">{{ steering.accepted }} accepted</span>,
+		<span class="warn">{{ steering.rejected }} rejected</span>
+	</span>
+</h3>
+{% if steering_state.last is defined %}
+	<p class="small">
+		Last answer {{ steering_state.last.ts ? (('now'|date('U')) - steering_state.last.ts) // 60 : '?' }} min ago:
+		{% if steering_state.last.accepted %}
+			<span class="ok">accepted</span>
+		{% else %}
+			<span class="warn">rejected{% if steering_state.last.reason %} — {{ steering_state.last.reason }}{% endif %}</span>
+			{% if steering_state.rejects >= 3 %}
+				<br><b class="warn">Steering suspended for this client</b> after {{ steering_state.rejects }} rejections in a row.
+			{% endif %}
+		{% endif %}
+		{% if steering_state.last.candidates|default([])|length %}
+			<br>The client named its own candidates:
+			{% for cand in steering_state.last.candidates %}{{ cand.bssid }} (ch {{ cand.channel }}){% if not loop.last %}, {% endif %}{% endfor %}
+		{% endif %}
+	</p>
+{% endif %}
+{% if steering.rejected and not steering.accepted %}
+	<p class="small warn">This client never accepted a transition request. Every further
+		attempt costs a frame and changes nothing — a candidate for <i>steering disabled</i>.</p>
+{% endif %}
+
+<h3>Recent events</h3>
+{% if events|length %}
+<table class="aps">
+	<tr><th>Time</th><th>Type</th><th>Signal</th><th>Detail</th></tr>
+	{% for e in events %}
+		<tr>
+			<td class="small">{{ e.ts|date('m-d H:i:s') }}</td>
+			<td>{{ e.type }}</td>
+			<td class="small">{{ e.signalstr }}</td>
+			<td class="small">{{ e.event|slice(0, 160) }}</td>
+		</tr>
+	{% endfor %}
+</table>
+{% else %}
+	<p class="small">no events recorded</p>
+{% endif %}
+
+{% if ies %}
+<h3>Advertised capabilities <span class="small">(from the probe request)</span></h3>
+<pre class="small">{{ ies|json_encode(constant('JSON_PRETTY_PRINT'))|slice(0, 4000) }}</pre>
+{% endif %}
+
+<script>
+// ask the client for a fresh measurement, then wait for the reports to land
+document.getElementById('measure').addEventListener('click', async () => {
+	const out = document.getElementById('measureresult');
+	const btn = document.getElementById('measure');
+	btn.disabled = true;
+	out.className = 'small';
+	out.textContent = 'requesting beacon measurement...';
+	try {
+		const res = await fetch('{{ path('client_measure', {'mac': mac}) }}', { method: 'POST', body: new URLSearchParams() });
+		const d = await res.json();
+		if (!d.ok) {
+			out.className = 'small warn';
+			out.textContent = d.error || 'failed';
+		} else if (d.reports > 0) {
+			out.className = 'small ok';
+			out.textContent = d.reports + ' report(s) via ' + d.via + ' — reloading';
+			setTimeout(() => location.reload(), 800);
+		} else {
+			out.className = 'small warn';
+			out.textContent = 'no answer via ' + d.via + ' (client ignored the request or cannot do 802.11k)';
+		}
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+	btn.disabled = false;
+});
+
+{% if current|length %}
+// a scan gives the foreign bssids from the beacon reports a name; it briefly
+// takes the radio off channel, so it only runs on request
+document.getElementById('scan').addEventListener('click', async () => {
+	const out = document.getElementById('measureresult');
+	const btn = document.getElementById('scan');
+	btn.disabled = true;
+	out.className = 'small';
+	out.textContent = 'scanning from {{ current[0].ap }}...';
+	try {
+		const res = await fetch('{{ path('ap_scan', {'name': current[0].ap}) }}', { method: 'POST', body: new URLSearchParams() });
+		const d = await res.json();
+		out.className = 'small ' + (d.ok ? 'ok' : 'warn');
+		out.textContent = d.ok ? (d.found + ' BSS seen on ' + d.radios + ' radio(s) — reloading') : (d.error || 'failed');
+		if (d.ok) { setTimeout(() => location.reload(), 800); }
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+	btn.disabled = false;
+});
+{% endif %}
+
+document.querySelectorAll('button.act').forEach((btn) => {
+	btn.addEventListener('click', async () => {
+		const out = document.getElementById('actionresult');
+		const label = btn.dataset.method;
+		btn.disabled = true;
+		out.className = 'small';
+		out.textContent = label + ': running...';
+		try {
+			const res = await fetch('{{ path('aps') }}/../ap/' + encodeURIComponent(btn.dataset.ap) + '/action', {
+				method: 'POST',
+				body: new URLSearchParams({
+					object: btn.dataset.object, method: btn.dataset.method, args: btn.dataset.args || '{}',
+					client: btn.dataset.client || '', scope: btn.dataset.scope || 'ssid'
+				})
+			});
+			const d = await res.json();
+			out.className = 'small ' + (d.ok ? 'ok' : 'warn');
+			out.textContent = label + ': ' + (d.ok
+				? ('ok' + (d.executed_on && d.executed_on.length
+					? ' on ' + d.executed_on.join(', ') +
+					  (d.absent ? ' (' + d.absent + ' other bss did not hold the client)' : '')
+					: ''))
+				: (d.error || 'failed'));
+		} catch (e) {
+			out.className = 'small warn';
+			out.textContent = label + ': ' + e;
+		}
+		btn.disabled = false;
+	});
+});
+</script>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+	.card { border: 1px solid #dde; border-radius: 4px; padding: .5rem .75rem; margin-bottom: 1rem; }
+	.card h3 { margin: 0 0 .5rem 0; }
+	.card h4 { margin: 0 0 .25rem 0; font-size: .9rem; color: #445; }
+	.grid { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+	.grid > div { flex: 1 1 240px; min-width: 240px; }
+	table.kv { border-collapse: collapse; width: 100%; }
+	table.kv td { padding: 1px 4px; vertical-align: top; border-bottom: 1px solid #f0f0f0; }
+	table.kv td:first-child { color: #667; width: 45%; }
+	.pill.off { background: #eee; color: #999; }
+	.pill.cap { background: #eef; color: #335; margin-right: .2rem; display: inline-block; margin-bottom: .15rem; }
+	details summary { cursor: pointer; }
+	tr.here { background: #eef7ee; }
+	.card.stalecard { opacity: .7; border-style: dashed; }
+</style>
+{% endblock %}

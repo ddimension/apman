@@ -1,0 +1,132 @@
+{% extends 'frontend.html.twig' %}
+
+{% block body %}
+<h2>Access Points</h2>
+<table class="aps">
+	<tr>
+		<th>AP</th><th>State</th><th>Agent</th><th>Features</th><th>Intervals</th>
+	</tr>
+	{% for ap in aps %}
+		<tr class="ap {{ ap.online == 'online' ? 'up' : 'down' }}">
+			<td><b><a href="{{ path('ap_detail', {'name': ap.name}) }}">{{ ap.name }}</a></b>{% if not ap.productive %} <i>(non productive)</i>{% endif %}</td>
+			<td>{{ ap.state }}{% if ap.online %} / {{ ap.online }}{% endif %}</td>
+			<td>
+				{% if ap.agent %}
+					{{ ap.agent.agent|default('apman') }} {{ ap.agent.version|default('?') }}
+				{% else %}
+					<span class="warn">unknown (old agent)</span>
+				{% endif %}
+			</td>
+			<td class="small">
+				{% if ap.agent and ap.agent.features is defined %}
+					{{ ap.agent.features|join(', ') }}
+				{% endif %}
+			</td>
+			<td class="small">
+				{% if ap.agent and ap.agent.intervals is defined %}
+					status {{ ap.agent.intervals.status|default('?') }}s,
+					probe {{ ap.agent.intervals.probe|default('?') }}s,
+					survey {{ ap.agent.intervals.survey|default('?') }}s
+				{% endif %}
+			</td>
+		</tr>
+		{% for dev in ap.devices %}
+			<tr class="dev">
+				<td>&nbsp;&nbsp;{{ dev.ifname }}</td>
+				<td>
+					{% if dev.ssid_configured %}{{ dev.ssid_configured }}{% endif %}
+					{% if dev.channel %}<span class="small">ch {{ dev.channel }}</span>{% endif %}
+					{% if dev.bss_color is defined and dev.bss_color is not null and dev.bss_color >= 0 %}
+						<span class="small">color {{ dev.bss_color }}</span>
+					{% endif %}
+				</td>
+				<td>
+					{# MLO: one bss can span several radio links #}
+					{% if dev.mld %}
+						<span class="mld">MLO</span>
+						{% for idx, link in dev.mld %}
+							<div class="small">link {{ link.radio|default(idx) }}:
+								{{ link.macaddr|default('') }}
+								{{ link.running|default(false) ? 'up' : 'down' }}
+								{% if link.pending|default(false) %}(pending){% endif %}
+							</div>
+						{% endfor %}
+					{% else %}
+						<span class="small">
+							{% if dev.wiphy %}{{ dev.wiphy }}{% endif %}
+							{% if dev.radio_idx is not null %}/radio {{ dev.radio_idx }}{% endif %}
+							{% if dev.running is not null %}{{ dev.running ? 'up' : 'down' }}{% endif %}
+						</span>
+					{% endif %}
+				</td>
+				<td>
+					{# what hostapd really runs, compared against our config #}
+					{% if dev.drift %}
+						{% for key, val in dev.drift %}
+							<div class="small {{ key == 'ssid' ? 'warn' : '' }}">
+								{{ key }}: {{ val.running }}
+								{% if val.configured is defined %} (configured: {{ val.configured }}){% endif %}
+							</div>
+						{% endfor %}
+					{% elseif dev.bss_info %}
+						<span class="small ok">matches config</span>
+						{% if dev.security %}
+							<div class="small">{% for k, v in dev.security %}{{ k }}={{ v }} {% endfor %}</div>
+						{% endif %}
+					{% else %}
+						<span class="small">no bss_info</span>
+					{% endif %}
+				</td>
+				<td class="small">
+					{# 802.11k/v activity counters straight from hostapd #}
+					{% if dev.rrm %}nr_tx {{ dev.rrm.neighbor_report_tx|default(0) }}{% endif %}
+					{% if dev.wnm %}
+						| bss-tr req {{ dev.wnm.bss_transition_request_tx|default(0) }}
+						resp {{ dev.wnm.bss_transition_response_rx|default(0) }}
+						query {{ dev.wnm.bss_transition_query_rx|default(0) }}
+					{% endif %}
+					{% if dev.survey %}
+						<div>quietest: {% for c in dev.survey.best %}{{ c.mhz }}MHz {{ c.busy_pct }}%{% if c.noise %}/{{ c.noise }}dBm{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+							<i>({{ dev.survey.channels }} ch)</i></div>
+					{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+	{% endfor %}
+</table>
+
+<h2>802.11v steering, last 24h</h2>
+<p>
+	{{ steering.total }} transition responses,
+	<span class="ok">{{ steering.accepted }} accepted</span>,
+	<span class="warn">{{ steering.rejected }} rejected</span>
+	{% if steering.total > 0 %}
+		({{ (steering.accepted * 100 / steering.total)|round(1) }}% accepted)
+	{% endif %}
+</p>
+{% if steering.by_client|length %}
+<table class="aps">
+	<tr><th>Client</th><th>accepted</th><th>rejected</th></tr>
+	{% for mac, s in steering.by_client %}
+		<tr><td>{{ mac }}</td><td>{{ s.accepted }}</td>
+			<td class="{{ s.rejected and not s.accepted ? 'warn' : '' }}">{{ s.rejected }}</td></tr>
+	{% endfor %}
+</table>
+<p class="small">Clients that only ever reject are candidates for
+	<i>steering_disabled</i>: every attempt costs a frame and achieves nothing.</p>
+{% endif %}
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+	table.aps { border-collapse: collapse; width: 100%; }
+	table.aps th, table.aps td { border: 1px solid #ccc; padding: 2px 6px; vertical-align: top; }
+	tr.ap { background: #eef; }
+	tr.ap.down { background: #fee; }
+	tr.dev td:first-child { padding-left: 1.5em; }
+	.small { font-size: 85%; color: #444; }
+	.warn { color: #b00; }
+	.ok { color: #070; }
+	.mld { background: #dfd; padding: 0 4px; border-radius: 3px; }
+</style>
+{% endblock %}

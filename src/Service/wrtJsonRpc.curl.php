@@ -99,20 +99,7 @@ class wrtJsonRpc
                 'Content-Length: '.strlen($data_string), ]
         );
         $result_string = curl_exec($ch);
-	$result = json_decode($result_string);
-	/*
-	$clientTlsContext = (new Amp\Socket\ClientTlsContext(''))
-		->withoutPeerVerification()
-		->withSecurityLevel(0);
-
-	$request = new Request($url, "POST");
-	$request->setTransferTimeout(1);
-	$request->setHeader('Content-Type', 'application/json');
-	$request->setHeader('Content-Length', strlen($data_string));
-
-	$request->setBody($result);
-
-	*/
+        $result = json_decode($result_string);
         if (!self::checkResult($result)) {
             return false;
         }

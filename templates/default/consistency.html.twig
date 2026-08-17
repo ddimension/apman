@@ -1,0 +1,54 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Consistency{% endblock %}
+
+{% block body %}
+<h2>WLAN configuration consistency
+	<a class="small" href="{{ path('consistency') }}?refresh=1">re-check</a>
+</h2>
+<p class="small">
+	Compares the hostapd configuration actually running on every productive access
+	point, grouped by SSID <b>and band</b> — 6 GHz legitimately differs in PMF and
+	the permitted AKMs, so it forms its own group. Key material and shared secrets
+	are compared but never displayed.
+	Checked {{ result.ts ? (('now'|date('U')) - result.ts) : '?' }}s ago.
+</p>
+
+{% if result.errors|length %}
+	<p class="warn small">not reachable: {{ result.errors|join(', ') }}</p>
+{% endif %}
+
+{% if result.findings|length %}
+	<h3 class="warn">{{ result.findings|length }} deviation(s)</h3>
+	<table class="aps">
+		<tr><th>SSID / band</th><th>Option</th><th>Values</th></tr>
+		{% for f in result.findings %}
+			<tr>
+				<td>{{ f.group }}</td>
+				<td class="{{ f.roaming ? 'warn' : '' }}">
+					{{ f.option }}
+					{% if f.roaming %}<div class="small">breaks fast roaming</div>{% endif %}
+				</td>
+				<td class="small">
+					{% for value, where in f.values %}
+						<div>
+							<b>{{ value }}</b> — {{ where|length }}x
+							<i>{{ where|slice(0, 4)|join(', ') }}{{ where|length > 4 ? ' …' : '' }}</i>
+						</div>
+					{% endfor %}
+				</td>
+			</tr>
+		{% endfor %}
+	</table>
+{% else %}
+	<h3 class="ok">No deviations</h3>
+	<p class="small">Every SSID is configured identically on all access points that serve it.</p>
+{% endif %}
+
+<h3>Coverage</h3>
+<table class="aps">
+	<tr><th>SSID / band</th><th>APs</th><th>BSS</th></tr>
+	{% for group, c in result.coverage %}
+		<tr><td>{{ group }}</td><td>{{ c.aps }}</td><td>{{ c.bss }}</td></tr>
+	{% endfor %}
+</table>
+{% endblock %}

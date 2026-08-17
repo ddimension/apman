@@ -7,6 +7,7 @@
         "ext-mosquitto": "*",
         "ext-redis": "*",
         "amphp/dns": "^2.4",
+        "amphp/http-client": "^5.2",
         "cboden/ratchet": "^0.4.3",
         "composer/package-versions-deprecated": "^1.10",
         "doctrine/annotations": "^1.0",

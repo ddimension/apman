@@ -2,23 +2,68 @@
 <html>
     <head>
         <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{% block title %}AP Manager{% endblock %} </title>
+
+        {# vendored instead of unpkg: an admin tool for our own infrastructure
+           must not depend on a cdn being reachable #}
+        <script src="{{ asset('vendor/gridjs.umd.js') }}"></script>
+        <link rel="stylesheet" type="text/css" href="{{ asset('vendor/gridjs-mermaid.min.css') }}" />
+        <link rel="stylesheet" href="{{ asset('bundles/apman/css/custom.css') }}" />
+        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}" />
+
+        <style>
+            body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; }
+            nav.top { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem;
+                      background: #23303f; padding: .4rem .75rem; }
+            nav.top a { color: #dfe6ee; text-decoration: none; padding: .3rem .6rem;
+                        border-radius: 3px; font-size: .95rem; }
+            nav.top a:hover { background: #35455a; }
+            nav.top a.active { background: #43587a; color: #fff; }
+            nav.top .brand { color: #fff; font-weight: 600; margin-right: .75rem; }
+            nav.top .spacer { flex: 1; }
+            main { padding: .75rem; }
+            table.aps { border-collapse: collapse; width: 100%; }
+            table.aps th, table.aps td { border: 1px solid #ccc; padding: 2px 6px; vertical-align: top; }
+            .small { font-size: 85%; color: #444; }
+            .warn { color: #b00; }
+            .ok { color: #070; }
+            .stale { color: #999; font-style: italic; }
+            .pill { padding: 0 .4rem; border-radius: 3px; font-size: 85%; }
+            .pill.up { background: #dfd; color: #060; }
+            .pill.down { background: #fdd; color: #900; }
+            .bar { display: inline-block; height: .6rem; background: #ddd; width: 60px;
+                   vertical-align: middle; border-radius: 2px; overflow: hidden; }
+            .bar > span { display: block; height: 100%; background: #4a8; }
+            .bar.weak > span { background: #d84; }
+            .bar.bad > span { background: #c33; }
+            @media (max-width: 700px) {
+                nav.top { font-size: .9rem; }
+                table.aps, table.aps tbody, table.aps tr, table.aps td { display: block; width: auto; }
+                table.aps th { display: none; }
+                table.aps td { border: none; border-bottom: 1px solid #eee; }
+            }
+        </style>
         {% block stylesheets %}{% endblock %}
         {% block header %}{% endblock %}
-        
-        <link rel="stylesheet" href="{{ asset('bundles/apman/css/custom.css') }}" />
-<!--        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
-        
-        <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
-    	<script type="text/javascript" src="http://netdna.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
--->
-	<script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
-	<link rel="stylesheet" type="text/css" href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" />
-	
-    	<link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}" />
     </head>
     <body>
+        <nav class="top">
+            <span class="brand">AP Manager</span>
+            <a href="{{ path('apman_default_index') }}">Clients</a>
+            <a href="{{ path('aps') }}">Access Points</a>
+            <a href="{{ path('ssids') }}">Networks</a>
+            <a href="{{ path('apman_default_indexold') }}">Details</a>
+            <a href="{{ path('ppsk') }}">PPSK</a>
+            <a href="{{ path('ipsk') }}">iPSK</a>
+            <a href="{{ path('consistency') }}">Consistency</a>
+            <a href="{{ path('admin_apman_accesspoint_list') }}">Admin</a>
+            <span class="spacer"></span>
+            {% block navextra %}{% endblock %}
+        </nav>
+        <main>
         {% block body %}{% endblock %}
+        </main>
         {% block javascripts %}{% endblock %}
     </body>
 </html>

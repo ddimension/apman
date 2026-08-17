@@ -6,6 +6,8 @@ use Symfony\Component\Cache\Simple\FilesystemCache;
 
 class AccessPointService
 {
+    private $ppskService;
+    private $steering;
     private $logger;
     private $doctrine;
     private $rpcService;
@@ -22,7 +24,9 @@ class AccessPointService
         \Symfony\Component\HttpKernel\KernelInterface $kernel,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
         \ApManBundle\Factory\CacheFactory $cacheFactory,
-        WifiIeParser $ieparser
+        WifiIeParser $ieparser,
+        PpskService $ppskService,
+        SteeringService $steering
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -31,6 +35,13 @@ class AccessPointService
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
         $this->ieparser = $ieparser;
+        $this->ppskService = $ppskService;
+        $this->steering = $steering;
+    }
+
+    public function getSteering()
+    {
+        return $this->steering;
     }
 
     /**
@@ -38,6 +49,31 @@ class AccessPointService
      *
      * @return string|\null
      */
+    /**
+     * rpcd stages uci changes per session and rejects "uci apply" without one,
+     * so every uci call of a provisioning run has to carry the same session.
+     * The agent publishes it on properties/session/create.
+     */
+    public function getApSession($ap)
+    {
+        $session = $this->cacheFactory->getCacheItemValue('status.ap.'.$ap->getId().'.session');
+
+        return is_array($session) && !empty($session['id']) ? $session['id'] : null;
+    }
+
+    private function uciRequest($id, $method, $opts, $session)
+    {
+        // feature services hand back plain arrays, the rest are objects
+        if (is_array($opts)) {
+            $opts = (object) $opts;
+        }
+        if ($session) {
+            $opts->ubus_rpc_session = $session;
+        }
+
+        return $this->rpcService->createRpcRequest($id, 'call', null, 'uci', $method, $opts);
+    }
+
     public function getDeviceConfig(\ApManBundle\Entity\Device $device)
     {
         $this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Configuring device '.$device->getName());
@@ -150,6 +186,7 @@ class AccessPointService
             return false;
         }
 
+        $session = $this->getApSession($ap);
         $commands = [
             'list' => [],
             'options' => [
@@ -160,34 +197,27 @@ class AccessPointService
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-iface';
-        // $opts->section = $device->getName();
-        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+        $commands['list'][] = $this->uciRequest('delete-wifi-iface', 'delete', $opts, $session);
 
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-device';
-        // $opts->section = $device->getName();
-        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+        $commands['list'][] = $this->uciRequest('delete-wifi-device', 'delete', $opts, $session);
 
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-vlan';
-        // $opts->section = $device->getName();
-        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+        $commands['list'][] = $this->uciRequest('delete-wifi-vlan', 'delete', $opts, $session);
 
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-station';
-        // $opts->section = $device->getName();
-        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'delete', $opts);
+        $commands['list'][] = $this->uciRequest('delete-wifi-station', 'delete', $opts, $session);
 
-        //$logger->debug($ap->getName().': Configuring radio, publishing to topic '.$topic.': '.json_encode($cmd));
-        //$client->loop(1);
-
-        $opts = new \stdClass();
-        $opts->config = 'wireless';
-        // $opts->section = $device->getName();
-        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'commit', $opts);
+        // No commit here on purpose: delete and add belong to one staged
+        // transaction. Committing the deletions on their own leaves the access
+        // point with an empty, persisted wireless config whenever the run is
+        // interrupted afterwards.
 
         $query = $em->createQuery(
             'SELECT r
@@ -205,8 +235,7 @@ class AccessPointService
             $opts->name = $radio->getName();
             $opts->type = 'wifi-device';
             $opts->values = $radio->exportConfig();
-            $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
-            //$commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'set', $opts);
+            $commands['list'][] = $this->uciRequest('radio-'.$radio->getName(), 'add', $opts, $session);
             $query = $em->createQuery(
                 'SELECT d
 			     FROM ApManBundle:Device d
@@ -223,12 +252,19 @@ class AccessPointService
                 list($config, $extraConfigs) = $this->getDeviceConfig($device);
 
                 $logger->debug($ap->getName().': Configuring device '.$device->getName().' EX: '.print_r($extraConfigs, true));
-                $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $config);
+                $commands['list'][] = $this->uciRequest('dev-'.$device->getName(), 'add', $config, $session);
                 if (is_array($extraConfigs) && count($extraConfigs)) {
                     foreach ($extraConfigs as $extraConfig) {
                         $logger->debug($ap->getName().': Configuring device '.$device->getName().' EX2: '.json_encode($extraConfig));
-                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $extraConfig);
+                        $commands['list'][] = $this->uciRequest('extra-'.$device->getName().'-'.count($commands['list']), 'add', $extraConfig, $session);
                     }
+                }
+
+                // per device psks ride along with the wireless config: this is
+                // the persistent half, wifi-scripts renders the runtime
+                // wpa_psk_file from these sections on every reload
+                foreach ($this->ppskService->getStationSections($device) as $station) {
+                    $commands['list'][] = $this->uciRequest('ppsk-'.$station->name, 'add', $station, $session);
                 }
 
                 $changed = true;
@@ -256,15 +292,20 @@ class AccessPointService
             }
         }
 
-        // Commit
-        $logger->debug($ap->getName().': Committing changes');
+        // Let the access point report what would actually change. The staged
+        // changes stay uncommitted until applyConfig() decides, so a run that
+        // changes nothing costs no commit and no wifi reload.
+        $logger->debug($ap->getName().': Requesting staged diff');
         $opts = new \stdClass();
         $opts->config = 'wireless';
+        $commands['list'][] = $this->uciRequest('changes', 'changes', $opts, $session);
 
-        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'changes', $opts);
-        $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'commit', $opts);
-
-        $commands['list'][] = $cmd;
+        if (!$session) {
+            // no session known yet: fall back to the old behaviour, which
+            // cannot roll back but at least applies the configuration
+            $logger->warning($ap->getName().': no ubus session known, committing without rollback');
+            $commands['list'][] = $this->uciRequest('commit', 'commit', $opts, null);
+        }
 
         if ($return) {
             $logger->debug($ap->getName().':Configuring radio, returned commaneds: '.json_encode($commands));
@@ -277,6 +318,284 @@ class AccessPointService
         //$client->loop(1);
 
         return true;
+    }
+
+    /**
+     * Provision one access point and verify it.
+     *
+     * Three phases, because a wlan configuration is changed over the very wlan
+     * it configures:
+     *   1. stage the whole configuration in one uci transaction and ask the
+     *      access point for the resulting diff
+     *   2. nothing changed -> revert the staging, no commit, no reload
+     *   3. something changed -> uci apply with rollback armed, then confirm
+     *      once the access point answered. If the controller never confirms
+     *      (bad config, ap unreachable), rpcd reverts on its own.
+     *
+     * @return array report
+     */
+    public function applyConfig($ap, $dryRun = false, $timeout = 90)
+    {
+        $logger = $this->logger;
+        $session = $this->getApSession($ap);
+        $commands = $this->publishConfig($ap, true);
+        if (!is_array($commands) || empty($commands['list'])) {
+            return ['ok' => false, 'error' => 'no configuration generated'];
+        }
+        $report = [
+            'ap' => $ap->getName(),
+            'commands' => count($commands['list']),
+            'session' => (bool) $session,
+            'dry_run' => $dryRun,
+        ];
+
+        if ($dryRun) {
+            $report['ok'] = true;
+            $report['staged'] = $this->summarise($commands);
+
+            return $report;
+        }
+
+        $client = $this->mqttFactory->getClient();
+        if (!$client) {
+            return ['ok' => false, 'error' => 'no mqtt connection'];
+        }
+        $topic = 'apman/ap/'.$ap->getName().'/command/bulk';
+        $client->publish($topic, json_encode($commands), 1);
+
+        if (!$session) {
+            $client->disconnect();
+            $report['ok'] = true;
+            $report['note'] = 'committed without rollback, no ubus session known for this ap';
+
+            return $report;
+        }
+
+        // collect the per command answers the agent publishes back
+        $results = $this->collectResults($ap, $commands, 8);
+        $report['answered'] = count($results);
+        $report['failed'] = [];
+        foreach ($results as $id => $res) {
+            if (isset($res['error'])) {
+                $report['failed'][$id] = ($res['error']['message'] ?? 'failed').' ('.($res['error']['code'] ?? '?').')';
+            }
+        }
+
+        if (!$results) {
+            $client->disconnect();
+            $report['ok'] = false;
+            $report['error'] = 'no answer from the access point, nothing was applied';
+
+            return $report;
+        }
+
+        $changes = isset($results['changes']['result']) ? $results['changes']['result'] : null;
+        $changeCount = 0;
+        if (is_array($changes) && isset($changes['changes']) && is_array($changes['changes'])) {
+            foreach ($changes['changes'] as $config => $list) {
+                $changeCount += is_array($list) ? count($list) : 0;
+            }
+            $report['changes'] = $changes['changes'];
+        }
+        $report['change_count'] = $changeCount;
+
+        if ($report['failed']) {
+            // do not apply a half staged configuration
+            $this->sendUci($client, $ap, 'revert-failed', 'revert', $session);
+            $client->disconnect();
+            $report['ok'] = false;
+            $report['error'] = 'staging failed, changes reverted';
+
+            return $report;
+        }
+
+        if (0 === $changeCount) {
+            $this->sendUci($client, $ap, 'revert-nochange', 'revert', $session);
+            $client->disconnect();
+            $report['ok'] = true;
+            $report['note'] = 'configuration already up to date, nothing applied';
+
+            return $report;
+        }
+
+        // apply with the rollback timer armed
+        $opts = new \stdClass();
+        $opts->rollback = true;
+        $opts->timeout = $timeout;
+        $opts->ubus_rpc_session = $session;
+        $cmd = $this->rpcService->createRpcRequest('apply', 'call', null, 'uci', 'apply', $opts);
+        $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
+        $logger->notice($ap->getName().': applied '.$changeCount.' change(s), rollback armed for '.$timeout.'s');
+
+        $applied = $this->collectResults($ap, ['list' => [$cmd]], 10);
+        if (!isset($applied['apply']) || isset($applied['apply']['error'])) {
+            $client->disconnect();
+            $report['ok'] = false;
+            $report['error'] = 'apply failed: '.
+                ($applied['apply']['error']['message'] ?? 'no answer').' — the access point rolls back on its own';
+
+            return $report;
+        }
+
+        // the access point answered after applying, so it is still reachable
+        $confirm = new \stdClass();
+        $confirm->ubus_rpc_session = $session;
+        $cmd = $this->rpcService->createRpcRequest('confirm', 'call', null, 'uci', 'confirm', $confirm);
+        $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
+        $client->disconnect();
+
+        $confirmed = $this->collectResults($ap, ['list' => [$cmd]], 10);
+        $report['ok'] = isset($confirmed['confirm']) && !isset($confirmed['confirm']['error']);
+        if (!$report['ok']) {
+            $report['error'] = 'could not confirm, the access point will roll back in '.$timeout.'s';
+        }
+
+        return $report;
+    }
+
+    private function sendUci($client, $ap, $id, $method, $session, \stdClass $opts = null)
+    {
+        $opts = $opts ?: new \stdClass();
+        $opts->ubus_rpc_session = $session;
+        $cmd = $this->rpcService->createRpcRequest($id, 'call', null, 'uci', $method, $opts);
+        $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
+    }
+
+    /**
+     * The subscriber caches every command result under
+     * command.result.<host>.<id>, so a provisioning run can be verified
+     * instead of being fired blindly.
+     */
+    private function collectResults($ap, array $commands, $seconds)
+    {
+        $ids = [];
+        foreach ($commands['list'] as $cmd) {
+            if (isset($cmd->id)) {
+                $ids[$cmd->id] = true;
+            }
+        }
+        $results = [];
+        $deadline = microtime(true) + $seconds;
+        while ($ids && microtime(true) < $deadline) {
+            foreach (array_keys($ids) as $id) {
+                $res = $this->cacheFactory->getCacheItemValue('command.result.'.$ap->getName().'.'.$id);
+                if (is_array($res)) {
+                    $results[$id] = $res;
+                    unset($ids[$id]);
+                }
+            }
+            if ($ids) {
+                usleep(250000);
+            }
+        }
+
+        return $results;
+    }
+
+    private function summarise(array $commands)
+    {
+        $summary = [];
+        foreach ($commands['list'] as $cmd) {
+            $p = $cmd->params ?? null;
+            if (!is_array($p) || !isset($p[2])) {
+                continue;
+            }
+            $summary[] = ($cmd->id ?? '?').': '.$p[1].' '.$p[2];
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Scan the neighbourhood from one access point and remember which BSSID
+     * belongs to which network.
+     *
+     * Beacon reports only carry the BSSID, so without this the foreign entries
+     * in a coverage view stay anonymous. An off channel scan briefly interrupts
+     * traffic on that radio, which is why this only runs on request.
+     *
+     * @return array summary
+     */
+    public function scanNeighbours($ap, $ttl = 604800)
+    {
+        $session = $this->rpcService->getSession($ap);
+        if (false === $session) {
+            return ['ok' => false, 'error' => 'cannot log in to '.$ap->getName()];
+        }
+
+        // one interface per radio is enough, they share the antenna
+        $perRadio = [];
+        foreach ($ap->getRadios() as $radio) {
+            foreach ($radio->getDevices() as $device) {
+                if ($device->getIfname() && !isset($perRadio[$radio->getName()])) {
+                    $perRadio[$radio->getName()] = $device->getIfname();
+                }
+            }
+        }
+
+        $found = 0;
+        $errors = [];
+        foreach ($perRadio as $radioName => $ifname) {
+            $opts = new \stdClass();
+            $opts->device = $ifname;
+            $result = $session->call('iwinfo', 'scan', $opts);
+            if (!is_object($result) || !property_exists($result, 'results')) {
+                $errors[] = $radioName.'/'.$ifname;
+                continue;
+            }
+            foreach ($result->results as $entry) {
+                $entry = (array) $entry;
+                if (empty($entry['bssid'])) {
+                    continue;
+                }
+                $bssid = strtolower($entry['bssid']);
+                $this->cacheFactory->addCacheItem('neighbour.'.str_replace(':', '', $bssid), [
+                    'bssid' => $bssid,
+                    'ssid' => ($entry['ssid'] ?? '') !== '' ? $entry['ssid'] : null,
+                    'channel' => $entry['channel'] ?? null,
+                    'band' => $entry['band'] ?? null,
+                    'signal' => $entry['signal'] ?? null,
+                    'seen_by' => $ap->getName().'/'.$ifname,
+                    'ts' => time(),
+                ], $ttl);
+                ++$found;
+            }
+        }
+        $this->logger->notice('scanNeighbours(): '.$ap->getName().' found '.$found.' bss on '.count($perRadio).' radio(s)');
+
+        return ['ok' => true, 'found' => $found, 'radios' => count($perRadio), 'failed' => $errors];
+    }
+
+    /**
+     * What we know about a BSSID that is not one of ours: the network name from
+     * the last scan, otherwise at least the vendor behind the address.
+     */
+    public function describeForeignBssid($bssid)
+    {
+        $bssid = strtolower($bssid);
+        $out = ['bssid' => $bssid, 'ssid' => null, 'vendor' => null, 'local' => false, 'seen_by' => null];
+
+        $known = $this->cacheFactory->getCacheItemValue('neighbour.'.str_replace(':', '', $bssid));
+        if (is_array($known)) {
+            $out['ssid'] = $known['ssid'];
+            $out['seen_by'] = $known['seen_by'];
+            $out['scan_signal'] = $known['signal'] ?? null;
+            $out['scan_age'] = isset($known['ts']) ? time() - $known['ts'] : null;
+        }
+
+        // second nibble bit 1 marks a locally administered address, which is
+        // what a virtual bss or a phone hotspot uses; its oui means nothing
+        $first = hexdec(substr(str_replace(':', '', $bssid), 0, 2));
+        $out['local'] = (bool) ($first & 0x02);
+        if (!$out['local']) {
+            try {
+                $out['vendor'] = $this->getMacManufacturer($bssid);
+            } catch (\Throwable $e) {
+                $out['vendor'] = null;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -443,206 +762,16 @@ class AccessPointService
     }
 
     /**
-     * get Pending WPS PIN Requests.
-     *
-     * @return \array|\boolean
-     */
-    public function getPendingWpsPinRequests()
-    {
-        $ts = new \DateTime();
-        $ts->setTimestamp(time() - 120);
-        $ts->setTimestamp(time() - 1800);
-        $em = $this->doctrine->getManager();
-
-        $query = $em->createQuery(
-            'SELECT sl
-		     FROM ApManBundle:Syslog sl
-		     WHERE sl.ts > :ts
-		     AND sl.message LIKE :msg_filter
-		     ORDER BY sl.id DESC
-			'
-        );
-        $query->setParameter('ts', $ts);
-        $query->setParameter('msg_filter', '% hostapd: % WPS-PIN-NEEDED %');
-        $list = $query->getResult();
-
-        // <29>Mar  6 16:05:47 hostapd: wap-knet0: WPS-PIN-NEEDED ac998afb-1cea-5cd7-a63c-2f817e3f466b 60:f1:89:89:9e:c8 [hero2ltexx|samsung|SM-G935F|SM-G935F|988633533958354552|10-0050F204-5]
-        $requests = [];
-        if (is_array($list)) {
-            foreach ($list as $ent) {
-                $msg = $ent->getMessage();
-                preg_match('/hostapd: ([a-z0-9\-].*)\: WPS-PIN-NEEDED ([a-z0-9\-].*) ([a-z0-9\:].*) \[(.*)\]/', $msg, $m);
-                if (5 != count($m)) {
-                    continue;
-                }
-                $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
-                'ipv4' => $ent->getSource(),
-            ]);
-                if (!$ap) {
-                    continue;
-                }
-
-                $req = [];
-                $req['if'] = $m[1];
-                $req['client_uuid'] = $m[2];
-                $req['client_mac'] = $m[3];
-                $req['client_info'] = $m[4];
-                $req['ap'] = $ap;
-                $req['log'] = $ent;
-                $requests[] = $req;
-            }
-        }
-
-        return $requests;
-    }
-
-    /**
      * processLogMessage.
      *
      * @return \array|\boolean
      */
     public function processLogMessage($syslog)
     {
-        // Mar  6 19:41:11 hostapd: wap-knet0: WPS-REG-SUCCESS 60:f1:89:89:9e:c8 ac998afb-1cea-5cd7-a63c-2f817e3f466b
-        if (false !== strpos($syslog->getMessage(), ' WPS-REG-SUCCESS ')) {
-            $this->processLogWpsRegSuccess($syslog);
-        }
-    }
-
-    /**
-     * processLogMessage.
-     *
-     * @return \array|\boolean
-     */
-    public function processLogWpsRegSuccess($syslog)
-    {
-        preg_match('/hostapd: ([a-z0-9\-].*)\: WPS-REG-SUCCESS ([a-z0-9\-].*) ([a-z0-9\:].*)/', $syslog->getMessage(), $m);
-        print_r($m);
-        $if = $m[1];
-        $mac = $m[2];
-        $uuid = $m[3];
-        if (4 != count($m)) {
-            return;
-        }
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
-        'ipv4' => $syslog->getSource(),
-    ]);
-        $session = $this->rpcService->getSession($ap);
-        if (false === $session) {
-            $logger->debug('Failed to log in to: '.$ap->getName());
-
-            return false;
-        }
-
-        $o = new \stdClass();
-        $o->path = '/etc/hostapd.kalnet.psk';
-        $o->base64 = false;
-        $stat = $session->call('file', 'read', $o);
-        if (!is_object($stat)) {
-            return;
-        }
-        if (!property_exists($stat, 'data')) {
-            return;
-        }
-
-        $lines = explode("\n", $stat->data);
-        $key = null;
-        foreach ($lines as $line) {
-            $fields = explode(' ', $line);
-            if (2 != count($fields)) {
-                continue;
-            }
-            if (strtolower($fields[0]) == strtolower($mac)) {
-                $key = $fields[1];
-            }
-            // Looping trhough all simulates hostapds behaviour
-        }
-        $key = trim($key);
-        if (!$key) {
-            return;
-            //echo "Found key for new device $mac: $key\n";
-        }
-        $em = $this->doctrine->getManager();
-
-        $query = $em->createQuery(
-            'SELECT d
-		     FROM ApManBundle:Device d
-		     LEFT JOIN d.radio r
-		     WHERE r.accesspoint = :ap
-			'
-        );
-        $query->setParameter('ap', $ap);
-        $list = $query->getResult();
-        if (!is_array($list)) {
-            return;
-        }
-        $dev = null;
-        foreach ($list as $device) {
-            echo $device->getId()."\n";
-            print_r($device->getConfig());
-            $cfg = $device->getConfig();
-            if (empty($device->getIfname())) {
-                continue;
-            }
-            if ($device->getIfname() == $if) {
-                $dev = $device;
-            }
-        }
-        if (is_null($dev)) {
-            return;
-        }
-
-        $query = $em->createQuery(
-            'SELECT f
-		     FROM ApManBundle:SSIDConfigFile f
-		     WHERE f.name = :name
-		     AND f.ssid = :ssid
-			'
-        );
-        $query->setParameter('name', 'wpa_psk_file');
-        $query->setParameter('ssid', $dev->getSSID());
-        $list = $query->getResult();
-        if (count($list)) {
-            foreach ($list as $ent) {
-                $content = $ent->getContent()."\n";
-                $content .= '#'.($syslog->getMessage())."\n";
-                $content .= $mac.' '.$key."\n";
-                $ent->setContent($content);
-                echo $content;
-                $em->persist($ent);
-            }
-        }
-        $em->flush();
-
-        foreach ($dev->getSSID()->getDevices() as $device) {
-            $session = $this->rpcService->getSession($device->getRadio()->getAccesspoint());
-            if (false === $session) {
-                continue;
-            }
-            if (count($device->getSsid()->getConfigFiles())) {
-                foreach ($device->getSsid()->getConfigFiles() as $configFile) {
-                    $name = $configFile->getName();
-                    $content = $configFile->getContent()."\n";
-                    $content = str_replace("\r\n", "\n", $content);
-                    $md5 = hash('md5', $content);
-
-                    $this->logger->debug($ap->getName().': Verifying hash of file '.$configFile->getFileName());
-                    $o = new \stdClass();
-                    $o->path = $configFile->getFileName();
-                    $stat = $session->call('file', 'md5', $o);
-
-                    if (!$stat || !isset($stat->md5) || ($stat->md5 != $md5)) {
-                        $this->logger->debug($ap->getName().': Uploading file '.$configFile->getFileName());
-                        $o = new \stdClass();
-                        $o->path = $configFile->getFileName();
-                        $o->append = false;
-                        $o->base64 = false;
-                        $o->data = $content;
-                        $stat = $session->call('file', 'write', $o);
-                    }
-                }
-            }
-        }
+        // WPS enrolment used to be scraped out of syslog here. It is driven by
+        // the controller now (PpskService), which starts the registration and
+        // adopts the generated key afterwards, so nothing has to be parsed out
+        // of log lines any more.
     }
 
     public function fetchDynamicProperties(\ApManBundle\Entity\AccessPoint $ap)
@@ -1116,6 +1245,22 @@ class AccessPointService
 
         $connected = intval($assocProps['connected_time']);
         if ($connected < 100) {
+            // freshly associated: if a transition was pending, this is the
+            // result. Previously this check sat above the evaluation below,
+            // which made that code unreachable.
+            if (array_key_exists($mac, $this->steeringState['state'])) {
+                $this->logger->info('steerClient('.$mac.'): client reconnected while a transition was pending.');
+            }
+
+            return false;
+        }
+
+        // the client answered "no" often enough; asking again only costs frames
+        if ($this->steering->isGivenUp($mac)) {
+            $state = $this->steering->getState($mac);
+            $this->logger->info('steerClient('.$mac.'): giving up, '.($state['rejects'] ?? 0).
+                ' rejections in a row'.(isset($state['last']['reason']) ? ' ('.$state['last']['reason'].')' : ''));
+
             return false;
         }
 
@@ -1200,36 +1345,23 @@ class AccessPointService
 
             return true;
         } elseif ('bss_transition_request' == $type) {
-            $qb = $em->createQueryBuilder();
-            $query = $em->createQuery(
-                'SELECT d
-			 FROM ApManBundle:Device d
-			 LEFT JOIN d.radio r
-			 LEFT JOIN r.accesspoint ap
-			 LEFT JOIN d.ssid s
-			 WHERE ap.id=:ap_id
-			 AND d.id!=:curdev_id
-			 AND d.rrm IS NOT NULL
-			 AND s.id=:ssid_id
-			 AND r.config_band=:band'
-            );
-            $query->setParameter('ap_id', $ap->getId());
-            $query->setParameter('ssid_id', $ssid->getId());
-            $query->setParameter('curdev_id', $device->getId());
-            $query->setParameter('band', '5g');
-            $res = $query->getResult();
-            $targetDev = null;
-            foreach ($res as $t) {
-                $targetDev = $t;
-                break;
-            }
-            if (is_null($targetDev)) {
-                $this->logger->info('steerClient('.$mac.'): Failed to find a target device on the same access point.', ['device' => $device->getId(), 'ap' => $ap->getName()]);
+            // Pick a target the client itself reported hearing well. Steering
+            // used to look for any 5g bss on the same access point, which is
+            // why the fleet answered nearly every request with "low RSSI".
+            $target = $this->steering->pickTarget($mac, $device, true);
+            if (!$target) {
+                $this->logger->info('steerClient('.$mac.'): no target the client hears well enough.', [
+                    'device' => $device->getId(), 'ap' => $ap->getName(),
+                ]);
 
                 return false;
             }
+            $targetDev = $target['device'];
+            $this->logger->notice('steerClient('.$mac.'): target '.$target['ap'].'/'.$targetDev->getIfname().
+                ' — client hears it at '.$target['heard'].' dBm'.
+                (null !== $target['gain'] ? ' ('.sprintf('%+.1f', $target['gain']).' dB)' : '').
+                ' via '.$target['source']);
 
-            $this->logger->error('steerClient('.$mac.'): Target Dev.', ['device' => $targetDev->getId(), 'ap' => $targetDev->getRadio()->getAccesspoint()->getName()]);
             $opts = new \stdClass();
             $opts->addr = $mac;
             $opts->abridged = true;
@@ -1240,11 +1372,12 @@ class AccessPointService
             $rrm = $targetDev->getRrm();
             $rrm = json_decode(json_encode($rrm));
             if (!is_object($rrm) || !property_exists($rrm, 'value') || !is_array($rrm->value)) {
-                $this->logger->error('steerClient('.$mac.'): Failed to get rrm.', ['device' => $device->getId()]);
+                $this->logger->error('steerClient('.$mac.'): target has no neighbour report.', ['device' => $targetDev->getId()]);
 
                 return false;
             }
             $opts->neighbors = [$rrm->value[2]];
+            $this->steering->markPending($mac, $target['bssid']);
 
             $topic = 'apman/ap/'.$ap->getName().'/command';
             $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);

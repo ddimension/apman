@@ -1,28 +1,183 @@
 {% extends 'frontend.html.twig' %}
+{% block title %}Steer {{ mac }}{% endblock %}
+
+{% macro bar(value, warn, bad) %}
+	{% set pct = ((value + 100) * 100 / 60)|round %}
+	<span class="bar {{ value < bad ? 'bad' : (value < warn ? 'weak' : '') }}">
+		<span style="width: {{ pct < 0 ? 0 : (pct > 100 ? 100 : pct) }}%"></span></span>
+	{{ value }} dBm
+{% endmacro %}
+{% import _self as fmt %}
 
 {% block body %}
-Move Client to: <br />
-<form method="post" action="{{ path('apman_default_wnmbsstransitionrequest') }}">
-<input type="hidden" name="mac" value="{{ mac }}" />
-<input type="hidden" name="system" value="{{ system }}" />
-<input type="hidden" name="device" value="{{ device }}" />
-<input type="hidden" name="ssid" value="{{ ssid }}" />
-<select name="target" />
-	<option value="0">device decides</option>
-{% for device in devices %}
-	<option value="{{device.id}}">{{ device.radio.accesspoint.name }}/{{ device.radio.name }} {{ device.radio.configband }} {{ device.radio.confightmode }}</option>
-{% endfor %}
-</select>
-<br />
-Disassociation Imminent: <input type="checkbox" name="disassociation_imminent" value="1" />
-<br />
-<input type="submit" name="submit" value="Absenden" />
+<h2>Steer <a href="{{ path('client_detail', {'mac': mac}) }}">{{ mac }}</a></h2>
+
+<div class="card">
+	{% if current %}
+		<p>
+			Currently on <b>{{ current.device.radio.accesspoint.name }} / {{ current.device.ifname }}</b>
+			({{ current.device.radio.configband }}{% if ssid %}, {{ ssid }}{% endif %})
+			{% if current.signal is not null %} — AP hears it at {{ fmt.bar(current.signal, -65, -75) }}{% endif %}
+			{% if current_heard is not null %} · client hears this AP at {{ current_heard }} dBm{% endif %}
+		</p>
+	{% else %}
+		<p class="warn">This client is not associated anywhere right now — a transition request would go nowhere.</p>
+	{% endif %}
+
+	<p class="small">
+		{% if taxonomy and taxonomy.roaming|length %}
+			<span class="pill up">supports BSS transition</span>
+			{{ taxonomy.roaming|join(' · ') }}
+		{% elseif taxonomy %}
+			<span class="pill down">announces no BSS transition support</span>
+			— it will most likely ignore the request; kicking it (Kick on the client page) is the only lever left.
+		{% else %}
+			<span class="stale">no capability information (client never associated with a taxonomy-capable AP)</span>
+		{% endif %}
+	</p>
+
+	{% if state.rejects|default(0) > 0 %}
+		<p class="small warn">
+			{{ state.rejects }} rejection(s) in a row{% if state.last.reason is defined and state.last.reason %},
+			last reason: <b>{{ state.last.reason }}</b>{% endif %}.
+			{% if state.rejects >= 3 %}Automatic steering is suspended for this client.{% endif %}
+		</p>
+	{% endif %}
+</div>
+
+<h3>Targets <span class="small">ranked by what the client itself reported hearing (802.11k)</span>
+	<button type="button" id="measure">Measure now</button>
+	<span id="measureresult" class="small"></span>
+</h3>
+
+<form id="btm">
+	<input type="hidden" name="mac" value="{{ mac }}">
+	<input type="hidden" name="system" value="{{ system }}">
+	<input type="hidden" name="device" value="{{ device }}">
+
+	<table class="aps">
+		<tr><th></th><th>Access point</th><th>Band</th><th>Client hears</th><th>vs. current</th><th>Notes</th></tr>
+		<tr>
+			<td><input type="radio" name="target" value="0" checked></td>
+			<td colspan="5"><b>Let the client decide</b>
+				<span class="small">— no candidate named, the request only says "please move"</span></td>
+		</tr>
+		{% for c in candidates %}
+			<tr class="{{ c.current ? 'here' : '' }}{{ c.blocked ? ' dim' : '' }}">
+				<td>
+					<input type="radio" name="target" value="{{ c.id }}"
+						{{ c.current or not c.has_rrm ? 'disabled' : '' }}>
+				</td>
+				<td>
+					{{ c.ap }} / {{ c.ifname }}
+					{% if c.bssid %}<div class="small">{{ c.bssid }}</div>{% endif %}
+				</td>
+				<td class="small">{{ c.band }} {{ c.htmode }}</td>
+				<td>{% if c.heard is not null %}{{ fmt.bar(c.heard, -65, -75) }}{% else %}<span class="stale small">never heard</span>{% endif %}</td>
+				<td class="{{ c.gain is not null and c.gain >= min_gain ? 'ok' : (c.gain is not null and c.gain < 0 ? 'warn' : '') }}">
+					{% if c.gain is not null %}{{ c.gain > 0 ? '+' : '' }}{{ c.gain }} dB{% endif %}
+				</td>
+				<td class="small">
+					{% if c.current %}<span class="pill up">current</span>{% endif %}
+					{% if c.preferred %}<span class="pill up">client named this</span>{% endif %}
+					{% if c.blocked %}<span class="pill down">rejected recently</span>{% endif %}
+					{% if not c.has_rrm %}<span class="warn">no neighbour report — cannot be named</span>{% endif %}
+					{% if c.gain is not null and c.gain < min_gain and not c.current %}
+						<span class="stale">below the {{ min_gain }} dB the automatic steering requires</span>
+					{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+	</table>
+
+	<p>
+		<label><input type="checkbox" name="abridged" value="1" checked> abridged
+			<span class="small">(tell the client the others are not recommended)</span></label>
+		&nbsp;
+		<label><input type="checkbox" name="disassociation_imminent" value="1"> disassociation imminent
+			<span class="small">— after</span>
+			<input type="number" name="disassociation_timer" value="150" min="0" max="65535" size="5" style="width:5em">
+			<span class="small">TBTTs the AP will disconnect it. Use this only after a polite request was ignored.</span>
+		</label>
+	</p>
+	<p>
+		<button type="submit">Send request and wait for the answer</button>
+		<span id="result" class="small"></span>
+	</p>
 </form>
+
+<div id="answer" class="card" style="display:none"></div>
+
+<script>
+document.getElementById('measure').addEventListener('click', async () => {
+	const out = document.getElementById('measureresult');
+	out.className = 'small';
+	out.textContent = 'asking the client for a beacon measurement...';
+	try {
+		const res = await fetch('{{ path('client_measure', {'mac': mac}) }}', { method: 'POST', body: new URLSearchParams() });
+		const d = await res.json();
+		out.className = 'small ' + (d.ok && d.reports ? 'ok' : 'warn');
+		out.textContent = d.ok
+			? (d.reports ? d.reports + ' report(s) — reloading' : 'no answer (' + d.via + ')')
+			: (d.error || 'failed');
+		if (d.ok && d.reports) { setTimeout(() => location.reload(), 700); }
+	} catch (e) { out.className = 'small warn'; out.textContent = 'failed: ' + e; }
+});
+
+document.getElementById('btm').addEventListener('submit', async (ev) => {
+	ev.preventDefault();
+	const out = document.getElementById('result');
+	const box = document.getElementById('answer');
+	const btn = ev.target.querySelector('button[type=submit]');
+	btn.disabled = true;
+	out.className = 'small';
+	out.textContent = 'sent, waiting for the answer...';
+	box.style.display = 'none';
+	try {
+		const res = await fetch('{{ path('bss_transition_send') }}', {
+			method: 'POST', body: new URLSearchParams(new FormData(ev.target))
+		});
+		const d = await res.json();
+		if (!d.ok) {
+			out.className = 'small warn';
+			out.textContent = d.error || 'failed';
+		} else if (!d.answered) {
+			out.className = 'small warn';
+			out.textContent = d.note;
+		} else {
+			out.className = 'small ' + (d.accepted ? 'ok' : 'warn');
+			out.textContent = d.accepted
+				? 'accepted — the client is moving to ' + d.target
+				: 'rejected' + (d.reason ? ' — ' + d.reason : ' (no reason given)');
+			let html = '<h4>' + (d.accepted ? 'Accepted' : 'Rejected') + '</h4>';
+			html += '<p class="small">Target: ' + d.target + '</p>';
+			if (d.reason) { html += '<p class="small">Reason reported by the client: <b>' + d.reason + '</b></p>'; }
+			if (d.candidates && d.candidates.length) {
+				html += '<p class="small">The client named these candidates instead:<br>' +
+					d.candidates.map(c => c.bssid + ' (ch ' + c.channel + ')').join('<br>') + '</p>';
+			}
+			if (d.state && d.state.rejects >= 3) {
+				html += '<p class="small warn">Automatic steering is now suspended for this client.</p>';
+			}
+			box.innerHTML = html;
+			box.style.display = 'block';
+		}
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+	btn.disabled = false;
+});
+</script>
 {% endblock %}
 
 {% block stylesheets %}
 <style>
-
+	.card { border: 1px solid #dde; border-radius: 4px; padding: .5rem .75rem; margin-bottom: 1rem; }
+	.card h4 { margin: 0 0 .25rem 0; }
+	tr.here { background: #eef7ee; }
+	tr.dim { opacity: .55; }
+	.pill.off { background: #eee; color: #999; }
+	form#btm table { margin-bottom: .5rem; }
 </style>
 {% endblock %}
-

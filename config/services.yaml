@@ -32,6 +32,16 @@ services:
         resource: '../src/Controller/'
         tags: ['controller.service_arguments']
 
+    ApManBundle\Service\WirelessSchemaService:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    ApManBundle\Service\StatusService:
+        arguments:
+            $firewallUrl: '%firewall_url%'
+            $firewallUser: '%firewall_user%'
+            $firewallPassword: '%firewall_password%'
+
     ApManBundle\Service\wrtJsonRpc:
         class: ApManBundle\Service\wrtJsonRpc
         public: true
@@ -87,6 +97,12 @@ services:
         arguments: [~, ApManBundle\Entity\Client, ~]
         tags:
             - { name: sonata.admin, manager_type: orm, label: "Clients" }
+        public: true
+    admin.ppsk:
+        class: ApManBundle\Admin\PpskAdmin
+        arguments: [~, ApManBundle\Entity\Ppsk, ~]
+        tags:
+            - { name: sonata.admin, manager_type: orm, label: "Per device PSK", group: "Wireless" }
         public: true
     admin.ssid_config_option:
         class: ApManBundle\Admin\SSIDConfigOptionAdmin

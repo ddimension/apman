@@ -1,0 +1,263 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}{{ ap.name }}{% endblock %}
+
+{% block body %}
+<h2>{{ ap.name }}
+	<span class="pill {{ state == 'STATE_ACTIVE' ? 'up' : 'down' }}">{{ state }}</span>
+</h2>
+
+<p class="small">
+	{% if agent %}
+		Agent {{ agent.version|default('?') }} — {{ agent.features|default([])|join(', ') }}
+	{% else %}
+		<span class="warn">no agent inventory (agent older than 56-2)</span>
+	{% endif %}
+	{% if board and board.release is defined %}
+		<br>{{ board.model|default('') }} — {{ board.release.description|default('') }}
+	{% endif %}
+	{% if sysinfo and sysinfo.uptime is defined %}
+		<br>uptime {{ (sysinfo.uptime // 3600) }}h, load {{ sysinfo.load[0]|default('?') }}
+	{% endif %}
+</p>
+
+<p>
+	<button type="button" id="dryrun">Show pending changes</button>
+	<button type="button" id="provision">Provision (rollback armed)</button>
+</p>
+<div id="actionresult" class="small"></div>
+<pre id="diff" class="small" style="display:none; background:#f6f6f6; padding:.5rem; overflow:auto"></pre>
+
+{% for dev in devices %}
+	<h3>{{ dev.ifname }}
+		{% if dev.ssid %}<span class="small">{{ dev.ssid }}</span>{% endif %}
+		{% if dev.age is not null %}
+			<span class="small {{ dev.age > 60 ? 'stale' : '' }}">state {{ dev.age }}s old</span>
+		{% endif %}
+	</h3>
+
+	<table class="aps">
+		<tr>
+			<th>Radio</th><th>Channel</th><th>Links</th><th>Security</th><th>802.11k/v</th><th>Survey</th>
+		</tr>
+		<tr>
+			<td>{{ dev.radio }}{% if dev.band %} ({{ dev.band }}){% endif %}
+				{% if dev.hostapd_status.wiphy is defined %}<div class="small">{{ dev.hostapd_status.wiphy }}</div>{% endif %}
+			</td>
+			<td>
+				{% if dev.ap_status.channel is defined %}{{ dev.ap_status.channel }}{% endif %}
+				{% if dev.ap_status.freq is defined %}<div class="small">{{ dev.ap_status.freq }} MHz</div>{% endif %}
+				{% if dev.ap_status.status is defined %}<div class="small">{{ dev.ap_status.status }}</div>{% endif %}
+				{% if dev.ap_status.dfs is defined and dev.ap_status.dfs.cac_active %}
+					<div class="warn small">CAC active, {{ dev.ap_status.dfs.cac_seconds_left|default('?') }}s left</div>
+				{% endif %}
+				{% if dev.ap_status.airtime is defined and dev.ap_status.airtime.utilization is defined %}
+					<div class="small">airtime {{ (dev.ap_status.airtime.utilization * 100 / 255)|round }}%</div>
+				{% endif %}
+			</td>
+			<td>
+				{% if dev.hostapd_status.links is defined and dev.hostapd_status.links %}
+					<span class="pill up">MLO</span>
+					{% for idx, link in dev.hostapd_status.links %}
+						<div class="small">link {{ link.radio|default(idx) }} {{ link.macaddr|default('') }}
+							{{ link.running|default(false) ? 'up' : 'down' }}</div>
+					{% endfor %}
+				{% else %}
+					<span class="small">single link
+						{% if dev.hostapd_status.macaddr is defined %}{{ dev.hostapd_status.macaddr }}{% endif %}</span>
+				{% endif %}
+			</td>
+			<td class="small">
+				{% if dev.bss_info %}
+					wpa={{ dev.bss_info.wpa|default('-') }}<br>
+					{{ dev.bss_info.wpa_key_mgmt|default('') }}<br>
+					pmf={{ dev.bss_info.ieee80211w|default('-') }},
+					mode={{ dev.bss_info.hw_mode|default('-') }}
+					{% if dev.bss_info.ssid is defined and dev.ssid and dev.bss_info.ssid != dev.ssid %}
+						<div class="warn">running SSID "{{ dev.bss_info.ssid }}" differs from "{{ dev.ssid }}"</div>
+					{% endif %}
+				{% else %}
+					<span class="stale">no bss_info</span>
+				{% endif %}
+			</td>
+			<td class="small">
+				{% if dev.ap_status.rrm is defined %}nr_tx {{ dev.ap_status.rrm.neighbor_report_tx|default(0) }}<br>{% endif %}
+				{% if dev.ap_status.wnm is defined %}
+					req {{ dev.ap_status.wnm.bss_transition_request_tx|default(0) }},
+					resp {{ dev.ap_status.wnm.bss_transition_response_rx|default(0) }},
+					query {{ dev.ap_status.wnm.bss_transition_query_rx|default(0) }}
+				{% endif %}
+			</td>
+			<td class="small">
+				{% if dev.survey %}
+					{% for c in dev.survey.best %}{{ c.mhz }}MHz {{ c.busy_pct }}%{% if c.noise %} / {{ c.noise }}dBm{% endif %}<br>{% endfor %}
+					<i>{{ dev.survey.channels }} channels</i>
+				{% else %}
+					<span class="stale">no survey</span>
+				{% endif %}
+			</td>
+		</tr>
+	</table>
+
+	{% if dev.mib %}
+	<table class="aps mib">
+		<tr>
+			<th>Authentication <span class="small">hostapd MIB counters</span></th>
+			<th>RADIUS</th>
+		</tr>
+		<tr>
+			<td class="small">
+				{% for key, value in dev.mib.security %}
+					<span class="{{ key == '4-way handshake failures' and value > 0 ? 'warn' : '' }}">
+						{{ key }}: <b>{{ value }}</b></span><br>
+				{% endfor %}
+			</td>
+			<td class="small">
+				{% if dev.mib.radius is defined %}
+					server {{ dev.mib.radius.server }},
+					<span class="{{ dev.mib.radius['round trip']|replace({' ms': ''})|number_format > 200 ? 'warn' : '' }}">rtt {{ dev.mib.radius['round trip'] }}</span><br>
+					{{ dev.mib.radius.accepts }} accepted of {{ dev.mib.radius.requests }} requests<br>
+					<span class="{{ dev.mib.radius.rejects > 0 ? 'warn' : '' }}">{{ dev.mib.radius.rejects }} rejected</span>,
+					<span class="{{ dev.mib.radius.timeouts > 0 ? 'warn' : '' }}">{{ dev.mib.radius.timeouts }} timed out</span>,
+					{{ dev.mib.radius.retransmissions }} retransmitted
+					{% if dev.mib.radius['bad or malformed answers'] is defined %}
+						<br><span class="warn">{{ dev.mib.radius['bad or malformed answers'] }} bad or malformed answers</span>
+					{% endif %}
+				{% else %}
+					<span class="stale">no radius on this bss</span>
+				{% endif %}
+			</td>
+		</tr>
+	</table>
+	{% endif %}
+
+	{% if dev.events|length %}
+	<table class="aps">
+		<tr><th colspan="4">hostapd events <span class="small">from the control channel — refusals, EAP verdicts, channel changes</span></th></tr>
+		{% for e in dev.events %}
+			<tr>
+				<td class="small">{{ e.age }}s ago</td>
+				<td class="small {{ e.bad ? 'warn' : '' }}"><b>{{ e.event }}</b></td>
+				<td class="small">
+					{% if e.address %}<a href="{{ path('client_detail', {'mac': e.address}) }}">{{ e.address }}</a>{% endif %}
+				</td>
+				<td class="small stale">{{ e.detail }}</td>
+			</tr>
+		{% endfor %}
+	</table>
+	{% endif %}
+
+	{% if dev.clients|length %}
+	<table class="aps">
+		<tr><th>Client</th><th>Identity</th><th>Signal</th><th>Rate rx/tx</th><th>Idle</th><th>Interface</th><th>Actions</th></tr>
+		{% for mac, c in dev.clients %}
+			<tr>
+				<td><a href="{{ path('client_detail', {'mac': mac}) }}">{{ mac }}</a></td>
+				<td class="small">
+					{% if c.identity %}<span class="pill up">{{ c.identity }}</span>{% endif %}
+					{% if c.akm %}<div class="stale">{{ c.akm }}</div>{% endif %}
+				</td>
+				<td>
+					{% if c.signal is not null %}
+						{% set pct = ((c.signal + 100) * 100 / 60)|round %}
+						<span class="bar {{ c.signal < -75 ? 'bad' : (c.signal < -65 ? 'weak' : '') }}">
+							<span style="width: {{ pct < 0 ? 0 : (pct > 100 ? 100 : pct) }}%"></span></span>
+						{{ c.signal }} dBm
+					{% endif %}
+				</td>
+				<td class="small">{{ c.rx_rate is not null ? (c.rx_rate / 1000)|round : '?' }} /
+					{{ c.tx_rate is not null ? (c.tx_rate / 1000)|round : '?' }} Mbit</td>
+				<td class="small">{{ c.inactive is not null ? (c.inactive / 1000)|round : '?' }}s</td>
+				<td class="small">{{ c.device }}</td>
+				<td>
+					<button type="button" class="act" data-object="hostapd.{{ dev.ifname }}"
+						data-method="del_client"
+						data-args='{"addr":"{{ mac }}","reason":5,"deauth":false,"ban_time":10}'>Kick</button>
+					<button type="button" class="act" data-object="hostapd.{{ dev.ifname }}"
+						data-method="rrm_beacon_req"
+						data-args='{"addr":"{{ mac }}","mode":2,"duration":100,"channel":0,"op_class":0}'>Beacon req</button>
+				</td>
+			</tr>
+		{% endfor %}
+	</table>
+	{% else %}
+		<p class="small">no associated clients</p>
+	{% endif %}
+
+	<p class="small">
+		<button type="button" class="act" data-object="hostapd.{{ dev.ifname }}"
+			data-method="update_beacon" data-args="{}">Update beacon</button>
+		<button type="button" class="act" data-object="hostapd.{{ dev.ifname }}"
+			data-method="get_status" data-args="{}">Read status</button>
+		<button type="button" class="act" data-object="iwinfo"
+			data-method="survey" data-args='{"device":"{{ dev.ifname }}"}'>Run survey</button>
+	</p>
+{% endfor %}
+
+<script>
+// provisioning stages everything in one uci transaction, asks the ap for the
+// resulting diff and only then applies it, with rpcd's rollback timer armed
+async function provision(dry) {
+	const out = document.getElementById('actionresult');
+	const diff = document.getElementById('diff');
+	out.className = 'small';
+	out.textContent = dry ? 'collecting pending changes...' : 'provisioning...';
+	diff.style.display = 'none';
+	try {
+		const res = await fetch('{{ path('ap_provision', {'name': ap.name}) }}', {
+			method: 'POST', body: new URLSearchParams({ dry: dry ? '1' : '' })
+		});
+		const d = await res.json();
+		out.className = 'small ' + (d.ok ? 'ok' : 'warn');
+		let msg = (dry ? 'dry run: ' : '') + (d.error || d.note || 'ok');
+		if (d.change_count !== undefined) { msg += ' — ' + d.change_count + ' change(s)'; }
+		if (d.commands) { msg += ', ' + d.commands + ' command(s)'; }
+		if (d.failed && Object.keys(d.failed).length) {
+			msg += ' — failed: ' + Object.entries(d.failed).slice(0, 3).map(([k, v]) => k + ': ' + v).join('; ');
+		}
+		out.textContent = msg;
+		const detail = d.changes || d.staged;
+		if (detail) { diff.textContent = JSON.stringify(detail, null, 1); diff.style.display = 'block'; }
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+}
+document.getElementById('dryrun').addEventListener('click', () => provision(true));
+document.getElementById('provision').addEventListener('click', () => provision(false));
+
+// every action goes through the agent and reports back what actually happened:
+// command channel v2 answers with a result or an error object
+document.querySelectorAll('button.act').forEach((btn) => {
+	btn.addEventListener('click', async () => {
+		const out = document.getElementById('actionresult');
+		const label = btn.dataset.object + ' ' + btn.dataset.method;
+		btn.disabled = true;
+		out.textContent = label + ': running...';
+		out.className = 'small';
+		try {
+			const body = new URLSearchParams({
+				object: btn.dataset.object,
+				method: btn.dataset.method,
+				args: btn.dataset.args || '{}'
+			});
+			const res = await fetch('{{ path('ap_action', {'name': ap.name}) }}', {
+				method: 'POST', body: body
+			});
+			const data = await res.json();
+			if (data.ok) {
+				out.className = 'small ok';
+				out.textContent = label + ': ok' +
+					(data.result ? ' — ' + JSON.stringify(data.result).slice(0, 300) : '');
+			} else {
+				out.className = 'small warn';
+				out.textContent = label + ': ' + (data.error || 'failed');
+			}
+		} catch (e) {
+			out.className = 'small warn';
+			out.textContent = label + ': ' + e;
+		}
+		btn.disabled = false;
+	});
+});
+</script>
+{% endblock %}
