@@ -1,0 +1,160 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}RADIUS{% endblock %}
+
+{% block body %}
+<h2>RADIUS <span class="small">what the access points asked, and what we answered</span></h2>
+
+<p class="small">
+	An access point asks before it lets a station in: it sends the MAC and the network,
+	and gets back the key that station is supposed to use. That is how a device can have
+	a key of its own — and with WPA3 it is the <b>only</b> way, because hostapd never reads
+	<i>wpa_psk_file</i> for SAE. Everything below is that conversation.
+</p>
+
+<div class="card">
+	<b>Server</b>
+	{% if enabled %}
+		<span class="pill up">running</span> <code>{{ bind }}</code>
+	{% else %}
+		<span class="pill down">switched off</span>
+		<span class="small">set <code>RADIUS_ENABLED=1</code> and a <code>RADIUS_SECRET</code>, then restart the subscriber</span>
+	{% endif %}
+	<span class="small stale">— it shares the event loop with the MQTT client, so answers do not wait for anything else</span>
+</div>
+
+{% if pointing|length %}
+	<h3>Networks that ask a RADIUS server</h3>
+	<table class="aps">
+		<tr><th>Network</th><th>Broadcast</th><th>Security</th><th>Server</th><th>Unknown devices</th><th></th></tr>
+		{% for p in pointing %}
+			<tr>
+				<td><a href="{{ path('ssid_detail', {'id': p.id}) }}">{{ p.name }}</a></td>
+				<td class="small">{{ p.broadcast }}</td>
+				<td class="small">
+					{{ p.encryption }}
+					{% if 'sae' in p.encryption or 'wpa3' in p.encryption %}
+						<span class="pill" title="With SAE a per device key can only come from RADIUS">key over RADIUS only</span>
+					{% endif %}
+				</td>
+				<td class="small">{{ p.server }}
+					{% if p.ours %}<span class="pill up">us</span>
+					{% else %}<span class="pill">elsewhere</span>{% endif %}
+				</td>
+				<td class="small">
+					{% if p.fallback %}get the network passphrase
+					{% else %}<span class="warn">are turned away</span>{% endif %}
+				</td>
+				<td class="small"><a href="{{ path('radius', {'ssid': p.broadcast}) }}">show requests</a></td>
+			</tr>
+		{% endfor %}
+	</table>
+{% endif %}
+
+{% if stats|length %}
+	<h3>Last 24 hours</h3>
+	<table class="aps">
+		<tr><th>Network</th><th>Result</th><th>Requests</th><th>Average answer</th><th>Last</th></tr>
+		{% for s in stats %}
+			<tr>
+				<td>{{ s.ssid_name ?: '—' }}</td>
+				<td>
+					{% if s.result == 'accept' %}<span class="pill up">own key</span>
+					{% elseif s.result == 'fallback' %}<span class="pill">network passphrase</span>
+					{% else %}<span class="pill down">turned away</span>{% endif %}
+				</td>
+				<td>{{ s.n }}</td>
+				<td class="small">{{ s.ms }} ms</td>
+				<td class="small">{{ s.last }}</td>
+			</tr>
+		{% endfor %}
+	</table>
+{% endif %}
+
+{% if unknown|length %}
+	<h3>Devices without a key of their own</h3>
+	<p class="small">
+		They were answered with the network passphrase or turned away. Giving one of them a
+		key of its own turns it into an identity: the access points then report which key a
+		station used, and the key can be withdrawn on its own.
+	</p>
+	<table class="aps">
+		<tr><th>Device</th><th>Network</th><th>Attempts</th><th>Last</th><th></th></tr>
+		{% for u in unknown %}
+			<tr>
+				<td><code>{{ u.mac }}</code></td>
+				<td class="small">{{ u.ssid_name }}</td>
+				<td class="small">{{ u.n }}</td>
+				<td class="small">{{ u.last }}</td>
+				<td class="small"><a href="{{ path('ipsk') }}">give it a key</a></td>
+			</tr>
+		{% endfor %}
+	</table>
+{% endif %}
+
+<h3>Requests</h3>
+<form method="get" class="toolbar small">
+	<label>Network <input type="text" name="ssid" value="{{ filterSsid }}" placeholder="all"></label>
+	<label>Result
+		<select name="result">
+			<option value="">all</option>
+			<option value="accept" {{ filterResult == 'accept' ? 'selected' }}>own key</option>
+			<option value="fallback" {{ filterResult == 'fallback' ? 'selected' }}>network passphrase</option>
+			<option value="reject" {{ filterResult == 'reject' ? 'selected' }}>turned away</option>
+		</select>
+	</label>
+	<button type="submit">Filter</button>
+	<label class="small"><input type="checkbox" id="auto"> refresh every 5 s</label>
+</form>
+
+<table class="aps">
+	<tr><th>When</th><th>Device</th><th>Network</th><th>Access point</th><th>Result</th><th>Identity</th><th>Answer</th></tr>
+	{% for r in rows %}
+		<tr>
+			<td class="small">{{ r.created|date('H:i:s') }} <span class="stale">{{ r.created|date('d.m.') }}</span></td>
+			<td class="small"><a href="{{ path('client_detail', {'mac': r.mac}) }}"><code>{{ r.mac }}</code></a></td>
+			<td class="small">{{ r.ssidName }}</td>
+			<td class="small">{{ r.nas }}</td>
+			<td class="small">
+				{% if r.result == 'accept' %}<span class="pill up">own key</span>
+				{% elseif r.result == 'fallback' %}<span class="pill">network passphrase</span>
+				{% else %}<span class="pill down">turned away</span>{% endif %}
+				<span class="stale">{{ r.reason }}</span>
+			</td>
+			<td class="small">{% if r.keyid %}<code>{{ r.keyid }}</code>{% else %}<span class="stale">—</span>{% endif %}</td>
+			<td class="small">{{ r.durationMs ? r.durationMs|number_format(1) ~ ' ms' : '' }}</td>
+		</tr>
+	{% else %}
+		<tr><td colspan="7" class="small stale">
+			No requests yet. Either no access point points at us, or nobody has tried to join.
+		</td></tr>
+	{% endfor %}
+</table>
+{% endblock %}
+
+{% block javascripts %}
+<script>
+// a page that reloads while you read it is a nuisance, so it is off by default
+// and remembers what you chose
+const auto = document.getElementById('auto');
+auto.checked = localStorage.getItem('apman.radius.auto') === '1';
+let timer = auto.checked ? setInterval(() => location.reload(), 5000) : null;
+auto.addEventListener('change', () => {
+	localStorage.setItem('apman.radius.auto', auto.checked ? '1' : '0');
+	if (timer) { clearInterval(timer); timer = null; }
+	if (auto.checked) { timer = setInterval(() => location.reload(), 5000); }
+});
+</script>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+	.card { border: 1px solid #dde; border-radius: 4px; padding: .5rem .75rem; margin-bottom: 1rem; }
+	.toolbar { display: flex; gap: .75rem; align-items: center; margin: .5rem 0; }
+	.pill { background: #eef2f8; border: 1px solid #dde; border-radius: 10px;
+	        padding: 0 .45em; font-size: .85em; white-space: nowrap; }
+	.pill.up { background: #e8f5e9; border-color: #b8ddb9; }
+	.pill.down { background: #fdecea; border-color: #f0b7b2; }
+	.warn { color: #b00; }
+	.stale { color: #999; }
+</style>
+{% endblock %}

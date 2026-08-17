@@ -368,6 +368,128 @@ class PpskService
     }
 
     /**
+     * Turn the stations that are connected right now into keys of their own.
+     *
+     * Every one of them gets a row carrying the passphrase it is already using
+     * — the network passphrase. Nothing has to be typed into any device: the
+     * secret does not change, only who owns it. What the network gains is an
+     * identity per station: the access points report the keyid it authenticated
+     * with, the key can be withdrawn or rotated for that one device, and the
+     * network passphrase can finally be changed without locking out everything
+     * that was ever configured with it.
+     *
+     * That is the whole point of the exercise, and the reason a key is unique
+     * per SSID *and address* rather than per SSID: several rows carrying the
+     * same passphrase is not an accident here, it is the migration.
+     *
+     * @param bool $apply false only reports what it would do
+     *
+     * @return array ['created' => [...], 'skipped' => [mac => reason], 'psk' => string]
+     */
+    public function convertConnected($ssid, $apply = false)
+    {
+        $em = $this->doctrine->getManager();
+        $config = $ssid->exportConfig();
+        $psk = (string) ($config->key ?? '');
+        $out = ['created' => [], 'skipped' => [], 'psk' => $psk, 'distributed' => null];
+
+        if (strlen($psk) < 8 || strlen($psk) > 63) {
+            $out['error'] = 'the network has no passphrase that could be handed over ('
+                .(('' === $psk) ? 'none set' : strlen($psk).' characters').')';
+
+            return $out;
+        }
+
+        // what is on the air right now, per interface of this SSID
+        $connected = [];
+        foreach ($ssid->getDevices() as $device) {
+            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+            if (!is_array($status) || !isset($status['stations']) || !is_array($status['stations'])) {
+                continue;
+            }
+            $ap = $device->getRadio() ? $device->getRadio()->getAccessPoint() : null;
+            foreach ($status['stations'] as $mac => $station) {
+                $mac = strtolower((string) $mac);
+                if (!preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/', $mac)) {
+                    continue;
+                }
+                $connected[$mac] = [
+                    'ap' => $ap ? $ap->getName() : '?',
+                    'ifname' => $device->getIfname(),
+                    // hostapd reports this for a station that used a key from
+                    // the psk file — one that already has an identity
+                    'keyid' => is_array($station) ? ($station['keyid'] ?? null) : null,
+                ];
+            }
+        }
+        if (!$connected) {
+            $out['error'] = 'no station is connected to this network right now — '
+                .'there is nothing to convert';
+
+            return $out;
+        }
+
+        $known = [];
+        foreach ($this->doctrine->getRepository('ApManBundle:Ppsk')->findBy(['ssid' => $ssid]) as $entry) {
+            $known[strtolower((string) $entry->getMac())] = $entry;
+        }
+
+        foreach ($connected as $mac => $info) {
+            if (isset($known[$mac])) {
+                $out['skipped'][$mac] = 'already has a key ('
+                    .($known[$mac]->getKeyid() ?: $known[$mac]->getName() ?: 'unnamed').')';
+                continue;
+            }
+            if (!empty($info['keyid'])) {
+                $out['skipped'][$mac] = 'is using the identity '.$info['keyid'].' already';
+                continue;
+            }
+            if (!$apply) {
+                $out['created'][$mac] = $info;
+                continue;
+            }
+
+            $entry = new \ApManBundle\Entity\Ppsk();
+            $entry->setSsid($ssid);
+            $entry->setMac($mac);
+            $entry->setPsk($psk);
+            $entry->setName($this->nameForStation($mac, $info));
+            $entry->setSource(\ApManBundle\Entity\Ppsk::SOURCE_CONVERTED);
+            // it is already bound to this address, there is nothing to learn
+            $entry->setPinMac(false);
+            $entry->setComment('converted from a station connected on '.$info['ap'].' '.$info['ifname']
+                .' — carries the network passphrase it was already using');
+            $em->persist($entry);
+            $em->flush();
+            $entry->setKeyid($entry->buildKeyid());
+            $em->flush();
+            $out['created'][$mac] = $info + ['keyid' => $entry->getKeyid()];
+        }
+
+        if ($apply && $out['created']) {
+            $this->logger->notice('PpskService: converted '.count($out['created'])
+                .' connected stations of '.$ssid->getName().' into keys of their own');
+            $out['distributed'] = $this->distribute($ssid, true);
+        }
+
+        return $out;
+    }
+
+    /**
+     * A name a human can recognise: whatever the network already knows about
+     * the station, and the tail of its address when it knows nothing.
+     */
+    private function nameForStation($mac, array $info)
+    {
+        $client = $this->doctrine->getRepository('ApManBundle:Client')->findOneBy(['mac' => $mac]);
+        if ($client && $client->getName()) {
+            return $client->getName();
+        }
+
+        return 'Station '.strtoupper(substr(str_replace(':', '', $mac), -6));
+    }
+
+    /**
      * Push the rendered file to every access point that carries this SSID and
      * make hostapd re-read it.
      *

@@ -40,6 +40,45 @@
 </div>
 
 <form id="editor" method="post" action="{{ path('ssid_save', {'id': ssid.id}) }}">
+	<div class="card radius">
+		<b>RADIUS</b>
+		<input type="hidden" name="radius_fallback_present" value="1">
+		<p class="small">
+			{% if radius.server %}
+				The access points ask <code>{{ radius.server }}</code> before they let a station in.
+				{% if radius.ppsk %}<span class="pill up">per device keys over RADIUS</span>
+				{% else %}
+					<span class="pill down">option <code>ppsk</code> is off</span> — without it OpenWrt writes no
+					<code>wpa_psk_radius</code>, so the answer is only used as an access list, not as a key.
+				{% endif %}
+			{% else %}
+				No <code>auth_server</code> is set, so the access points decide on their own.
+				{% if radius.sae %}
+					<span class="warn">With SAE that means no per device keys at all:</span> hostapd reads
+					<i>sae_password_file</i> only when it reads its whole configuration, and never
+					<i>wpa_psk_file</i>. Point this network at the controller and a key per device works here too.
+				{% endif %}
+			{% endif %}
+		</p>
+		<label class="small">
+			<input type="checkbox" name="radius_fallback" value="1" {{ radius.fallback ? 'checked' }}>
+			A device without a key of its own gets the network passphrase
+			<span class="stale">— off means it is turned away, which closes the network to anything not listed</span>
+		</label>
+		{% if radius.counts|length %}
+			<p class="small">
+				Last 24 hours:
+				{% for c in radius.counts %}
+					{{ c.n }}&times;
+					{% if c.result == 'accept' %}<span class="pill up">own key</span>
+					{% elseif c.result == 'fallback' %}<span class="pill">network passphrase</span>
+					{% else %}<span class="pill down">turned away</span>{% endif %}
+				{% endfor %}
+				<a href="{{ path('radius', {'ssid': radius.broadcast}) }}">show requests</a>
+			</p>
+		{% endif %}
+	</div>
+
 	<div class="toolbar">
 		<input type="search" id="filter" placeholder="filter by name or description…">
 		<label class="small">show

@@ -54,6 +54,28 @@
 	</p>
 </div>
 
+<div class="card">
+	<h3 style="margin-top:0">Take over what is already connected</h3>
+	<p class="small">
+		Every station currently on the network gets a key of its own, carrying the
+		passphrase it is already using. <b>Nothing has to be typed into any device</b> — the
+		secret stays the same, only who owns it changes. From then on each station has an
+		identity the access points report back, can be withdrawn on its own, and the network
+		passphrase can be changed without locking out everything ever configured with it.
+	</p>
+	<form id="convert">
+		<label>Network
+			<select name="ssid" required>
+				{% for s in ssids %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+			</select>
+		</label>
+		<button type="submit" name="apply" value="0">Show what would happen</button>
+		<button type="submit" name="apply" value="1" class="danger">Do it</button>
+		<span id="c-busy" class="small"></span>
+	</form>
+	<div id="c-result" class="small" style="display:none"></div>
+</div>
+
 <h3>Issued keys</h3>
 <table class="aps">
 	<tr><th>Name</th><th>Network</th><th>Identity</th><th>Created</th><th>First used</th><th>Last seen</th><th>Last device</th><th></th></tr>
@@ -98,6 +120,48 @@
 <script src="{{ asset('vendor/qrcode.js') }}"></script>
 <script>
 let pollTimer = null;
+
+// Take over the connected stations. The preview and the real run are the same
+// request with one flag, so what you were shown is what happens.
+document.getElementById('convert').addEventListener('submit', async (ev) => {
+	ev.preventDefault();
+	const apply = ev.submitter && ev.submitter.value === '1';
+	const ssid = ev.target.ssid.value;
+	const busy = document.getElementById('c-busy');
+	const out = document.getElementById('c-result');
+	busy.textContent = apply ? 'converting…' : 'looking…';
+	out.style.display = 'none';
+	try {
+		const res = await fetch('{{ path('ppsk_convert', {'ssidId': '__ID__'}) }}'.replace('__ID__', ssid), {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: 'apply=' + (apply ? '1' : ''),
+		});
+		const d = await res.json();
+		busy.textContent = '';
+		out.style.display = '';
+		if (!d.ok) { out.innerHTML = '<span class="warn">' + d.error + '</span>'; return; }
+		const created = Object.entries(d.created || {});
+		const skipped = Object.entries(d.skipped || {});
+		let html = '<p><b>' + d.hint + '</b></p>';
+		if (created.length) {
+			html += '<table class="aps"><tr><th>Device</th><th>Access point</th><th>Identity</th></tr>'
+				+ created.map(([mac, i]) => '<tr><td><code>' + mac + '</code></td><td>'
+					+ (i.ap || '') + ' ' + (i.ifname || '') + '</td><td>'
+					+ (i.keyid ? '<code>' + i.keyid + '</code>' : '<span class="stale">would be created</span>')
+					+ '</td></tr>').join('') + '</table>';
+		}
+		if (skipped.length) {
+			html += '<p class="stale">Left alone: ' + skipped.map(([mac, why]) => mac + ' (' + why + ')').join(', ') + '</p>';
+		}
+		out.innerHTML = html;
+		if (apply && created.length) { setTimeout(() => location.reload(), 4000); }
+	} catch (e) {
+		busy.textContent = '';
+		out.style.display = '';
+		out.innerHTML = '<span class="warn">failed: ' + e + '</span>';
+	}
+});
 
 function renderQr(payload) {
 	const box = document.getElementById('qr');

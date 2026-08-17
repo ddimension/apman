@@ -16,8 +16,16 @@ use Doctrine\ORM\Mapping as ORM;
  * so several of them share 00:00:00:00:00:00 on one SSID and it is the key
  * that has to be unique, not the address.
  *
+ * The key is unique per SSID *and address*, not per SSID alone. Two devices
+ * may hold the same passphrase — that is exactly what happens when an existing
+ * network is converted: every station gets a row of its own carrying the
+ * passphrase it already uses, so it keeps working untouched while gaining an
+ * identity that can be rotated or withdrawn on its own. For MAC agnostic
+ * entries (address 00:00:00:00:00:00) the constraint still means one row per
+ * key, which is what makes an iPSK an identity.
+ *
  * @ORM\Table(name="ppsk", uniqueConstraints={
- *     @ORM\UniqueConstraint(name="ppsk_ssid_psk", columns={"ssid_id", "psk"})
+ *     @ORM\UniqueConstraint(name="ppsk_ssid_mac_psk", columns={"ssid_id", "mac", "psk"})
  * })
  * @ORM\Entity
  */
@@ -32,6 +40,8 @@ class Ppsk
     public const SOURCE_IPSK = 'ipsk';
     /** taken over from the per device entries of the RADIUS server */
     public const SOURCE_RADIUS = 'radius';
+    /** made from a station that was already connected with the network passphrase */
+    public const SOURCE_CONVERTED = 'converted';
 
     /** hostapd stores the keyid in a fixed buffer; stay well below it */
     public const KEYID_MAX = 24;

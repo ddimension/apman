@@ -1088,7 +1088,48 @@ class DefaultController extends Controller
             'values' => $values,
             'lists' => $lists,
             'keys' => $this->doctrine->getRepository('ApManBundle:Ppsk')->findBy(['ssid' => $ssid]),
+            'radius' => $this->radiusSummary($ssid, $values),
         ]);
+    }
+
+    /**
+     * How this network is authenticated, from the RADIUS side.
+     *
+     * The interesting part is what the two paths for a per device key can do
+     * here: with WPA2 the key can travel in wpa_psk_file and takes effect in
+     * seconds, with SAE it can only come from a RADIUS answer. An SSID that
+     * runs SAE without pointing at a server therefore cannot have per device
+     * keys at all, and saying so here is cheaper than letting somebody find
+     * out by handing out a key that never works.
+     */
+    private function radiusSummary(\ApManBundle\Entity\SSID $ssid, array $values)
+    {
+        $encryption = strtolower((string) ($values['encryption'] ?? 'none'));
+        $broadcast = $values['ssid'] ?? $ssid->getName();
+        $server = $values['auth_server'] ?? ($values['auth_server_addr'] ?? null);
+
+        $counts = [];
+        try {
+            $counts = $this->doctrine->getManager()->getConnection()->fetchAll(
+                'SELECT result, COUNT(*) AS n, MAX(created) AS last FROM radius_auth'
+                .' WHERE ssid_name = :ssid AND created > DATE_SUB(NOW(), INTERVAL 24 HOUR)'
+                .' GROUP BY result',
+                ['ssid' => $broadcast]
+            );
+        } catch (\Throwable $e) {
+            // the history table is young; a controller that has not seen it yet
+            // should still render the page
+        }
+
+        return [
+            'server' => $server,
+            'ppsk' => (bool) ($values['ppsk'] ?? false),
+            'sae' => (bool) preg_match('/sae|wpa3/', $encryption),
+            'psk' => (bool) preg_match('/psk|wpa2/', $encryption),
+            'fallback' => $ssid->getRadiusFallback(),
+            'counts' => $counts,
+            'broadcast' => $broadcast,
+        ];
     }
 
     /**
@@ -1111,6 +1152,19 @@ class DefaultController extends Controller
         $posted = (array) $request->request->get('opt', []);
         $postedLists = (array) $request->request->get('list', []);
         $changed = [];
+
+        // The RADIUS fallback is not a uci option — it decides what the
+        // controller answers, not what the access point is configured with —
+        // so it is saved here rather than travelling with the rest.
+        if ($request->request->has('radius_fallback_present')) {
+            $wanted = (bool) $request->request->get('radius_fallback');
+            if ($ssid->getRadiusFallback() !== $wanted) {
+                $ssid->setRadiusFallback($wanted);
+                $changed[] = $wanted
+                    ? 'unknown devices get the network passphrase'
+                    : 'unknown devices are turned away';
+            }
+        }
 
         $existing = [];
         foreach ($ssid->getConfigOptions() as $option) {
@@ -1188,13 +1242,158 @@ class DefaultController extends Controller
         $em->flush();
         $this->logger->notice('ssidSave('.$ssid->getName().'): '.implode(', ', $changed));
 
+        // The fallback switch is answered by the controller itself, so it is in
+        // force at the next request — saying "until they are provisioned" would
+        // send somebody looking for a provisioning run they do not need.
+        $onlyRadius = $changed && !array_filter($changed, function ($line) {
+            return false === strpos($line, 'unknown devices');
+        });
+
         return $this->json([
             'ok' => true,
             'changed' => $changed,
             'hint' => $changed
-                ? 'Saved. The access points keep running the old configuration until they are provisioned.'
+                ? ($onlyRadius
+                    ? 'Saved — in force from the next request on, no provisioning needed.'
+                    : 'Saved. The access points keep running the old configuration until they are provisioned.')
                 : 'Nothing changed.',
         ]);
+    }
+
+    /**
+     * Give every station that is connected right now a key of its own.
+     *
+     * Without ?apply=1 it only reports what it would do, which is the way to
+     * look at a production network before touching it.
+     *
+     * @Route("/ppsk/{ssidId}/convert", name="ppsk_convert", methods={"POST"})
+     */
+    public function ppskConvertAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
+    {
+        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($ssidId);
+        if (!$ssid) {
+            return $this->json(['ok' => false, 'error' => 'unknown ssid'], 404);
+        }
+
+        $apply = (bool) $request->get('apply');
+        try {
+            $result = $ppsk->convertConnected($ssid, $apply);
+        } catch (\Throwable $e) {
+            $this->logger->error('ppskConvert('.$ssid->getName().'): '.$e->getMessage());
+
+            return $this->json(['ok' => false, 'error' => $e->getMessage()]);
+        }
+
+        if (isset($result['error'])) {
+            return $this->json(['ok' => false, 'error' => $result['error']]);
+        }
+
+        return $this->json([
+            'ok' => true,
+            'applied' => $apply,
+            'created' => $result['created'],
+            'skipped' => $result['skipped'],
+            'hint' => $apply
+                ? count($result['created']).' station(s) now have a key of their own — '
+                    .'nothing had to be typed into any of them, they keep using the passphrase they already had'
+                : count($result['created']).' station(s) would get a key of their own, '
+                    .count($result['skipped']).' already have one',
+        ]);
+    }
+
+    /**
+     * What the controller's own RADIUS server was asked, and what it answered.
+     *
+     * Every association attempt on an SSID that points at us leaves a row here,
+     * including the ones that were turned away — which is the half a psk file
+     * can never show. For an SAE network it is the only place a key's use shows
+     * up at all: hostapd reports no keyid there.
+     *
+     * @Route("/radius", name="radius")
+     */
+    public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, Request $request)
+    {
+        $em = $this->doctrine->getManager();
+        $filterSsid = trim((string) $request->get('ssid'));
+        $filterResult = trim((string) $request->get('result'));
+
+        $dql = 'SELECT r FROM ApManBundle\Entity\RadiusAuth r WHERE 1 = 1';
+        $params = [];
+        if ('' !== $filterSsid) {
+            $dql .= ' AND r.ssidName = :ssid';
+            $params['ssid'] = $filterSsid;
+        }
+        if ('' !== $filterResult) {
+            $dql .= ' AND r.result = :result';
+            $params['result'] = $filterResult;
+        }
+        $query = $em->createQuery($dql.' ORDER BY r.id DESC')->setMaxResults(200);
+        foreach ($params as $key => $value) {
+            $query->setParameter($key, $value);
+        }
+        $rows = $query->getResult();
+
+        // the numbers over the day, straight from the history: cheap enough at
+        // this size and always in step with the table below it
+        $stats = $em->getConnection()->fetchAll(
+            'SELECT ssid_name, result, COUNT(*) AS n, ROUND(AVG(duration_ms), 1) AS ms,'
+            .' MAX(created) AS last'
+            .' FROM radius_auth WHERE created > DATE_SUB(NOW(), INTERVAL 24 HOUR)'
+            .' GROUP BY ssid_name, result ORDER BY ssid_name, result'
+        );
+        $unknown = $em->getConnection()->fetchAll(
+            'SELECT mac, ssid_name, COUNT(*) AS n, MAX(created) AS last FROM radius_auth'
+            ." WHERE result <> 'accept' AND created > DATE_SUB(NOW(), INTERVAL 24 HOUR)"
+            .' GROUP BY mac, ssid_name ORDER BY MAX(created) DESC LIMIT 20'
+        );
+
+        // which SSIDs point their access points at us, and which of those run
+        // SAE — where a per device key works over RADIUS and nowhere else
+        $pointing = [];
+        foreach ($em->getRepository('ApManBundle:SSID')->findAll() as $ssid) {
+            $config = $ssid->exportConfig();
+            $server = $config->auth_server ?? ($config->auth_server_addr ?? null);
+            if (!$server) {
+                continue;
+            }
+            $pointing[] = [
+                'name' => $ssid->getName(),
+                'broadcast' => $config->ssid ?? '',
+                'server' => $server,
+                'encryption' => $config->encryption ?? 'none',
+                'ours' => (bool) preg_match('/(^|\D)'.preg_quote($this->radiusOwnAddress($radius), '/').'(\D|$)/', (string) $server),
+                'fallback' => $ssid->getRadiusFallback(),
+                'id' => $ssid->getId(),
+            ];
+        }
+
+        return $this->render('default/radius.html.twig', [
+            'rows' => $rows,
+            'stats' => $stats,
+            'unknown' => $unknown,
+            'pointing' => $pointing,
+            'enabled' => $radius->isEnabled(),
+            'bind' => $radius->getBind(),
+            'filterSsid' => $filterSsid,
+            'filterResult' => $filterResult,
+        ]);
+    }
+
+    /**
+     * The address an access point would have to be pointed at. Only used to
+     * mark the SSIDs that already are.
+     */
+    private function radiusOwnAddress(\ApManBundle\Service\RadiusServerService $radius)
+    {
+        $bind = $radius->getBind();
+        $host = explode(':', $bind)[0];
+        if ('0.0.0.0' !== $host && '' !== $host) {
+            return $host;
+        }
+        // bound to everything: take the address the access points reach us on
+        $own = gethostbyname(gethostname());
+
+        return $own ?: '127.0.0.1';
     }
 
     /**
