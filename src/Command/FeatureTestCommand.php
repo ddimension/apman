@@ -25,19 +25,31 @@ class FeatureTestCommand extends Command
         $this
             ->setName('apman:featuretest')
             ->setDescription('FeatureTest')
-//            ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
+            ->addArgument('device', InputArgument::OPTIONAL, 'id of the device to dump the config of')
             ;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
+        // This is a scratch command and everything past the first exit below is
+        // unreachable on purpose. What it should not do is die on a TypeError:
+        // it asked for device 349, which has not existed for a long time, and
+        // handed the null straight to getDeviceConfig(). The id is an argument
+        // now, so it can point at something that is actually there.
+        $id = $input->getArgument('device') ?: 349;
         $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
-        'id' => 349,
-    ]);
+            'id' => $id,
+        ]);
+        if (null === $device) {
+            $output->writeln('<error>no device with id '.$id.'</error>');
+
+            return 1;
+        }
         $result = $this->apservice->getDeviceConfig($device);
         print_r($result);
-        exit;
+
+        return 0;
         foreach ($devices as $device) {
             $cfg = $device->getConfig();
             unset($cfg['nasid']);

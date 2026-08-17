@@ -38,6 +38,20 @@ class MqttFactory
     }
 
     /**
+     * The client that was built, or null — never a new one.
+     *
+     * MqttShutdownSubscriber uses this: asking for a client at the end of a
+     * request in order to close it would be a good way to open a connection
+     * nobody wanted.
+     */
+    public function getExistingClient()
+    {
+        return isset($this->client) && $this->client instanceof \ApManBundle\Mqtt\SyncPublisher
+            ? $this->client
+            : null;
+    }
+
+    /**
      * The asynchronous client for the daemon.
      *
      * Not cached: it belongs to the event loop it was built for, and the

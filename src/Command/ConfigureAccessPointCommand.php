@@ -35,18 +35,21 @@ class ConfigureAccessPointCommand extends Command
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {
-            $this->output->writeln('Add this accesspoint. Cannot find it.');
+            // $this->output was never assigned, so the error path used to die
+            // on an undefined property instead of saying what was wrong; and
+            // "false" becomes exit code 0, which reports success on failure.
+            $output->writeln('<error>Add this accesspoint. Cannot find it.</error>');
 
-            return false;
+            return 1;
         }
 
         $radios = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findBy([
         'accesspoint' => $ap,
     ]);
         if (!is_array($radios) or !count($radios)) {
-            $this->output->writeln('Readd this accesspoint. No radios found');
+            $output->writeln('<error>Readd this accesspoint. No radios found</error>');
 
-            return false;
+            return 1;
         }
         $this->apservice->publishConfig($ap);
         /*

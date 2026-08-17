@@ -161,6 +161,25 @@ class SyncPublisher implements Publisher
         return true;
     }
 
+    /**
+     * Close down so the process can actually end.
+     *
+     * React's Loop::get() registers a shutdown function that runs the loop when
+     * the script ends. A short lived process that published something therefore
+     * does its work, reaches the end — and then sits in the event loop forever,
+     * because the client still has a connection or a reconnect timer on it.
+     * Registering our own shutdown function would be too late: React's runs
+     * first. So this has to be called while the process is still doing things,
+     * which is what MqttShutdownSubscriber is for.
+     */
+    public function shutdown()
+    {
+        $this->disconnect();
+        $this->loop->stop();
+
+        return true;
+    }
+
     private function connect()
     {
         if ($this->isConnected()) {
