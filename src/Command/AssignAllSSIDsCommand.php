@@ -19,7 +19,7 @@ class AssignAllSSIDsCommand extends Command
         $this->apservice = $apservice;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:assign-all-ssids')
@@ -28,7 +28,7 @@ class AssignAllSSIDsCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([

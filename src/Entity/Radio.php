@@ -136,7 +136,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     /**
      * @var array|null
      */
-    #[ORM\Column(name: 'config_ht_capab', type: 'array', nullable: true)]
+    #[ORM\Column(name: 'config_ht_capab', type: 'json', nullable: true)]
     private $config_ht_capab;
 
     /**

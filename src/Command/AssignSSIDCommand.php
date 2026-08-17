@@ -19,7 +19,7 @@ class AssignSSIDCommand extends Command
         $this->apservice = $apservice;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:assign-ssid')
@@ -29,7 +29,7 @@ class AssignSSIDCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([

@@ -22,7 +22,7 @@ class MqttSubscriberCommand extends Command
         $this->subs = $subs;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:subscriber')
@@ -32,7 +32,7 @@ class MqttSubscriberCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         set_time_limit(1800);
 

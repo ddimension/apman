@@ -19,7 +19,7 @@ class MonitorCommand extends Command
         $this->rpcService = $rpcService;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:monitor')
@@ -27,7 +27,7 @@ class MonitorCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findBy([

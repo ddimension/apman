@@ -34,7 +34,7 @@ class Feature
     /**
      * @var array|null
      */
-    #[ORM\Column(name: 'config', type: 'array', nullable: false)]
+    #[ORM\Column(name: 'config', type: 'json', nullable: false)]
     private $config = [];
 
     /**

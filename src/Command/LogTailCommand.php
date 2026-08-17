@@ -18,7 +18,7 @@ class LogTailCommand extends Command
         $this->apservice = $apservice;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:logtail')
@@ -26,7 +26,7 @@ class LogTailCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
 
@@ -55,5 +55,7 @@ class LogTailCommand extends Command
                 $last = $entry;
             }
         }
+
+        return 0;
     }
 }

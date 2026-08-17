@@ -19,7 +19,7 @@ class UpdateAccessPointCommand extends Command
         $this->apservice = $apservice;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:update-ap')
@@ -28,7 +28,7 @@ class UpdateAccessPointCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),

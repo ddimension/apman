@@ -20,7 +20,7 @@ class FeatureTestCommand extends Command
         $this->rpcService = $rpcService;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:featuretest')
@@ -29,7 +29,7 @@ class FeatureTestCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([

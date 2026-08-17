@@ -20,7 +20,7 @@ class AddAccessPointCommand extends Command
         $this->rpcService = $rpcService;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:add-ap')
@@ -32,7 +32,7 @@ class AddAccessPointCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $ap = new \ApManBundle\Entity\AccessPoint();
