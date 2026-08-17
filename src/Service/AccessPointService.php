@@ -167,6 +167,156 @@ class AccessPointService
     }
 
     /**
+     * What the features do to this network's configuration, without doing it.
+     *
+     * The options edited on the network page are not the last word: every
+     * enabled SSIDFeatureMap runs its implementation over the configuration on
+     * the way to an access point, in priority order, and each may add, change
+     * or remove keys. Editing "hidden" and then finding it set the other way on
+     * the device is confusing until you know that; showing it here is the
+     * cheaper answer.
+     *
+     * This runs the same chain as getDeviceConfig() with two deliberate
+     * differences. It starts from the network's own options rather than a
+     * device's, because a preview belongs to the network. And it never calls
+     * applyConstraints(), which is not a read: StaticMACFeatureService assigns
+     * a MAC address there and persists it. getConfig() is pure in every
+     * implementation we have, but it runs behind a try/catch anyway — a feature
+     * that cannot be previewed must not take the page down with it.
+     *
+     * @return array{maps: array, final: array, overridden: array}
+     */
+    public function previewFeatureOverrides(\ApManBundle\Entity\SSID $ssid)
+    {
+        $em = $this->doctrine->getManager();
+        $query = $em->createQuery(
+            'SELECT fm FROM ApManBundle\Entity\SSIDFeatureMap fm
+             WHERE fm.ssid = :ssid
+             ORDER by fm.priority ASC, fm.id ASC'
+        );
+        $query->setParameter('ssid', $ssid);
+        $maps = $query->getResult();
+
+        $cfg = json_decode(json_encode($ssid->exportConfig()), true);
+        if (!is_array($cfg)) {
+            $cfg = [];
+        }
+        $own = $cfg;
+
+        $rows = [];
+        $overridden = [];
+        foreach ($maps as $map) {
+            $feature = $map->getFeature();
+            $row = [
+                'id' => $map->getId(),
+                'name' => $map->getName(),
+                'feature' => $feature ? $feature->getName() : null,
+                'implementation' => $feature ? $this->shortImplementation($feature->getImplementation()) : null,
+                'priority' => $map->getPriority(),
+                'enabled' => (bool) $map->getEnabled(),
+                'config' => $map->getConfig(),
+                'featureConfig' => $feature ? $feature->getConfig() : [],
+                'changes' => [],
+                'error' => null,
+            ];
+
+            if (!$row['enabled'] || !$feature) {
+                // a disabled mapping changes nothing, but it belongs on the
+                // page: it is the difference between "not configured" and
+                // "configured and switched off"
+                $rows[] = $row;
+                continue;
+            }
+
+            $before = $cfg;
+            try {
+                $implementation = $feature->getImplementation();
+                if (!class_exists($implementation)) {
+                    throw new \RuntimeException('no such implementation: '.$implementation);
+                }
+                $instance = new $implementation();
+                $instance->setServices($this->logger, $this->doctrine, $this->rpcService, $this->mqttFactory, $this->kernel);
+                $instance->setFeature($feature);
+                $instance->setSSID($ssid);
+                $instance->setSSIDFeatureMap($map);
+                $after = $instance->getConfig($cfg);
+                if (is_array($after)) {
+                    $cfg = $after;
+                }
+            } catch (\Throwable $e) {
+                $row['error'] = $e->getMessage();
+                $rows[] = $row;
+                continue;
+            }
+
+            $row['changes'] = $this->diffConfig($before, $cfg);
+            foreach ($row['changes'] as $change) {
+                // only what the network itself sets can be overridden; a key a
+                // feature invents is an addition, not an override
+                if (array_key_exists($change['key'], $own)) {
+                    $overridden[$change['key']] = $row['name'] ?: $row['feature'];
+                }
+            }
+            $rows[] = $row;
+        }
+
+        return ['maps' => $rows, 'final' => $cfg, 'overridden' => $overridden];
+    }
+
+    /**
+     * Which keys one step changed, and how.
+     */
+    private function diffConfig(array $before, array $after)
+    {
+        $changes = [];
+        foreach ($after as $key => $value) {
+            if (!array_key_exists($key, $before)) {
+                $changes[] = ['key' => $key, 'from' => null, 'to' => $value, 'kind' => 'added'];
+            } elseif (!$this->sameValue($before[$key], $value)) {
+                $changes[] = ['key' => $key, 'from' => $before[$key], 'to' => $value, 'kind' => 'changed'];
+            }
+        }
+        foreach ($before as $key => $value) {
+            if (!array_key_exists($key, $after)) {
+                $changes[] = ['key' => $key, 'from' => $value, 'to' => null, 'kind' => 'removed'];
+            }
+        }
+        usort($changes, function ($a, $b) {
+            return strcmp($a['key'], $b['key']);
+        });
+
+        return $changes;
+    }
+
+    /**
+     * Do these two mean the same thing on an access point?
+     *
+     * The options are strings when they come out of the database and whatever
+     * the feature's json holds when they come out of a feature, so "20000" and
+     * 20000 meet each other constantly. A strict comparison reports those as
+     * changes and the page fills with "reassociation_deadline changes 20000 →
+     * 20000", which is noise that hides the changes that are real.
+     */
+    private function sameValue($a, $b)
+    {
+        if (is_array($a) || is_array($b)) {
+            return $a === $b;
+        }
+        if (null === $a || null === $b) {
+            return $a === $b;
+        }
+
+        return (string) $a === (string) $b;
+    }
+
+    private function shortImplementation($class)
+    {
+        $parts = explode('\\', (string) $class);
+
+        return end($parts) ?: $class;
+    }
+
+    /**
      * publish config.
      *
      * @return \boolean|\object|\null

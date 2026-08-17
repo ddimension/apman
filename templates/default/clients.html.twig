@@ -114,7 +114,7 @@
 			</td>
 			<td>
 				{% if data[system][device]['info'].frequency is defined %}
-					{{ data[system][device]['info'].frequency|number_format_decimal }}
+					{{ data[system][device]['info'].frequency|number_format }}
 				{% endif %}
 			</td>
 			
@@ -219,11 +219,11 @@
 	and historical_data[system][device]['timedelta'] is defined %}
 <br />
 						{{ 
-((data[system][device]['clientstats'][client].rx_bytes - historical_data[system][device]['clientstats'][client].rx_bytes) / historical_data[system][device]['timedelta'])|number_format_decimal({FRACTION_DIGITS:0}) 
+((data[system][device]['clientstats'][client].rx_bytes - historical_data[system][device]['clientstats'][client].rx_bytes) / historical_data[system][device]['timedelta'])|number_format(0) 
 }}&nbsp;B/s
 <br />
 					{% endif %}
-					{{ data[system][device]['clientstats'][client].rx_bytes|number_format_decimal }}
+					{{ data[system][device]['clientstats'][client].rx_bytes|number_format }}
 				{% endif %}
 			</td>
 			<td align="right">
@@ -242,21 +242,28 @@
 	and historical_data[system][device]['timedelta'] is defined %}
 <br />
 {{ 
-((data[system][device]['clientstats'][client].tx_bytes - historical_data[system][device]['clientstats'][client].tx_bytes) / historical_data[system][device]['timedelta'])|number_format_decimal({FRACTION_DIGITS:0}) 
+((data[system][device]['clientstats'][client].tx_bytes - historical_data[system][device]['clientstats'][client].tx_bytes) / historical_data[system][device]['timedelta'])|number_format(0) 
 }}&nbsp;B/s
 <br />
 					{% endif %}
-					{{ data[system][device]['clientstats'][client].tx_bytes|number_format_decimal }}
+					{{ data[system][device]['clientstats'][client].tx_bytes|number_format }}
 				{% endif %}
 			</td>
 			<td align="right">
 				{% if data[system][device]['clientstats'][client] is defined and data[system][device]['clientstats'][client].connected_time is defined %}
-					{{ data[system][device]['clientstats'][client].connected_time|replace({' seconds':''})|number_format_duration }}
+					{# number_format_duration came from sonata/intl-bundle, which has
+					   not been installed for a long time — this is the page that
+					   answered every request with a 500 because of it #}
+					{% set secs = data[system][device]['clientstats'][client].connected_time|replace({' seconds':''})|round %}
+					{% if secs >= 86400 %}{{ (secs // 86400) }}d {{ ((secs % 86400) // 3600) }}h
+					{% elseif secs >= 3600 %}{{ (secs // 3600) }}h {{ ((secs % 3600) // 60) }}m
+					{% elseif secs >= 60 %}{{ (secs // 60) }}m {{ secs % 60 }}s
+					{% else %}{{ secs }}s{% endif %}
 				{% endif %}
 			</td>
 			<td align="right">
 				{% if data[system][device]['assoclist'][client] is defined and data[system][device]['assoclist'][client].inactive is defined %}
-					{{ (data[system][device]['assoclist'][client].inactive/1000)|number_format_decimal }}
+					{{ (data[system][device]['assoclist'][client].inactive/1000)|number_format }}
 				{% endif %}
 			</td>
 			<td align="center">

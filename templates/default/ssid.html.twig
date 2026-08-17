@@ -131,6 +131,72 @@
 		<span class="src">our note</span> description written by us because OpenWrt's schema has none
 	</p>
 
+	{% if features.maps|length %}
+		<details class="group features" {{ features.overridden|length ? 'open' }}>
+			<summary>
+				<b>Features</b>
+				<span class="small">what runs over this configuration on the way to an access point</span>
+				<span class="pill {{ features.overridden|length ? 'down' : 'up' }}">{{ features.overridden|length }} overridden</span>
+				<span class="pill">{{ features.maps|length }} mapped</span>
+			</summary>
+
+			<p class="small stale">
+				Read only. Every enabled mapping runs its implementation over the options below,
+				in order of priority, and may add, change or remove keys. Edit the mapping under
+				Admin; here it only says what it does.
+			</p>
+
+			<table class="opts">
+				<tr>
+					<th scope="col">Mapping</th>
+					<th scope="col">Feature</th>
+					<th scope="col">Priority</th>
+					<th scope="col">Effect on the configuration</th>
+				</tr>
+				{% for m in features.maps %}
+					<tr class="opt {{ m.enabled ? '' : 'state-off' }}">
+						<td class="name">
+							<code>{{ m.name }}</code>
+							{% if m.enabled %}<span class="tag set">enabled</span>
+							{% else %}<span class="tag off">disabled</span>{% endif %}
+						</td>
+						<td class="val small">
+							{{ m.feature }}
+							{% if m.implementation %}<div class="stale"><code>{{ m.implementation }}</code></div>{% endif %}
+						</td>
+						<td class="small">{{ m.priority }}</td>
+						<td class="doc small">
+							{% if m.error %}
+								<span class="warn">cannot be previewed: {{ m.error }}</span>
+							{% elseif not m.enabled %}
+								<span class="stale">switched off, so it changes nothing</span>
+							{% elseif m.changes|length == 0 %}
+								<span class="stale">changes nothing for this network</span>
+							{% else %}
+								{% for c in m.changes %}
+									<div>
+										<code>{{ c.key }}</code>
+										{% if c.kind == 'added' %}
+											<span class="tag set">adds</span>
+											<code>{{ c.to is iterable ? c.to|join(', ') : c.to }}</code>
+										{% elseif c.kind == 'removed' %}
+											<span class="tag off">removes</span>
+											<span class="stale">was <code>{{ c.from is iterable ? c.from|join(', ') : c.from }}</code></span>
+										{% else %}
+											<span class="tag def">changes</span>
+											<span class="stale"><code>{{ c.from is iterable ? c.from|join(', ') : c.from }}</code> →</span>
+											<code>{{ c.to is iterable ? c.to|join(', ') : c.to }}</code>
+										{% endif %}
+									</div>
+								{% endfor %}
+							{% endif %}
+						</td>
+					</tr>
+				{% endfor %}
+			</table>
+		</details>
+	{% endif %}
+
 	{% for key, g in groups %}
 		{% set count = g.set|length %}
 		<details class="group" data-group="{{ key }}" open>
@@ -155,6 +221,11 @@
 							{% else %}<span class="tag un">not written</span>{% endif %}
 							{% if o.alias_of %}<div class="small stale">alias for {{ o.alias_of }}</div>{% endif %}
 							{% if not o.known %}<div class="small warn">not in the schema</div>{% endif %}
+							{% if features.overridden[o.name] is defined %}
+								{# what is edited here is not what reaches the access point #}
+								<div class="small override">overridden by <b>{{ features.overridden[o.name] }}</b>
+									→ <code>{{ features.final[o.name] is iterable ? features.final[o.name]|join(', ') : (features.final[o.name] is same as(null) ? 'removed' : features.final[o.name]) }}</code></div>
+							{% endif %}
 						</td>
 						<td class="val">
 							{% if o.is_list %}
@@ -325,6 +396,11 @@ document.getElementById('editor').addEventListener('submit', async (ev) => {
 	.tag.def { background: #eef7ee; border-color: #c3e0c3; color: #2f6b33; }
 	.tag.off { background: #fff4e5; border-color: #f0d3a8; color: #8a5a10; }
 	.tag.un  { background: #f4f4f6; border-color: #e0e0e6; color: #777; }
+	/* an option a feature overwrites: what is edited here is not what arrives */
+	.override { color: #8a5a10; }
+	.override code { background: #fff4e5; border: 1px solid #f0d3a8; border-radius: 3px; padding: 0 .25em; }
+	details.features > summary { background: #fbf7ef; }
+	details.features .opt td { vertical-align: top; }
 	.pill.off { background: #fff4e5; border-color: #f0d3a8; }
 	.pill { background: #eef2f8; border: 1px solid #dde; border-radius: 10px; padding: 0 .45em; font-size: .85em; }
 	.pill.up { background: #e8f5e9; border-color: #b8ddb9; }

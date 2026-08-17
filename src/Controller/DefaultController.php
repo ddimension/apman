@@ -1075,6 +1075,7 @@ class DefaultController extends AbstractController
             'lists' => $lists,
             'keys' => $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(['ssid' => $ssid]),
             'radius' => $this->radiusSummary($ssid, $values),
+            'features' => $this->apservice->previewFeatureOverrides($ssid),
         ]);
     }
 
@@ -1394,6 +1395,45 @@ class DefaultController extends AbstractController
      * can never show. For an SAE network it is the only place a key's use shows
      * up at all: hostapd reports no keyid there.
      */
+    /**
+     * The requests alone, as json, for the live view.
+     *
+     * The page used to keep itself current with location.reload() every five
+     * seconds — a hundred kilobytes and two hundred rendered rows to learn that
+     * two of them are new, and the reader's scroll position and text selection
+     * gone with it. This answers the same question in a few kilobytes, and
+     * "since" makes it a few hundred bytes once the page is warm.
+     */
+    #[Route(path: '/radius/requests', name: 'radius_requests')]
+    public function radiusRequestsAction(Request $request)
+    {
+        $conn = $this->doctrine->getManager()->getConnection();
+
+        $sql = 'SELECT id, created, mac, ssid_name, nas, result, reason, keyid, duration_ms'
+            .' FROM radius_auth WHERE 1 = 1';
+        $params = [];
+        foreach (['ssid' => 'ssid_name', 'result' => 'result'] as $key => $column) {
+            $value = trim((string) $request->get($key));
+            if ('' !== $value) {
+                $sql .= ' AND '.$column.' = :'.$key;
+                $params[$key] = $value;
+            }
+        }
+        $since = (int) $request->get('since');
+        if ($since > 0) {
+            $sql .= ' AND id > :since';
+            $params['since'] = $since;
+        }
+        $sql .= ' ORDER BY id DESC LIMIT 200';
+
+        $rows = $conn->fetchAllAssociative($sql, $params);
+
+        return new JsonResponse([
+            'rows' => $rows,
+            'newest' => $rows ? (int) $rows[0]['id'] : $since,
+        ]);
+    }
+
     #[Route(path: '/radius', name: 'radius')]
     public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, Request $request)
     {

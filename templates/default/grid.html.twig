@@ -17,6 +17,26 @@
 	<label class="small"><input type="checkbox" id="onlyproblems"> only problems</label>
 	<span id="summary" class="small"></span>
 </div>
+
+{# The search box matches text anywhere. These narrow by the things you
+   actually ask about — which access point, which network, which band, how the
+   station authenticated, and whether it uses a key of its own. The options are
+   built from the data that is there, so an empty network never appears. #}
+<div class="gridbar filters">
+	<label class="small">AP <select id="f-ap"><option value="">all</option></select></label>
+	<label class="small">Network <select id="f-ssid"><option value="">all</option></select></label>
+	<label class="small">Band <select id="f-band"><option value="">all</option></select></label>
+	<label class="small">Security <select id="f-akm"><option value="">all</option></select></label>
+	<label class="small">Key
+		<select id="f-identity">
+			<option value="">all</option>
+			<option value="own">own key</option>
+			<option value="shared">network passphrase</option>
+		</select>
+	</label>
+	<button id="f-reset" type="button" class="small">Reset</button>
+	<span id="f-count" class="small stale"></span>
+</div>
 <div id="wrapper"></div>
 <div id="clients"></div>
 
@@ -248,8 +268,12 @@ async function loadData(force) {
 		const res = await fetch('{{ path('apman_default_griddata') }}', { headers: { 'Accept': 'application/json' } });
 		const data = await res.json();
 		window.apmanRows = data.results;
-		updateSummary(data.results);
-		const rows = mapRows(data.results).filter((r, i) => !onlyProblems() || isProblem(data.results[i]));
+		refreshFilterOptions(data.results);
+		const shown = visibleClients();
+		updateSummary(shown);
+		document.getElementById('f-count').textContent =
+			shown.length === data.results.length ? '' : shown.length + ' of ' + data.results.length;
+		const rows = mapRows(shown);
 		lastLoad = new Date();
 		// do not yank the table away while the user is typing in the search box
 		// or has a text selection open; keep the rows and apply them later
@@ -311,6 +335,76 @@ function isProblem(c) {
 }
 function onlyProblems() { return document.getElementById('onlyproblems').checked; }
 
+// ---- filters ---------------------------------------------------------------
+// One place decides which raw clients are shown; everything that refreshes the
+// table goes through it, so a filter survives the five second reload the same
+// way the search term and the scroll position do.
+const FILTERS = {
+	ap:       { el: 'f-ap',       value: (c) => c.ap || '' },
+	ssid:     { el: 'f-ssid',     value: (c) => c.ssid || '' },
+	band:     { el: 'f-band',     value: (c) => bandOf(c) },
+	akm:      { el: 'f-akm',      value: (c) => c.akm || '' },
+};
+
+function bandOf(c) {
+	if (!c.frequency) { return ''; }
+
+	return c.frequency > 5900 ? '6 GHz' : (c.frequency > 3000 ? '5 GHz' : '2.4 GHz');
+}
+
+// a station has a key of its own when the answer carried an identity
+function usesOwnKey(c) { return !!(c.identity || c.keyid); }
+
+function filterState() {
+	const state = {};
+	for (const [key, f] of Object.entries(FILTERS)) {
+		state[key] = document.getElementById(f.el).value;
+	}
+	state.identity = document.getElementById('f-identity').value;
+
+	return state;
+}
+
+function passesFilters(c) {
+	const state = filterState();
+	for (const [key, f] of Object.entries(FILTERS)) {
+		if (state[key] && f.value(c) !== state[key]) { return false; }
+	}
+	if ('own' === state.identity && !usesOwnKey(c)) { return false; }
+	if ('shared' === state.identity && usesOwnKey(c)) { return false; }
+
+	return true;
+}
+
+function visibleClients() {
+	const all = window.apmanRows || [];
+
+	return all.filter((c) => passesFilters(c) && (!onlyProblems() || isProblem(c)));
+}
+
+// rebuild the option lists from the data, keeping what is already chosen even
+// when it momentarily has no clients — otherwise a filter would clear itself
+// the second the last station roams away
+function refreshFilterOptions(all) {
+	for (const [, f] of Object.entries(FILTERS)) {
+		const el = document.getElementById(f.el);
+		const chosen = el.value;
+		const values = [...new Set(all.map(f.value).filter(Boolean))].sort();
+		if (chosen && !values.includes(chosen)) { values.push(chosen); values.sort(); }
+		el.innerHTML = '<option value="">all</option>'
+			+ values.map((v) => '<option value="' + v + '"' + (v === chosen ? ' selected' : '') + '>' + v + '</option>').join('');
+	}
+}
+
+function applyFilters() {
+	const shown = visibleClients();
+	const all = window.apmanRows || [];
+	document.getElementById('f-count').textContent =
+		shown.length === all.length ? '' : shown.length + ' of ' + all.length;
+	applyRows(mapRows(shown));
+	updateSummary(shown);
+}
+
 function updateSummary(rows) {
 	const n = rows.length;
 	const weak = rows.filter((c) => c.signal !== null && c.signal < -72).length;
@@ -340,10 +434,29 @@ document.getElementById('pausebtn').addEventListener('click', () => {
 	if (!paused) { updateGrid(); }
 });
 document.getElementById('nowbtn').addEventListener('click', () => { loadData(true); });
-document.getElementById('onlyproblems').addEventListener('change', () => {
-	if (window.apmanRows) {
-		applyRows(mapRows(window.apmanRows).filter((r, i) => !onlyProblems() || isProblem(window.apmanRows[i])));
+document.getElementById('onlyproblems').addEventListener('change', applyFilters);
+for (const id of ['f-ap', 'f-ssid', 'f-band', 'f-akm', 'f-identity']) {
+	document.getElementById(id).addEventListener('change', () => {
+		localStorage.setItem('apman.filter.' + id, document.getElementById(id).value);
+		applyFilters();
+	});
+	// a filter you set should still be set after a reload
+	const saved = localStorage.getItem('apman.filter.' + id);
+	if (saved) {
+		const el = document.getElementById(id);
+		if (![...el.options].some((o) => o.value === saved)) {
+			el.insertAdjacentHTML('beforeend', '<option value="' + saved + '">' + saved + '</option>');
+		}
+		el.value = saved;
 	}
+}
+document.getElementById('f-reset').addEventListener('click', () => {
+	for (const id of ['f-ap', 'f-ssid', 'f-band', 'f-akm', 'f-identity']) {
+		document.getElementById(id).value = '';
+		localStorage.removeItem('apman.filter.' + id);
+	}
+	document.getElementById('onlyproblems').checked = false;
+	applyFilters();
 });
 // apply an update that was held back while the user was busy
 document.addEventListener('click', () => {
@@ -358,6 +471,10 @@ refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 <style>
 	.gridbar { display: flex; gap: .75rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
 	.gridbar .spacer { flex: 1; }
+	/* the filter row sits under the toolbar and is quieter than it */
+	.gridbar.filters { gap: .6rem; padding: .3rem .1rem; border-top: 1px solid #eee;
+	                   border-bottom: 1px solid #eee; margin-bottom: .6rem; }
+	.gridbar.filters select { max-width: 14rem; }
 	.gridbar button, .gridbar select { padding: .2rem .5rem; }
 	.sub { font-size: 85%; line-height: 1.25; }
 	.muted { color: #99a; }

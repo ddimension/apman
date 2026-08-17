@@ -106,8 +106,8 @@
 	<label class="small"><input type="checkbox" id="auto"> refresh every 5 s</label>
 </form>
 
-<table class="aps">
-	<tr><th>When</th><th>Device</th><th>Network</th><th>Access point</th><th>Result</th><th>Identity</th><th>Answer</th></tr>
+<table class="aps" id="requests" data-newest="{{ rows|length ? rows|first.id : 0 }}">
+	<tr><th scope="col">When</th><th scope="col">Device</th><th scope="col">Network</th><th scope="col">Access point</th><th scope="col">Result</th><th scope="col">Identity</th><th scope="col">Answer</th></tr>
 	{% for r in rows %}
 		<tr>
 			<td class="small">{{ r.created|date('H:i:s') }} <span class="stale">{{ r.created|date('d.m.') }}</span></td>
@@ -137,11 +137,73 @@
 // and remembers what you chose
 const auto = document.getElementById('auto');
 auto.checked = localStorage.getItem('apman.radius.auto') === '1';
-let timer = auto.checked ? setInterval(() => location.reload(), 5000) : null;
+
+// Only the new requests are fetched and put on top. Reloading the page instead
+// meant a hundred kilobytes and two hundred re-rendered rows every five
+// seconds, and it threw away the scroll position and any selected text while
+// somebody was reading — which is exactly when this page is in use.
+const table = document.getElementById('requests');
+const url = '{{ path('radius_requests') }}';
+const query = new URLSearchParams(window.location.search);
+const esc = (s) => String(s === null || s === undefined ? '' : s)
+	.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function resultCell(r) {
+	const pill = r.result === 'accept' ? '<span class="pill up">own key</span>'
+		: (r.result === 'fallback' ? '<span class="pill">network passphrase</span>'
+		: '<span class="pill down">turned away</span>');
+
+	return pill + ' <span class="stale">' + esc(r.reason || '') + '</span>';
+}
+
+function rowHtml(r) {
+	const d = new Date(String(r.created).replace(' ', 'T'));
+	const two = (n) => String(n).padStart(2, '0');
+	const time = two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+	const day = two(d.getDate()) + '.' + two(d.getMonth() + 1) + '.';
+	const ms = r.duration_ms ? Number(r.duration_ms).toFixed(1) + ' ms' : '';
+
+	return '<tr class="fresh">'
+		+ '<td class="small">' + time + ' <span class="stale">' + day + '</span></td>'
+		+ '<td class="small"><a href="' + '{{ path('client_detail', {'mac': 'MAC'}) }}'.replace('MAC', encodeURIComponent(r.mac)) + '"><code>' + esc(r.mac) + '</code></a></td>'
+		+ '<td class="small">' + esc(r.ssid_name) + '</td>'
+		+ '<td class="small">' + esc(r.nas) + '</td>'
+		+ '<td class="small">' + resultCell(r) + '</td>'
+		+ '<td class="small">' + (r.keyid ? '<code>' + esc(r.keyid) + '</code>' : '<span class="stale">—</span>') + '</td>'
+		+ '<td class="small">' + ms + '</td>'
+		+ '</tr>';
+}
+
+async function pullRequests() {
+	const params = new URLSearchParams();
+	for (const key of ['ssid', 'result']) {
+		if (query.get(key)) { params.set(key, query.get(key)); }
+	}
+	params.set('since', table.dataset.newest || '0');
+	try {
+		const res = await fetch(url + '?' + params.toString(), { headers: { Accept: 'application/json' } });
+		const data = await res.json();
+		if (!data.rows.length) { return; }
+		table.dataset.newest = String(data.newest);
+		const head = table.rows[0];
+		// oldest of the new batch first, so the newest ends up on top
+		for (const r of data.rows.slice().reverse()) {
+			head.insertAdjacentHTML('afterend', rowHtml(r));
+		}
+		// the empty-table notice has served its purpose
+		const empty = table.querySelector('td[colspan]');
+		if (empty) { empty.closest('tr').remove(); }
+		while (table.rows.length > 201) { table.deleteRow(table.rows.length - 1); }
+	} catch (e) {
+		/* a failed poll is not worth a message; the next one is five seconds away */
+	}
+}
+
+let timer = auto.checked ? setInterval(pullRequests, 5000) : null;
 auto.addEventListener('change', () => {
 	localStorage.setItem('apman.radius.auto', auto.checked ? '1' : '0');
 	if (timer) { clearInterval(timer); timer = null; }
-	if (auto.checked) { timer = setInterval(() => location.reload(), 5000); }
+	if (auto.checked) { pullRequests(); timer = setInterval(pullRequests, 5000); }
 });
 </script>
 {% endblock %}
@@ -149,6 +211,10 @@ auto.addEventListener('change', () => {
 {% block stylesheets %}
 <style>
 	.card { border: 1px solid #dde; border-radius: 4px; padding: .5rem .75rem; margin-bottom: 1rem; }
+	/* a row that just arrived is worth a glance, then it settles down */
+	@keyframes settle { from { background: #fffbe6; } to { background: transparent; } }
+	tr.fresh { animation: settle 3s ease-out; }
+	@media (prefers-reduced-motion: reduce) { tr.fresh { animation: none; } }
 	.toolbar { display: flex; gap: .75rem; align-items: center; margin: .5rem 0; }
 	.pill { background: #eef2f8; border: 1px solid #dde; border-radius: 10px;
 	        padding: 0 .45em; font-size: .85em; white-space: nowrap; }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -39,26 +39,31 @@
             .bar.bad > span { background: #c33; }
             @media (max-width: 700px) {
                 nav.top { font-size: .9rem; }
-                table.aps, table.aps tbody, table.aps tr, table.aps td { display: block; width: auto; }
-                table.aps th { display: none; }
-                table.aps td { border: none; border-bottom: 1px solid #eee; }
+                /* every table of ours, not just the one this rule was written
+                   for: a table added later should not silently break on a phone */
+                table.aps, table.aps tbody, table.aps tr, table.aps td,
+                table.opts, table.opts tbody, table.opts tr, table.opts td { display: block; width: auto; }
+                table.aps th, table.opts th { display: none; }
+                table.aps td, table.opts td { border: none; border-bottom: 1px solid #eee; }
             }
         </style>
         {% block stylesheets %}{% endblock %}
         {% block header %}{% endblock %}
     </head>
     <body>
-        <nav class="top">
+        {# the current route decides which entry is marked, so the bar says
+           where you are instead of only where you can go #}
+        {% set here = app.request is defined and app.request ? app.request.attributes.get('_route') : null %}
+        <nav class="top" aria-label="Main">
             <span class="brand">AP Manager</span>
-            <a href="{{ path('apman_default_index') }}">Clients</a>
-            <a href="{{ path('aps') }}">Access Points</a>
-            <a href="{{ path('ssids') }}">Networks</a>
-            <a href="{{ path('apman_default_indexold') }}">Details</a>
-            <a href="{{ path('ppsk') }}">PPSK</a>
-            <a href="{{ path('ipsk') }}">iPSK</a>
-            <a href="{{ path('radius') }}">RADIUS</a>
-            <a href="{{ path('radius') }}">RADIUS</a>
-            <a href="{{ path('consistency') }}">Consistency</a>
+            <a href="{{ path('apman_default_index') }}" class="{{ here == 'apman_default_index' ? 'active' }}">Clients</a>
+            <a href="{{ path('aps') }}" class="{{ here == 'aps' ? 'active' }}">Access Points</a>
+            <a href="{{ path('ssids') }}" class="{{ here in ['ssids', 'ssid_detail'] ? 'active' }}">Networks</a>
+            <a href="{{ path('apman_default_indexold') }}" class="{{ here == 'apman_default_indexold' ? 'active' }}">Details</a>
+            <a href="{{ path('ppsk') }}" class="{{ here == 'ppsk' ? 'active' }}">PPSK</a>
+            <a href="{{ path('ipsk') }}" class="{{ here == 'ipsk' ? 'active' }}">iPSK</a>
+            <a href="{{ path('radius') }}" class="{{ here == 'radius' ? 'active' }}">RADIUS</a>
+            <a href="{{ path('consistency') }}" class="{{ here == 'consistency' ? 'active' }}">Consistency</a>
             <a href="{{ path('admin_apman_accesspoint_list') }}">Admin</a>
             <span class="spacer"></span>
             {% block navextra %}{% endblock %}
