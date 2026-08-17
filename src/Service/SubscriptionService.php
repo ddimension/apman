@@ -108,6 +108,11 @@ class SubscriptionService
         // messages survive a short disconnect — same as before.
         [$host, $port, $connection] = $this->mqttFactory->getReactConnection('apmanserver', false);
         $this->client = new \ApManBundle\Mqtt\ReactPublisher($client, $this->logger);
+        // Everything this process publishes goes through the one connection the
+        // loop services — a service that opens its own would have nobody to
+        // read its socket, and its next publish would throw into the middle of
+        // message handling.
+        $this->apService->setPublisher($this->client);
 
         $client->on('message', function (\BinSoul\Net\Mqtt\Message $message) {
             $this->dispatch(new \ApManBundle\Mqtt\Message(

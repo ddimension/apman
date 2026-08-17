@@ -14,6 +14,8 @@ class AccessPointService
     private $kernel;
     private $mqttFactory;
     private $cacheFactory;
+    /** set by the subscriber; null in web and console context */
+    private $publisher;
     private $steeringState = ['clients' => [], 'state' => []];
     private $ieparser;
 
@@ -977,6 +979,11 @@ class AccessPointService
                 $dev2G = [];
                 $dev5G = [];
                 foreach ($deviceList as $device) {
+                    // same reason as in assignAllNeighbors(): a bss the access
+                    // point does not run answers every command with "not found"
+                    if (!$this->isLive($device)) {
+                        continue;
+                    }
                     if ('5g' == $device->getRadio()->getConfigBand()) {
                         $dev5G[] = $device;
                     } else {
@@ -1064,10 +1071,45 @@ class AccessPointService
         return $state;
     }
 
+    /**
+     * The connection to publish through when this service runs inside the
+     * subscriber.
+     *
+     * Without it every call here opened a second MQTT connection of its own —
+     * one that nobody's event loop services, so it goes quiet and the next
+     * publish throws its exception into the middle of message handling. Inside
+     * the daemon there is exactly one connection, and it belongs to the loop.
+     */
+    public function setPublisher(\ApManBundle\Mqtt\Publisher $publisher = null)
+    {
+        $this->publisher = $publisher;
+    }
+
+    /**
+     * Whether the access point is really running this bss right now.
+     *
+     * The agent publishes a status per interface every few seconds, so a cache
+     * entry means the interface exists over there. Nothing recent means it does
+     * not — a disabled bss, or a device row that outlived a rename.
+     */
+    public function isLive(\ApManBundle\Entity\Device $device, $maxAge = 300)
+    {
+        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+        if (!is_array($status)) {
+            return false;
+        }
+        // No timestamp means the entry predates the field — an interface that
+        // has not reported since then, and the cache never expires it. Not
+        // knowing when it was last seen is not the same as it being alive.
+        $seen = $status['received'] ?? null;
+
+        return null !== $seen && (time() - (int) $seen) <= $maxAge;
+    }
+
     public function assignAllNeighbors()
     {
         $em = $this->doctrine->getManager();
-        $client = $this->mqttFactory->getClient();
+        $client = $this->publisher ?: $this->mqttFactory->getClient();
 
         $cmds = [];
         $ssids = $this->doctrine->getRepository('ApManBundle:SSID')->findall();
@@ -1094,6 +1136,14 @@ class AccessPointService
                 $ap = $radio->getAccesspoint();
                 if (empty($device->getIfname())) {
                     $this->logger->error('assignAllNeighbors(): ifname missing for '.$ap->getName().':'.$radio->getName().':'.$device->getName()."\n");
+                    continue;
+                }
+                // A bss the access point is not running — switched off there,
+                // or a row left over from a rename — has no hostapd object, and
+                // every command sent to it comes back as "not found". The same
+                // signal the lifetime handler counts interfaces with says
+                // whether it is on the air.
+                if (!$this->isLive($device)) {
                     continue;
                 }
 
@@ -1323,7 +1373,9 @@ class AccessPointService
             unset($this->steeringState['state'][$mac]);
         }
 
-        $mclient = $this->mqttFactory->getClient();
+        // also reachable from the subscriber, so the same rule applies: publish
+        // through the loop's connection when there is one
+        $mclient = $this->publisher ?: $this->mqttFactory->getClient();
         if (!$mclient) {
             $this->logger->error('steerClient('.$mac.'): Failed to get mqtt client.');
 

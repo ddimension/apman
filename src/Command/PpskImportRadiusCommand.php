@@ -196,10 +196,16 @@ class PpskImportRadiusCommand extends Command
             return 'no SSID of this name in the controller';
         }
         $entry = $ssids[$ssidName];
-        if (!$entry['delivery']['psk']) {
-            return 'the SSID runs '.$entry['encryption'].', which never reads wpa_psk_file';
+        // SAE and wpa_psk_file never met — but SAE and a RADIUS answer do, and
+        // that is the whole point of the controller answering itself. So the
+        // question is no longer "does this SSID read a psk file" but "does
+        // anything here reach the station at all".
+        $radius = $this->ppsk->usesRadius($entry['ssid']);
+        if (!$entry['delivery']['psk'] && !$radius) {
+            return 'the SSID runs '.$entry['encryption'].', which never reads wpa_psk_file, '
+                .'and it asks no RADIUS server either — nothing would carry the key';
         }
-        if ($entry['delivery']['sae']) {
+        if ($entry['delivery']['sae'] && !$radius) {
             return 'the SSID also offers SAE, where the key would only work for the WPA2 half';
         }
         if (strlen($psk) < 8 || strlen($psk) > 63) {

@@ -117,6 +117,26 @@ class RadiusAuthService
             $attributes[] = new TunnelAttribute(AttributeInterface::ATTR_TUNNEL_PASSWORD, 0, $entry['key']);
             $name = 'network';
         } else {
+            // The network passphrase goes first in the packet, which makes it
+            // *last* in hostapd's list — offered to everybody, preferred by
+            // nobody. Without it a device that knows only the network
+            // passphrase would be turned away the moment a single per device
+            // key exists, because those keys alone would be the answer. That is
+            // exactly what the catch all rule of a classic RADIUS setup does,
+            // and losing it would lock out every ordinary device on the network.
+            if ($entry['fallback'] && '' !== (string) $entry['key']) {
+                $known = false;
+                foreach ($keys as $key) {
+                    if ($key['psk'] === $entry['key']) {
+                        $known = true;
+                        break;
+                    }
+                }
+                if (!$known) {
+                    $attributes[] = new TunnelAttribute(AttributeInterface::ATTR_TUNNEL_PASSWORD, 0, $entry['key']);
+                }
+            }
+
             // Least specific first, most specific last — deliberately the
             // reverse of the order they are wanted in.
             //
