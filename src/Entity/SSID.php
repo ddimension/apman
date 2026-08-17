@@ -48,6 +48,43 @@ class SSID
     private $radiusFallback = true;
 
     /**
+     * Whether the network turns shared use into per device keys by itself.
+     *
+     * With it on, two things happen. A station that comes in on a key not
+     * bound to any address gets a copy of that key bound to its own — it keeps
+     * working, unaware, but from then on it is an identity that can be
+     * withdrawn, rotated or moved to a VLAN on its own. And handing out a new
+     * key becomes a registration: the shared key steps aside for the duration,
+     * so the one device being enrolled is the only one that can use what was
+     * just issued.
+     *
+     * Off by default, because it changes what a network does on its own.
+     *
+     * @var bool
+     *
+     * @ORM\Column(name="auto_ppsk", type="boolean", options={"default": false})
+     */
+    private $autoPpsk = false;
+
+    /**
+     * Whether each enrolment rotates the shared key instead of putting the old
+     * one back.
+     *
+     * Only meaningful together with automatic per device keys, and it is the
+     * same idea taken one step further: every device that ever used the shared
+     * key already holds a copy of its own, so the shared key can be replaced
+     * without locking anybody out. The key issued for an enrolment stays in
+     * service as the network's shared secret until the next enrolment replaces
+     * it — a passphrase that moves, and one that was never handed to anybody
+     * but the last device enrolled.
+     *
+     * @var bool
+     *
+     * @ORM\Column(name="moving_psk", type="boolean", options={"default": false})
+     */
+    private $movingPsk = false;
+
+    /**
      * @var \Doctrine\Common\Collections\Collection
      *
      * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigOption", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
@@ -330,6 +367,36 @@ class SSID
     public function setRadiusFallback($radiusFallback)
     {
         $this->radiusFallback = (bool) $radiusFallback;
+
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getAutoPpsk()
+    {
+        return (bool) $this->autoPpsk;
+    }
+
+    public function setAutoPpsk($autoPpsk)
+    {
+        $this->autoPpsk = (bool) $autoPpsk;
+
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getMovingPsk()
+    {
+        return (bool) $this->movingPsk;
+    }
+
+    public function setMovingPsk($movingPsk)
+    {
+        $this->movingPsk = (bool) $movingPsk;
 
         return $this;
     }

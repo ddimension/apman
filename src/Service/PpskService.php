@@ -28,6 +28,8 @@ class PpskService
     private $rpcService;
     private $mqttFactory;
     private $cacheFactory;
+    /** ssid id => ['at' => …, 'auto' => bool, 'moving' => bool]; see managesOwnKeys() */
+    private $flagCache = [];
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -112,6 +114,279 @@ class PpskService
             || (bool) preg_match('/(sae|wpa3)-mixed/', $encryption);
 
         return ['psk' => $psk, 'sae' => $sae];
+    }
+
+    /**
+     * Whether this network manages its own keys, read from the database rather
+     * than from the entity.
+     *
+     * The subscriber runs for weeks and Doctrine hands out whatever it
+     * hydrated the first time, so a switch flipped in the interface would only
+     * take effect after a restart — which is not what a switch is. Ten seconds
+     * of caching keeps this off the hot path without making it stale enough to
+     * notice.
+     */
+    public function managesOwnKeys($ssid)
+    {
+        $id = $ssid->getId();
+        if (isset($this->flagCache[$id]) && (time() - $this->flagCache[$id]['at']) < 10) {
+            return $this->flagCache[$id]['auto'];
+        }
+        try {
+            $row = $this->doctrine->getManager()->getConnection()->fetchAssoc(
+                'SELECT auto_ppsk, moving_psk FROM ssid WHERE id = :id', ['id' => $id]
+            );
+        } catch (\Throwable $e) {
+            $this->logger->warning('PpskService: could not read the key flags of '.$id.': '.$e->getMessage());
+
+            return false;
+        }
+        $this->flagCache[$id] = [
+            'at' => time(),
+            'auto' => (bool) ($row['auto_ppsk'] ?? false),
+            'moving' => (bool) ($row['moving_psk'] ?? false),
+        ];
+
+        return $this->flagCache[$id]['auto'];
+    }
+
+    /**
+     * A station came in on a key that is bound to no address — give it one of
+     * its own, carrying the same passphrase.
+     *
+     * The device notices nothing: same secret, same connection. What changes is
+     * that it stops being anonymous. From the next association on, the access
+     * points report which identity it used, the key can be withdrawn for this
+     * one device, and the shared key it came in on can be rotated without
+     * taking the device with it.
+     *
+     * The keyid is the address without separators, so the identity of a learned
+     * key can be read off the station itself.
+     *
+     * @return \ApManBundle\Entity\Ppsk|null the new key, null when there was
+     *                                      nothing to learn
+     */
+    public function learnFromShared(\ApManBundle\Entity\Ppsk $shared, $mac)
+    {
+        $ssid = $shared->getSsid();
+        $mac = strtolower((string) $mac);
+        if (!$ssid || !$this->managesOwnKeys($ssid)) {
+            return null;
+        }
+        if (\ApManBundle\Entity\Ppsk::ANY_MAC !== $shared->getMac()) {
+            return null;
+        }
+        if (!preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/', $mac)) {
+            return null;
+        }
+
+        $em = $this->doctrine->getManager();
+        $repo = $this->doctrine->getRepository('ApManBundle:Ppsk');
+        // a registration key belongs to the enrolment that issued it; pinning
+        // is its job, not ours
+        if ($shared->isRegistration()) {
+            return null;
+        }
+        // A device that already has a key in service has an identity — nothing
+        // to learn. A withdrawn one does not: it is connecting on the shared
+        // key right now, and giving it an identity is what makes it possible to
+        // withdraw it properly rather than leaving it anonymous.
+        if ($repo->findOneBy(['ssid' => $ssid, 'mac' => $mac, 'enabled' => true])) {
+            return null;
+        }
+        // the same passphrase for the same address already exists — that row is
+        // the identity, it was only switched off
+        if ($repo->findOneBy(['ssid' => $ssid, 'mac' => $mac, 'psk' => $shared->getPsk()])) {
+            return null;
+        }
+
+        $entry = new \ApManBundle\Entity\Ppsk();
+        $entry->setSsid($ssid);
+        $entry->setMac($mac);
+        $entry->setPsk($shared->getPsk());
+        $entry->setSource(\ApManBundle\Entity\Ppsk::SOURCE_AUTO);
+        $entry->setPinMac(false);
+        $entry->setName($this->nameForStation($mac, []));
+        $entry->setComment('learned from '.($shared->getKeyid() ?: 'a shared key')
+            .' — same passphrase, now an identity of its own');
+        $em->persist($entry);
+        $em->flush();
+        $entry->setKeyid(str_replace(':', '', $mac));
+        $em->flush();
+
+        $this->logger->notice('PpskService: learned '.$entry->getKeyid().' on '.$ssid->getName()
+            .' from '.($shared->getKeyid() ?: 'a shared key'));
+
+        return $entry;
+    }
+
+    /**
+     * Open an enrolment: hand out one key, for one device, exclusively.
+     *
+     * Three things happen together, and the order is the point:
+     *
+     *  1. Every station connected right now is converted to a key of its own,
+     *     so that step 2 cannot lock anybody out.
+     *  2. The shared keys step aside. For the length of the enrolment the
+     *     network accepts nothing from an unknown device except what was just
+     *     issued — which is what makes it an enrolment rather than another copy
+     *     of a shared secret.
+     *  3. A fresh key is issued, bound to no address yet and marked to pin
+     *     itself to the first device that uses it. When that happens the
+     *     displaced keys go back into service.
+     *
+     * The controller's own RADIUS server is what makes this practical: it
+     * answers from the database, so the new key works the moment it exists,
+     * while the psk files are still being written and reloaded.
+     *
+     * @return array ['key' => Ppsk, 'converted' => …, 'suspended' => […]]
+     */
+    public function startRegistration($ssid, $name, $vid = null)
+    {
+        if (!$this->managesOwnKeys($ssid)) {
+            return ['error' => 'this network does not manage its own keys — '
+                .'switch on automatic per device keys first'];
+        }
+
+        $em = $this->doctrine->getManager();
+        $converted = $this->convertConnected($ssid, true);
+
+        $suspended = [];
+        foreach ($this->getForSsid($ssid) as $key) {
+            if (\ApManBundle\Entity\Ppsk::ANY_MAC !== $key->getMac() || $key->isRegistration()) {
+                continue;
+            }
+            $key->setEnabled(false);
+            $suspended[] = $key->getId();
+        }
+        $em->flush();
+
+        // A moving key does not pin itself and nothing is put back after it:
+        // it *is* the network's shared secret from here on, and the device
+        // being enrolled gets its own copy the moment it connects, the same way
+        // every other device on this network did. The next enrolment replaces
+        // it again.
+        // read through the same fresh path as the flag above it
+        $this->managesOwnKeys($ssid);
+        $moving = $this->flagCache[$ssid->getId()]['moving'] ?? $ssid->getMovingPsk();
+        $entry = $this->createIpsk($ssid, $name, $vid, !$moving);
+
+        if ($moving) {
+            $entry->setComment('shared key of this network, issued for the enrolment of '
+                .$name.' — replaces '.(count($suspended) ?: 'nothing').', and is replaced by the next one');
+            $em->flush();
+            $rotated = $this->setNetworkKey($ssid, $entry->getPsk());
+        } elseif ($suspended) {
+            // one row can only point at one; the rest are named in the comment
+            // so a half finished enrolment can still be untangled by hand
+            $entry->setRestoresId($suspended[0]);
+            $entry->setComment('registration key — displaced '.implode(', ', $suspended));
+            $em->flush();
+            $rotated = false;
+        } else {
+            $rotated = false;
+        }
+
+        $this->logger->notice('PpskService: registration open on '.$ssid->getName()
+            .' with '.$entry->getKeyid().', '.count($suspended).' shared key(s) '
+            .($moving ? 'replaced' : 'suspended').', '
+            .count($converted['created'] ?? []).' station(s) converted');
+
+        return [
+            'key' => $entry,
+            'converted' => $converted,
+            'suspended' => $suspended,
+            'moving' => $moving,
+            'rotated' => $rotated,
+            'result' => $this->distribute($ssid, true),
+        ];
+    }
+
+    /**
+     * Write a new network passphrase into the SSID's own configuration.
+     *
+     * Where the access points ask us (ppsk with a RADIUS server) this is in
+     * force immediately: the passphrase only ever lived here, hostapd never had
+     * it, and the fallback answer hands out the new one from the next request
+     * on. Everywhere else it is a configuration change like any other and
+     * reaches the access points at the next provisioning run — which is worth
+     * knowing before rotating a network that has no RADIUS behind it.
+     *
+     * @return bool whether the value actually changed
+     */
+    public function setNetworkKey($ssid, $psk)
+    {
+        $em = $this->doctrine->getManager();
+        foreach ($ssid->getConfigOptions() as $option) {
+            if ('key' === $option->getName()) {
+                if ((string) $option->getValue() === (string) $psk) {
+                    return false;
+                }
+                $option->setValue($psk);
+                $em->flush();
+                $this->logger->notice('PpskService: '.$ssid->getName().' has a new network passphrase');
+
+                return true;
+            }
+        }
+
+        $option = new \ApManBundle\Entity\SSIDConfigOption();
+        $option->setName('key');
+        $option->setValue($psk);
+        $option->setSsid($ssid);
+        $em->persist($option);
+        $em->flush();
+        $this->logger->notice('PpskService: '.$ssid->getName().' has a network passphrase now');
+
+        return true;
+    }
+
+    /**
+     * The enrolment is over — the key found its device. Put back what stepped
+     * aside for it.
+     *
+     * Called from the subscriber the moment a registration key is pinned, so
+     * the network is shared again within seconds of the new device being on it.
+     */
+    public function finishRegistration(\ApManBundle\Entity\Ppsk $ppsk)
+    {
+        $restores = $ppsk->getRestoresId();
+        if (!$restores) {
+            return [];
+        }
+        $em = $this->doctrine->getManager();
+        $back = [];
+        // the comment carries the whole list; the column carries the first
+        $ids = [$restores];
+        if (preg_match('/displaced ([0-9, ]+)/', (string) $ppsk->getComment(), $m)) {
+            foreach (preg_split('/\s*,\s*/', trim($m[1])) as $id) {
+                if ('' !== $id) {
+                    $ids[] = (int) $id;
+                }
+            }
+        }
+        // Written as statements, not through the entity manager: the keys were
+        // switched off by the web process, and the subscriber that runs this
+        // still holds them as it first read them. Asking Doctrine here would
+        // ask its own memory and quietly restore nothing.
+        $connection = $em->getConnection();
+        foreach (array_unique($ids) as $id) {
+            $row = $connection->fetchAssoc('SELECT id, keyid, enabled FROM ppsk WHERE id = :id', ['id' => $id]);
+            if (!$row || $row['enabled']) {
+                continue;
+            }
+            $connection->executeUpdate('UPDATE ppsk SET enabled = 1 WHERE id = :id', ['id' => $id]);
+            $back[] = $row['keyid'] ?: $row['id'];
+        }
+        $ppsk->setRestoresId(null);
+        $em->flush();
+
+        if ($back) {
+            $this->logger->notice('PpskService: registration finished, back in service: '
+                .implode(', ', $back));
+        }
+
+        return $back;
     }
 
     /**

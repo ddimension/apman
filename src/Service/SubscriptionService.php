@@ -606,6 +606,11 @@ class SubscriptionService
                 // of on the next poll
                 if (!empty($fields['keyid']) && $address) {
                     $this->stampIpsk($fields['keyid'], $address);
+                } elseif ($address) {
+                    // no keyid: either an ordinary station on the network
+                    // passphrase, or one whose key came from RADIUS — the
+                    // second case is worth learning from
+                    $this->learnFromRadius($device, $address);
                 }
                 break;
 
@@ -692,6 +697,7 @@ class SubscriptionService
         // AP-STA-POSSIBLE-PSK-MISMATCH. The station itself keeps its
         // connection — RELOAD_WPA_PSK only drops stations whose key stopped
         // matching, and for this one it still does.
+        $wasRegistration = $ppsk->isRegistration();
         if ($ppsk->isPinPending()) {
             $ppsk->setMac($mac);
             $this->logger->notice('stampIpsk(): ipsk '.$keyid.' pinned to '.$mac.
@@ -699,8 +705,64 @@ class SubscriptionService
             if ($ppsk->getSsid()) {
                 $this->ppskPending[$ppsk->getSsid()->getId()] = true;
             }
+
+            // An enrolment ends the moment its key finds a device: what stepped
+            // aside for it goes back into service, and the network is shared
+            // again.
+            if ($wasRegistration) {
+                $back = $this->ppskService->finishRegistration($ppsk);
+                if ($back) {
+                    $this->logger->notice('stampIpsk(): registration on '.
+                        $ppsk->getSsid()->getName().' finished, back in service: '.implode(', ', $back));
+                }
+            }
+        } elseif (\ApManBundle\Entity\Ppsk::ANY_MAC === $ppsk->getMac()) {
+            // A station on a key bound to no address, on a network that manages
+            // its own keys: give it one of its own, same passphrase, so it
+            // becomes an identity without noticing anything.
+            $learned = $this->ppskService->learnFromShared($ppsk, $mac);
+            if ($learned && $ppsk->getSsid()) {
+                $this->ppskPending[$ppsk->getSsid()->getId()] = true;
+            }
         }
         $em->flush();
+    }
+
+    /**
+     * The same learning for a network whose keys come from RADIUS.
+     *
+     * There is no keyid to go by there — that is a property of the psk file,
+     * and a RADIUS answer carries none. What we do know is that the station
+     * connected, that it has no key of its own, and which shared key it can
+     * only have used: if exactly one is in service, the answer is unambiguous.
+     */
+    private function learnFromRadius($device, $mac)
+    {
+        if (!$device || !$device->getSsid() || !$mac) {
+            return;
+        }
+        $ssid = $device->getSsid();
+        if (!$this->ppskService->managesOwnKeys($ssid) || !$this->ppskService->usesRadius($ssid)) {
+            return;
+        }
+        $repo = $this->doctrine->getRepository('ApManBundle:Ppsk');
+        $mac = strtolower($mac);
+        if ($repo->findOneBy(['ssid' => $ssid, 'mac' => $mac])) {
+            return;
+        }
+        $shared = $repo->findBy([
+            'ssid' => $ssid,
+            'mac' => \ApManBundle\Entity\Ppsk::ANY_MAC,
+            'enabled' => true,
+        ]);
+        if (1 !== count($shared)) {
+            // none, or more than one — which key it used cannot be told from
+            // here, and guessing would bind the wrong secret to the device
+            return;
+        }
+        if ($this->ppskService->learnFromShared($shared[0], $mac)) {
+            $this->ppskPending[$ssid->getId()] = true;
+        }
     }
 
     /**

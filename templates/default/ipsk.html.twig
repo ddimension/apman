@@ -29,8 +29,17 @@
 		<input type="checkbox" name="pin" value="1" checked>
 	</label>
 	<button type="submit">Go</button>
+	<button type="button" id="register" title="Only for networks that manage their own keys">Enrol exclusively</button>
 	<span id="busy" class="small"></span>
 </form>
+
+<p class="small stale">
+	<b>Go</b> hands out one more key beside the ones already in service.
+	<b>Enrol exclusively</b> is for a network with automatic per device keys: it first gives
+	every station currently connected a key of its own, then takes the shared keys out of
+	service, so the key it issues is the only way in for a device that has none. As soon as
+	that device claims it, the key binds itself to its address and the shared keys come back.
+</p>
 
 <div id="issued" class="card" style="display:none">
 	<h3>Key for <span id="i-name"></span> <span class="small">on <span id="i-ssid"></span></span></h3>
@@ -338,6 +347,57 @@ document.getElementById('new').addEventListener('submit', async (ev) => {
 				window.getSelection().addRange(r);
 				document.getElementById('copied').textContent = 'selected — press ctrl+c';
 			}
+		};
+		if (pollTimer) clearInterval(pollTimer);
+		pollTimer = setInterval(() => poll(d.id), 5000);
+		poll(d.id);
+	} catch (e) {
+		busy.className = 'small warn';
+		busy.textContent = 'failed: ' + e;
+	}
+	btn.disabled = false;
+});
+
+// The exclusive enrolment shows the same key box; what differs is what
+// happened around it, and that is worth saying above the key.
+document.getElementById('register').addEventListener('click', async () => {
+	const form = document.getElementById('new');
+	const busy = document.getElementById('busy');
+	const btn = document.getElementById('register');
+	if (!form.name.value.trim()) {
+		busy.className = 'small warn';
+		busy.textContent = 'a name is required — it is the identity of this key';
+		return;
+	}
+	btn.disabled = true;
+	busy.className = 'small';
+	busy.textContent = 'converting what is connected, then issuing…';
+	try {
+		const body = new URLSearchParams({ name: form.name.value, vid: form.vid.value || '' });
+		const res = await fetch('{{ path('ipsk_register', {'ssidId': '__ID__'}) }}'.replace('__ID__', form.ssid.value), {
+			method: 'POST', body,
+		});
+		const d = await res.json();
+		if (!d.ok) {
+			busy.className = 'small warn';
+			busy.textContent = d.error || 'failed';
+			btn.disabled = false;
+			return;
+		}
+		busy.textContent = '';
+		document.getElementById('i-name').textContent = d.name;
+		document.getElementById('i-ssid').textContent = d.ssid;
+		document.getElementById('i-psk').textContent = d.psk;
+		document.getElementById('i-keyid').textContent = d.keyid;
+		document.getElementById('i-dist').innerHTML = '<span class="ok">' + d.hint + '</span>';
+		const note = document.getElementById('i-note');
+		note.style.display = 'none';
+		renderQr(d.qr);
+		document.getElementById('issued').style.display = 'block';
+		document.getElementById('copy').onclick = async () => {
+			try { await navigator.clipboard.writeText(d.psk); } catch (e) { /* siehe oben */ }
+			document.getElementById('copied').textContent = 'copied';
+			setTimeout(() => document.getElementById('copied').textContent = '', 2000);
 		};
 		if (pollTimer) clearInterval(pollTimer);
 		pollTimer = setInterval(() => poll(d.id), 5000);

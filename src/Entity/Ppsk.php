@@ -42,6 +42,8 @@ class Ppsk
     public const SOURCE_RADIUS = 'radius';
     /** made from a station that was already connected with the network passphrase */
     public const SOURCE_CONVERTED = 'converted';
+    /** learned by itself from a station that came in on a key bound to no address */
+    public const SOURCE_AUTO = 'auto';
 
     /** hostapd stores the keyid in a fixed buffer; stay well below it */
     public const KEYID_MAX = 24;
@@ -144,6 +146,23 @@ class Ppsk
      * @ORM\Column(name="last_mac", type="string", length=17, nullable=true)
      */
     private $lastMac;
+
+    /**
+     * The shared key this one pushed aside while it was being registered.
+     *
+     * A registration key is the only key a network accepts from an unknown
+     * device for the length of the enrolment, which is what makes the enrolment
+     * exclusive. The moment it is claimed and pinned to an address, the key it
+     * displaced goes back into service — this is where the controller
+     * remembers which one that was.
+     *
+     * Deliberately a plain id and not a relation: it points at a row that may
+     * have been deleted in the meantime, and a dangling registration must not
+     * block anything.
+     *
+     * @ORM\Column(name="restores_id", type="integer", nullable=true)
+     */
+    private $restoresId;
 
     public function __construct()
     {
@@ -361,6 +380,24 @@ class Ppsk
         $this->lastMac = $lastMac;
 
         return $this;
+    }
+
+    public function getRestoresId()
+    {
+        return $this->restoresId;
+    }
+
+    public function setRestoresId($restoresId)
+    {
+        $this->restoresId = null === $restoresId ? null : (int) $restoresId;
+
+        return $this;
+    }
+
+    /** a key handed out for one enrolment, waiting to be claimed */
+    public function isRegistration()
+    {
+        return null !== $this->restoresId && self::ANY_MAC === $this->mac;
     }
 
     /** has a client ever authenticated with this key? */

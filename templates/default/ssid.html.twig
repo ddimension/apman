@@ -65,6 +65,34 @@
 			A device without a key of its own gets the network passphrase
 			<span class="stale">— off means it is turned away, which closes the network to anything not listed</span>
 		</label>
+		<input type="hidden" name="auto_ppsk_present" value="1">
+		<label class="small">
+			<input type="checkbox" name="auto_ppsk" value="1" {{ radius.auto ? 'checked' }}>
+			Turn shared use into per device keys by itself
+			<span class="stale">— a station that comes in on a key bound to no address gets a copy
+			bound to its own, same passphrase, so it becomes an identity without noticing. And
+			handing out a key becomes an enrolment: the shared keys step aside until the new
+			device has claimed it.</span>
+		</label>
+		<input type="hidden" name="moving_psk_present" value="1">
+		<label class="small">
+			<input type="checkbox" name="moving_psk" value="1" {{ radius.moving ? 'checked' }}>
+			Let each enrolment replace the shared key
+			<span class="stale">— the key issued for an enrolment stays as the network passphrase
+			until the next one replaces it. Every device that used the old one already holds a copy
+			of its own, so nothing is locked out; the shared secret simply moves on and was never
+			handed to anybody but the last device enrolled.
+			{% if radius.server and radius.ppsk %}Here that takes effect immediately — the access
+			points ask us for every station and never held the passphrase themselves.
+			{% else %}Careful: this network has no RADIUS behind it, so a new passphrase only
+			reaches the access points at the next provisioning run.{% endif %}</span>
+		</label>
+		{% if radius.auto and radius.shared is defined and radius.shared == 0 %}
+			<p class="small warn">
+				No key bound to all addresses is in service here, so there is nothing to learn
+				from — until one is issued, this switch does nothing.
+			</p>
+		{% endif %}
 		{% if radius.counts|length %}
 			<p class="small">
 				Last 24 hours:

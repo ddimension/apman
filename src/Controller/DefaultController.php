@@ -1028,6 +1028,8 @@ class DefaultController extends Controller
                     !empty($config['dynamic_vlan']) ? 'dynamic vlan' : null,
                     isset($config['ieee80211w']) && '2' == $config['ieee80211w'] ? 'pmf required' : null,
                     !empty($config['auth_server']) || !empty($config['auth_server_addr']) ? 'radius' : null,
+                    $ssid->getAutoPpsk() ? 'learns its keys' : null,
+                    $ssid->getMovingPsk() ? 'moving key' : null,
                 ])),
                 'hints' => $schema->hints($config),
             ];
@@ -1121,12 +1123,24 @@ class DefaultController extends Controller
             // should still render the page
         }
 
+        $shared = 0;
+        foreach ($this->doctrine->getRepository('ApManBundle:Ppsk')->findBy([
+            'ssid' => $ssid, 'mac' => \ApManBundle\Entity\Ppsk::ANY_MAC, 'enabled' => true,
+        ]) as $key) {
+            if (!$key->isRegistration()) {
+                ++$shared;
+            }
+        }
+
         return [
             'server' => $server,
             'ppsk' => (bool) ($values['ppsk'] ?? false),
             'sae' => (bool) preg_match('/sae|wpa3/', $encryption),
             'psk' => (bool) preg_match('/psk|wpa2/', $encryption),
             'fallback' => $ssid->getRadiusFallback(),
+            'auto' => $ssid->getAutoPpsk(),
+            'moving' => $ssid->getMovingPsk(),
+            'shared' => $shared,
             'counts' => $counts,
             'broadcast' => $broadcast,
         ];
@@ -1163,6 +1177,24 @@ class DefaultController extends Controller
                 $changed[] = $wanted
                     ? 'unknown devices get the network passphrase'
                     : 'unknown devices are turned away';
+            }
+        }
+        if ($request->request->has('auto_ppsk_present')) {
+            $wanted = (bool) $request->request->get('auto_ppsk');
+            if ($ssid->getAutoPpsk() !== $wanted) {
+                $ssid->setAutoPpsk($wanted);
+                $changed[] = $wanted
+                    ? 'shared use becomes a key per device'
+                    : 'shared keys stay shared';
+            }
+        }
+        if ($request->request->has('moving_psk_present')) {
+            $wanted = (bool) $request->request->get('moving_psk');
+            if ($ssid->getMovingPsk() !== $wanted) {
+                $ssid->setMovingPsk($wanted);
+                $changed[] = $wanted
+                    ? 'each enrolment replaces the shared key'
+                    : 'the shared key stays put';
             }
         }
 
@@ -1245,8 +1277,16 @@ class DefaultController extends Controller
         // The fallback switch is answered by the controller itself, so it is in
         // force at the next request — saying "until they are provisioned" would
         // send somebody looking for a provisioning run they do not need.
-        $onlyRadius = $changed && !array_filter($changed, function ($line) {
-            return false === strpos($line, 'unknown devices');
+        $ours = ['unknown devices', 'shared use becomes', 'shared keys stay',
+            'each enrolment replaces', 'the shared key stays'];
+        $onlyRadius = $changed && !array_filter($changed, function ($line) use ($ours) {
+            foreach ($ours as $mark) {
+                if (false !== strpos($line, $mark)) {
+                    return false;
+                }
+            }
+
+            return true;
         });
 
         return $this->json([
@@ -1257,6 +1297,70 @@ class DefaultController extends Controller
                     ? 'Saved — in force from the next request on, no provisioning needed.'
                     : 'Saved. The access points keep running the old configuration until they are provisioned.')
                 : 'Nothing changed.',
+        ]);
+    }
+
+    /**
+     * Open an enrolment on a network that manages its own keys.
+     *
+     * Unlike handing out an iPSK, this one clears the field first: every
+     * station currently connected is converted to a key of its own, then the
+     * shared keys step aside, so the key issued here is the only thing an
+     * unknown device can come in on. It pins itself to the first device that
+     * uses it, and the shared keys come back the moment that happens.
+     *
+     * @Route("/ipsk/register/{ssidId}", name="ipsk_register", methods={"POST"})
+     */
+    public function ipskRegisterAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
+    {
+        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($ssidId);
+        if (!$ssid) {
+            return $this->json(['ok' => false, 'error' => 'unknown ssid'], 404);
+        }
+        $name = trim((string) $request->get('name'));
+        if ('' === $name) {
+            return $this->json(['ok' => false, 'error' => 'a name is required — it is the identity of this key']);
+        }
+
+        try {
+            $res = $ppsk->startRegistration($ssid, $name, $request->get('vid'));
+        } catch (\Throwable $e) {
+            $this->logger->error('ipskRegister('.$ssid->getName().'): '.$e->getMessage());
+
+            return $this->json(['ok' => false, 'error' => get_class($e).': '.$e->getMessage()]);
+        }
+        if (isset($res['error'])) {
+            return $this->json(['ok' => false, 'error' => $res['error']]);
+        }
+
+        $key = $res['key'];
+        $converted = count($res['converted']['created'] ?? []);
+        $suspended = count($res['suspended']);
+
+        return $this->json([
+            'ok' => true,
+            'id' => $key->getId(),
+            'psk' => $key->getPsk(),
+            'keyid' => $key->getKeyid(),
+            'name' => $key->getName(),
+            'ssid' => $ssid->getName(),
+            'qr' => $this->wifiQrPayload($ssid, $key->getPsk()),
+            'converted' => $converted,
+            'suspended' => $suspended,
+            'moving' => (bool) ($res['moving'] ?? false),
+            'rotated' => (bool) ($res['rotated'] ?? false),
+            'hint' => ($res['moving'] ?? false)
+                ? sprintf(
+                    'Enrolment open, and this key is the network passphrase from now on. %d station(s) '
+                    .'were given a key of their own first, %d shared key(s) went out of service — every '
+                    .'device that used one already holds a copy of its own, so nothing was locked out. '
+                    .'The next enrolment replaces this key in turn.',
+                    $converted, $suspended)
+                : sprintf(
+                    'Enrolment open. %d station(s) were given a key of their own first, %d shared key(s) '
+                    .'stepped aside. This key is now the only way in for a device that has none — it binds '
+                    .'itself to the first one that uses it, and then the shared keys come back.',
+                    $converted, $suspended),
         ]);
     }
 
