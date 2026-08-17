@@ -6,67 +6,55 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * SSIDFeatureMap.
- *
- * @ORM\Table(name="ssid_feature_map")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'ssid_feature_map')]
+#[ORM\Entity]
 class SSIDFeatureMap
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", length=64, nullable=false)
      */
+    #[ORM\Column(name: 'name', type: 'string', length: 64, nullable: false)]
     private $name;
 
     /**
      * @var array|null
-     *
-     * @ORM\Column(name="config", type="array", nullable=false)
      */
+    #[ORM\Column(name: 'config', type: 'array', nullable: false)]
     private $config = [];
 
     /**
      * @var \ApManBundle\Entity\SSID
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\SSID", inversedBy="feature_maps", cascade={"persist"})
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="ssid_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
      */
+    #[ORM\JoinColumn(name: 'ssid_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\SSID::class, inversedBy: 'feature_maps', cascade: ['persist'])]
     private $ssid;
 
     /**
      * @var \ApManBundle\Entity\Feature
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Feature", cascade={"persist"})
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="feature_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
      */
+    #[ORM\JoinColumn(name: 'feature_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\Feature::class, cascade: ['persist'])]
     private $feature;
 
     /**
      * @var int|null
-     *
-     * @ORM\Column(name="priority", type="integer", length=64, nullable=false)
      */
+    #[ORM\Column(name: 'priority', type: 'integer', length: 64, nullable: false)]
     private $priority = 0;
 
     /**
      * @var bool|null
-     *
-     * @ORM\Column(name="enabled", type="boolean", nullable=true)
      */
+    #[ORM\Column(name: 'enabled', type: 'boolean', nullable: true)]
     private $enabled = true;
 
     /**

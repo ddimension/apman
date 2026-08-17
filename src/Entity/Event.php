@@ -6,64 +6,54 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * Event.
- *
- * @ORM\Table(name="event")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'event')]
+#[ORM\Entity]
 class Event
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var \DateTime
-     *
-     * @ORM\Column(name="ts", type="datetime")
      */
+    #[ORM\Column(name: 'ts', type: 'datetime')]
     private $ts;
 
     /**
      * @var \ApManBundle\Entity\Device
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Device", cascade={"persist"})
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="device_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
      */
+    #[ORM\JoinColumn(name: 'device_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\Device::class, cascade: ['persist'])]
     private $device;
 
     /**
      * @var string
-     *
-     * @ORM\Column(name="type", type="text", length=4096, nullable=false)
      */
+    #[ORM\Column(name: 'type', type: 'text', length: 4096, nullable: false)]
     private $type;
 
     /**
      * @var string
-     *
-     * @ORM\Column(name="address", type="string", length=17, nullable=false)
      */
+    #[ORM\Column(name: 'address', type: 'string', length: 17, nullable: false)]
     private $address;
 
     /**
      * @var string
-     *
-     * @ORM\Column(name="event", type="text", length=4096, nullable=false)
      */
+    #[ORM\Column(name: 'event', type: 'text', length: 4096, nullable: false)]
     private $event;
 
     /**
      * @var int
-     *
-     * @ORM\Column(name="signalstr", type="integer", nullable=true)
      */
+    #[ORM\Column(name: 'signalstr', type: 'integer', nullable: true)]
     private $signalstr;
 
     public function __toString()

@@ -787,7 +787,9 @@ class AccessPointService
 	     WHERE
 	     ap.id = :id'
         );
-        $query->setFetchMode("ApManBundle\AccessPoint", 'ap', 'EAGER');
+        // setFetchMode() is gone in ORM 3, and it never took effect here:
+        // "ApManBundle\AccessPoint" is not a mapped class — the entity lives in
+        // ApManBundle\Entity — so the hint matched nothing.
         $query->setParameter('id', $apId);
         $ap = $query->getSingleResult();
         $session = $this->rpcService->getSession($ap);

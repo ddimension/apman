@@ -6,26 +6,23 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * SSID.
- *
- * @ORM\Table(name="ssid")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'ssid')]
+#[ORM\Entity]
 class SSID
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'name', type: 'string', length: 64, nullable: true)]
     private $name;
 
     /**
@@ -42,9 +39,8 @@ class SSID
      * business travelling to the access points.
      *
      * @var bool
-     *
-     * @ORM\Column(name="radius_fallback", type="boolean", options={"default": true})
      */
+    #[ORM\Column(name: 'radius_fallback', type: 'boolean', options: ['default' => true])]
     private $radiusFallback = true;
 
     /**
@@ -61,9 +57,8 @@ class SSID
      * Off by default, because it changes what a network does on its own.
      *
      * @var bool
-     *
-     * @ORM\Column(name="auto_ppsk", type="boolean", options={"default": false})
      */
+    #[ORM\Column(name: 'auto_ppsk', type: 'boolean', options: ['default' => false])]
     private $autoPpsk = false;
 
     /**
@@ -79,49 +74,41 @@ class SSID
      * but the last device enrolled.
      *
      * @var bool
-     *
-     * @ORM\Column(name="moving_psk", type="boolean", options={"default": false})
      */
+    #[ORM\Column(name: 'moving_psk', type: 'boolean', options: ['default' => false])]
     private $movingPsk = false;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
-     *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigOption", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
      */
+    #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\SSIDConfigOption::class, mappedBy: 'ssid', cascade: ['persist'], orphanRemoval: true)]
     private $config_options;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
-     *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigList", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
      */
+    #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\SSIDConfigList::class, mappedBy: 'ssid', cascade: ['persist'], orphanRemoval: true)]
     private $config_lists;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
-     *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigFile", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
      */
+    #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\SSIDConfigFile::class, mappedBy: 'ssid', cascade: ['persist'], orphanRemoval: true)]
     private $config_files;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
-     *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\Device", mappedBy="ssid", cascade={"persist"})
      */
+    #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\Device::class, mappedBy: 'ssid', cascade: ['persist'])]
     private $devices;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
-     *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDFeatureMap", mappedBy="ssid", cascade={"persist"})
      */
+    #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\SSIDFeatureMap::class, mappedBy: 'ssid', cascade: ['persist'])]
     private $feature_maps;
 
-    /**
-     * @ORM\Column(type="integer", nullable=true)
-     */
+    #[ORM\Column(type: 'integer', nullable: true)]
     private $setup_order;
 
     /**

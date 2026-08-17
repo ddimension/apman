@@ -6,77 +6,61 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * Device.
- *
- * @ORM\Table(name="device")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'device')]
+#[ORM\Entity]
 class Device extends \ApManBundle\DynamicEntity\Device
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'name', type: 'string', nullable: true)]
     private $name;
 
     /**
      * @var array|null
-     *
-     * @ORM\Column(name="config", type="array", nullable=true)
      */
+    #[ORM\Column(name: 'config', type: 'array', nullable: true)]
     private $config;
 
     /**
      * @var \ApManBundle\Entity\Radio
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Radio", inversedBy="devices", cascade={"persist"})
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="radio_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
      */
+    #[ORM\JoinColumn(name: 'radio_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\Radio::class, inversedBy: 'devices', cascade: ['persist'])]
     private $radio;
 
     /**
      * @var \ApManBundle\Entity\SSID
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\SSID", inversedBy="devices", cascade={"persist"})
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="ssid_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
      */
+    #[ORM\JoinColumn(name: 'ssid_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\SSID::class, inversedBy: 'devices', cascade: ['persist'])]
     private $ssid;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="ifname", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'ifname', type: 'string', nullable: true)]
     private $ifname;
 
     /**
      * @var string
-     *
-     * @ORM\Column(name="address", type="string", length=17, nullable=true)
      */
+    #[ORM\Column(name: 'address', type: 'string', length: 17, nullable: true)]
     private $address;
 
-    /**
-     * @ORM\Column(type="json", nullable=true)
-     */
+    #[ORM\Column(type: 'json', nullable: true)]
     private $status = [];
 
-    /**
-     * @ORM\Column(type="json", nullable=true)
-     */
+    #[ORM\Column(type: 'json', nullable: true)]
     private $rrm = [];
 
     /**
