@@ -93,6 +93,24 @@ class RadiusAuthService
         }
 
         $keys = $this->candidates($entry['id'], $request['mac']);
+
+        // A station that has a key of its own does not need the keys meant for
+        // stations that have none. Every way a key of its own comes into being
+        // — learned, converted, imported — copies the secret the device is
+        // actually using, so dropping the shared ones changes nothing for it,
+        // and it saves the access point a PBKDF2 run per candidate on every
+        // association. The network passphrase below still travels, as the
+        // safety net for a key that was created before the device was
+        // reconfigured.
+        $own = [];
+        foreach ($keys as $key) {
+            if (Ppsk::ANY_MAC !== $key['mac']) {
+                $own[] = $key;
+            }
+        }
+        if ($own) {
+            $keys = $own;
+        }
         $result = $keys ? self::RESULT_ACCEPT : self::RESULT_REJECT;
         $reason = $keys ? 'own key' : 'no key for this station';
         $identity = $keys ? reset($keys) : null;
