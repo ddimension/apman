@@ -105,7 +105,7 @@ class SyncPublisher implements Publisher
      *
      * @param callable|null $done returns true when there is nothing left to wait for
      */
-    public function wait($seconds, callable $done = null)
+    public function wait($seconds, ?callable $done = null)
     {
         $timers = [];
         $timers[] = $this->loop->addTimer($seconds, function () {

@@ -63,7 +63,7 @@
             "*": "dist"
         },
         "platform": {
-            "php": "8.2.32",
+            "php": "8.4.23",
             "ext-redis": "6.3.0"
         },
         "sort-packages": true,

@@ -35,7 +35,7 @@ Optionen:
                           Laeuft der Controller woanders, hier den ssh-Aufruf
                           angeben, z.B.
                             --inventory-cmd "ssh root@app1 'cd /usr/local/share/apman &&
-                              sudo -u www-data php8.2 bin/console --env prod
+                              sudo -u www-data php8.4 bin/console --env prod
                               apman:image-inventory --with-config'"
   -r, --release REL       OpenWrt-Release, z.B. 24.10.8 / 25.12.5 / SNAPSHOT
                           [default: auto = neuestes stable]

@@ -36,7 +36,7 @@ class SubscriptionService
         MqttFactory $mqttFactory,
         CacheFactory $cacheFactory,
         PpskService $ppskService,
-        RadiusServerService $radius = null
+        ?RadiusServerService $radius = null
     ) {
         $this->radius = $radius;
         $this->ppskService = $ppskService;

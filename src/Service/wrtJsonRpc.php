@@ -193,7 +193,7 @@ class wrtJsonRpc
         }
     }
 
-    public function createRpcRequest($id, $rpcMethod, $session = null, $namespace, $procedure, $arguments = null)
+    public function createRpcRequest($id, $rpcMethod, $session, $namespace, $procedure, $arguments = null)
     {
         $cmd = new \stdClass();
         $cmd->jsonrpc = '2.0';

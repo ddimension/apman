@@ -456,7 +456,7 @@ class AccessPointService
         return $report;
     }
 
-    private function sendUci($client, $ap, $id, $method, $session, \stdClass $opts = null)
+    private function sendUci($client, $ap, $id, $method, $session, ?\stdClass $opts = null)
     {
         $opts = $opts ?: new \stdClass();
         $opts->ubus_rpc_session = $session;
@@ -829,7 +829,7 @@ class AccessPointService
     //echo "Polled ".$ap->getName().", took ".sprintf('%0.3f',$stop-$start)."s\n";
     }
 
-    public function lifetimeMessageHandler($ap, \ApManBundle\Mqtt\Message $message, $deviceList = null, \ApManBundle\Mqtt\Publisher $client)
+    public function lifetimeMessageHandler($ap, \ApManBundle\Mqtt\Message $message, $deviceList, \ApManBundle\Mqtt\Publisher $client)
     {
         //    var_dump($message);
         $cache = $this->cacheFactory->getCache();
@@ -1083,7 +1083,7 @@ class AccessPointService
      * publish throws its exception into the middle of message handling. Inside
      * the daemon there is exactly one connection, and it belongs to the loop.
      */
-    public function setPublisher(\ApManBundle\Mqtt\Publisher $publisher = null)
+    public function setPublisher(?\ApManBundle\Mqtt\Publisher $publisher = null)
     {
         $this->publisher = $publisher;
     }
