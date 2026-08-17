@@ -277,10 +277,11 @@ document.querySelectorAll('button.revoke').forEach((b) => {
 				b.textContent = b.dataset.label;
 				return;
 			}
+			// the controller knows which of the three withdrawal paths applied
+			// and says so; the wait is longer when there is something to read
 			out.className = 'small ok';
-			out.textContent = (purge ? 'deleted' : 'revoked') +
-				(d.reloaded ? ', ' + d.reloaded + ' bss reloaded' : '');
-			setTimeout(() => location.reload(), 1200);
+			out.textContent = (purge ? 'Deleted. ' : '') + (d.hint || 'Withdrawn.');
+			setTimeout(() => location.reload(), d.hint ? 4000 : 1200);
 		} catch (e) {
 			out.className = 'small warn';
 			out.textContent = 'failed: ' + e;

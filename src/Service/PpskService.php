@@ -115,6 +115,96 @@ class PpskService
     }
 
     /**
+     * Whether the access points ask a RADIUS server about every station of this
+     * SSID instead of deciding on their own.
+     *
+     * Both parts are needed: an auth_server alone only makes OpenWrt use the
+     * answer as an access list, the `ppsk` option is what turns it into
+     * wpa_psk_radius=2 and makes the answer carry the key.
+     */
+    public function usesRadius($ssid)
+    {
+        $config = $ssid->exportConfig();
+        $server = $config->auth_server ?? ($config->auth_server_addr ?? null);
+        $ppsk = $config->ppsk ?? null;
+
+        return (bool) $server && in_array((string) $ppsk, ['1', 'true', 'on', 'yes'], true);
+    }
+
+    /**
+     * Throw a station off the air, wherever it currently is.
+     *
+     * Needed because withdrawing a key over RADIUS is not the same as
+     * withdrawing one from a psk file. The file case takes care of itself:
+     * RELOAD_WPA_PSK drops exactly those stations whose key no longer matches.
+     * A RADIUS answer, on the other hand, is only asked for when a station
+     * associates — a device that is already connected would keep its
+     * connection until it next tries, which for a withdrawn key is the wrong
+     * answer. So we disconnect it and let it ask again.
+     *
+     * @return array [['ap' => …, 'ifname' => …], …] where it was sent
+     */
+    public function deauthenticate($ssid, $mac)
+    {
+        $mac = strtolower((string) $mac);
+        $sent = [];
+        if (!preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/', $mac)) {
+            return $sent;
+        }
+
+        $client = null;
+        foreach ($ssid->getDevices() as $device) {
+            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+            if (!is_array($status) || !isset($status['stations']) || !is_array($status['stations'])) {
+                continue;
+            }
+            $here = false;
+            foreach (array_keys($status['stations']) as $station) {
+                if (strtolower((string) $station) === $mac) {
+                    $here = true;
+                    break;
+                }
+            }
+            if (!$here) {
+                continue;
+            }
+            $ap = $device->getRadio() ? $device->getRadio()->getAccessPoint() : null;
+            if (!$ap) {
+                continue;
+            }
+            if (null === $client) {
+                $client = $this->mqttFactory->getClient();
+                if (!$client) {
+                    $this->logger->error('PpskService: no mqtt client, cannot disconnect '.$mac);
+
+                    return $sent;
+                }
+            }
+
+            $opts = new \stdClass();
+            $opts->addr = $mac;
+            // 1 = unspecified reason; no ban, the station is welcome back the
+            // moment it has a key again
+            $opts->reason = 1;
+            $opts->deauth = true;
+            $opts->ban_time = 0;
+            $cmd = $this->rpcService->createRpcRequest('ppsk-deauth-'.$device->getIfname(),
+                'call', null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
+            $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
+            $sent[] = ['ap' => $ap->getName(), 'ifname' => $device->getIfname()];
+        }
+        if ($client) {
+            $client->disconnect();
+        }
+        if ($sent) {
+            $this->logger->notice('PpskService: disconnected '.$mac.' on '
+                .implode(', ', array_map(function ($e) { return $e['ap'].'/'.$e['ifname']; }, $sent)));
+        }
+
+        return $sent;
+    }
+
+    /**
      * A key that is strong but still survives being read out over the phone
      * and typed on a mobile keyboard.
      *
@@ -190,6 +280,11 @@ class PpskService
         $em = $this->doctrine->getManager();
         $ssid = $ppsk->getSsid();
         $what = $ppsk->getKeyid() ?: $ppsk->getMac();
+        // read before the row is gone: for a MAC agnostic key the only trace of
+        // who used it is the address it was last seen on
+        $mac = \ApManBundle\Entity\Ppsk::ANY_MAC === $ppsk->getMac()
+            ? $ppsk->getLastMac() : $ppsk->getMac();
+
         if ($purge) {
             $em->remove($ppsk);
         } else {
@@ -202,7 +297,34 @@ class PpskService
             return ['ok' => true, 'result' => []];
         }
 
-        return ['ok' => true, 'result' => $this->distribute($ssid, true)];
+        $delivery = $this->keyDelivery($ssid);
+        $radius = $this->usesRadius($ssid);
+        $out = ['ok' => true, 'result' => [], 'disconnected' => []];
+
+        // Where a psk file is in play, distributing is the withdrawal:
+        // RELOAD_WPA_PSK drops exactly the stations whose key no longer
+        // matches and leaves everybody else connected.
+        if ($delivery['psk']) {
+            $out['result'] = $this->distribute($ssid, true);
+        } elseif (!$radius) {
+            // SAE without a RADIUS server: the keys live in uci and hostapd
+            // only reads them when it reads its whole configuration. Writing
+            // them is all we can do here — it takes effect at the next
+            // wireless reload, and that reload throws every client off.
+            $out['result'] = $this->distribute($ssid, true);
+            $out['note'] = 'this network answers SAE from its own configuration, '
+                .'so the withdrawal only takes effect at the next wireless reload';
+        }
+
+        // A RADIUS answer is only asked for when a station associates, so a
+        // device that is already connected would keep its connection until it
+        // next tries. Disconnect it and let it ask again — with the key gone,
+        // the answer is now a reject.
+        if ($radius && $mac) {
+            $out['disconnected'] = $this->deauthenticate($ssid, $mac);
+        }
+
+        return $out;
     }
 
     /**

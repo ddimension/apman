@@ -1601,12 +1601,34 @@ class DefaultController extends Controller
             }
         }
 
+        // What actually happened depends on how this network hands out keys,
+        // and the difference is worth saying rather than hiding behind a
+        // generic "saved": a psk file withdrawal drops the station on the
+        // spot, a RADIUS one has to disconnect it so it asks again, and SAE
+        // without RADIUS cannot take effect before the next wireless reload.
+        $disconnected = $res['disconnected'] ?? [];
+        if ($disconnected) {
+            $where = implode(', ', array_map(function ($e) {
+                return $e['ap'].'/'.$e['ifname'];
+            }, $disconnected));
+            $hint = 'Withdrawn. The device was disconnected on '.$where
+                .' and is turned away when it tries again.';
+        } elseif (isset($res['note'])) {
+            $hint = 'Withdrawn — but '.$res['note'].'.';
+        } elseif ($reloaded) {
+            $hint = 'Withdrawn on '.$reloaded.' bss. A device still using this key lost its connection.';
+        } else {
+            $hint = 'Withdrawn. No device was using it.';
+        }
+
         return $this->json([
             'ok' => true,
             'purged' => $purge,
             'name' => $name,
             'keyid' => $keyid,
             'reloaded' => $reloaded,
+            'disconnected' => $disconnected,
+            'hint' => $hint,
             'result' => $res['result'],
         ]);
     }
