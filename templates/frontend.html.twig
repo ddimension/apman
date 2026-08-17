@@ -9,8 +9,14 @@
            must not depend on a cdn being reachable #}
         <script src="{{ asset('vendor/gridjs.umd.js') }}"></script>
         <link rel="stylesheet" type="text/css" href="{{ asset('vendor/gridjs-mermaid.min.css') }}" />
-        <link rel="stylesheet" href="{{ asset('bundles/apman/css/custom.css') }}" />
-        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}" />
+        {# Two links that answered 404 on every page for as long as they have
+           been here. bundles/apman/css/custom.css never existed — the file
+           lives at assets/css/custom.css and holds an abandoned dark mode that
+           paints the body black with !important; pointing at it would make
+           every light pill and card unreadable, so it stays unused until dark
+           mode is done properly. The favicon is inline instead of a file, so
+           there is nothing left to miss. #}
+        <link rel="icon" href="data:image/svg+xml,{{ '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\"><rect width=\"16\" height=\"16\" rx=\"3\" fill=\"%2323303f\"/><path d=\"M4 10a5 5 0 0 1 8 0\" stroke=\"%234a8\" stroke-width=\"1.4\" fill=\"none\"/><path d=\"M6 12a2.6 2.6 0 0 1 4 0\" stroke=\"%234a8\" stroke-width=\"1.4\" fill=\"none\"/><circle cx=\"8\" cy=\"13.6\" r=\"1\" fill=\"%234a8\"/></svg>'|url_encode }}" />
 
         <style>
             body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; }
