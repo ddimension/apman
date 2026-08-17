@@ -6,43 +6,36 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * SSIDConfigOption.
- *
- * @ORM\Table(name="ssid_config_option")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'ssid_config_option')]
+#[ORM\Entity]
 class SSIDConfigOption
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'name', type: 'string', nullable: true)]
     private $name;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="value", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'value', type: 'string', nullable: true)]
     private $value;
 
     /**
      * @var \ApManBundle\Entity\SSID
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\SSID", inversedBy="config_options", cascade={"persist"})
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="ssid_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
      */
+    #[ORM\JoinColumn(name: 'ssid_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\SSID::class, inversedBy: 'config_options', cascade: ['persist'])]
     private $ssid;
 
     public function __clone()

@@ -6,52 +6,44 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * Client.
- *
- * @ORM\Table(name="client")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'client')]
+#[ORM\Entity]
 class Client
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="mac", type="string", length=17, nullable=true, unique=true)
      */
+    #[ORM\Column(name: 'mac', type: 'string', length: 17, nullable: true, unique: true)]
     private $mac;
 
     /**
      * @var bool|null
-     *
-     * @ORM\Column(name="mode_g", type="boolean", nullable=true)
      */
+    #[ORM\Column(name: 'mode_g', type: 'boolean', nullable: true)]
     private $mode_g = false;
 
     /**
      * @var bool|null
-     *
-     * @ORM\Column(name="mode_a", type="boolean", nullable=true)
      */
+    #[ORM\Column(name: 'mode_a', type: 'boolean', nullable: true)]
     private $mode_a = false;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", length=255, nullable=true)
      */
+    #[ORM\Column(name: 'name', type: 'string', length: 255, nullable: true)]
     private $name;
 
-    /**
-     * @ORM\Column(type="boolean", nullable=true)
-     */
+    #[ORM\Column(type: 'boolean', nullable: true)]
     private $SteeringDisabled = false;
 
     /**

@@ -6,186 +6,156 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * Radio.
- *
- * @ORM\Table(name="radio")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'radio')]
+#[ORM\Entity]
 class Radio extends \ApManBundle\DynamicEntity\Radio
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'name', type: 'string', nullable: true)]
     private $name;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_type", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_type', type: 'string', length: 64, nullable: true)]
     private $config_type;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_path", type="string", length=255, nullable=true)
      */
+    #[ORM\Column(name: 'config_path', type: 'string', length: 255, nullable: true)]
     private $config_path;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_disabled", type="string", length=1, nullable=true)
      */
+    #[ORM\Column(name: 'config_disabled', type: 'string', length: 1, nullable: true)]
     private $config_disabled;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_channel", type="string", length=4, nullable=true)
      */
+    #[ORM\Column(name: 'config_channel', type: 'string', length: 4, nullable: true)]
     private $config_channel;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_channels", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_channels', type: 'string', length: 64, nullable: true)]
     private $config_channels;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_band", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_band', type: 'string', length: 64, nullable: true)]
     private $config_band;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_hwmode", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_hwmode', type: 'string', length: 64, nullable: true)]
     private $config_hwmode;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_txpower", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_txpower', type: 'string', length: 64, nullable: true)]
     private $config_txpower;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_country", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_country', type: 'string', length: 64, nullable: true)]
     private $config_country;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_require_mode", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_require_mode', type: 'string', length: 64, nullable: true)]
     private $config_require_mode;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_log_level", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_log_level', type: 'string', length: 64, nullable: true)]
     private $config_log_level;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_htmode", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_htmode', type: 'string', length: 64, nullable: true)]
     private $config_htmode;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_noscan", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_noscan', type: 'string', length: 64, nullable: true)]
     private $config_noscan;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_beacon_int", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_beacon_int', type: 'string', length: 64, nullable: true)]
     private $config_beacon_int;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_basic_rate", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_basic_rate', type: 'string', length: 64, nullable: true)]
     private $config_basic_rate;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_supported_rates", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_supported_rates', type: 'string', length: 64, nullable: true)]
     private $config_supported_rates;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_rts", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_rts', type: 'string', length: 64, nullable: true)]
     private $config_rts;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="config_antenna_gain", type="string", length=64, nullable=true)
      */
+    #[ORM\Column(name: 'config_antenna_gain', type: 'string', length: 64, nullable: true)]
     private $config_antenna_gain;
 
     /**
      * @var array|null
-     *
-     * @ORM\Column(name="config_ht_capab", type="array", nullable=true)
      */
+    #[ORM\Column(name: 'config_ht_capab', type: 'array', nullable: true)]
     private $config_ht_capab;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
-     *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\Device", mappedBy="radio", cascade={"persist"})
      */
+    #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\Device::class, mappedBy: 'radio', cascade: ['persist'])]
     private $devices;
 
     /**
      * @var \ApManBundle\Entity\AccessPoint
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\AccessPoint", inversedBy="radios")
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="accesspoint_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
      */
+    #[ORM\JoinColumn(name: 'accesspoint_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\AccessPoint::class, inversedBy: 'radios')]
     private $accesspoint;
 
-    /**
-     * @ORM\Column(type="string", length=24, nullable=true)
-     */
+    #[ORM\Column(type: 'string', length: 24, nullable: true)]
     private $he_bss_color;
 
-    /**
-     * @ORM\Column(type="string", length=24, nullable=true)
-     */
+    #[ORM\Column(type: 'string', length: 24, nullable: true)]
     private $he_su_beamformee;
 
     /**

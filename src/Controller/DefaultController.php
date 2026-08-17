@@ -2,7 +2,7 @@
 
 namespace ApManBundle\Controller;
 
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -42,18 +42,14 @@ class DefaultController extends AbstractController
         $this->cacheFactory->getCache();
     }
 
-    /**
-     * @Route("/")
-     */
+    #[Route(path: '/')]
     public function indexAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
         return $this->render('default/grid.html.twig', [
     ]);
     }
 
-    /**
-     * @Route("/oldStatus")
-     */
+    #[Route(path: '/oldStatus')]
     public function indexOldAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
         $status = $this->getStatusDump($rpc);
@@ -287,9 +283,8 @@ class DefaultController extends AbstractController
     /**
      * Drill down for one access point: everything the agent reports about it,
      * plus the actions that can be run against it with feedback.
-     *
-     * @Route("/ap/{name}", name="ap_detail")
      */
+    #[Route(path: '/ap/{name}', name: 'ap_detail')]
     public function apDetailAction($name)
     {
         $em = $this->doctrine->getManager();
@@ -370,9 +365,8 @@ class DefaultController extends AbstractController
     /**
      * Runs one ubus call on an ap and waits briefly for the agent's answer,
      * which command channel v2 now delivers on command_result/<id>.
-     *
-     * @Route("/ap/{name}/action", name="ap_action", methods={"POST"})
      */
+    #[Route(path: '/ap/{name}/action', name: 'ap_action', methods: ['POST'])]
     public function apActionAction(Request $request, $name, \ApManBundle\Service\ClientCommandService $commands)
     {
         // a command aimed at a client should reach it wherever it currently is
@@ -445,9 +439,8 @@ class DefaultController extends AbstractController
     /**
      * Everything known about one client: where it is now, where it was seen,
      * how it answered steering requests and what its probe advertises.
-     *
-     * @Route("/client/{mac}", name="client_detail")
      */
+    #[Route(path: '/client/{mac}', name: 'client_detail')]
     public function clientDetailAction($mac)
     {
         $mac = strtolower($mac);
@@ -621,9 +614,8 @@ class DefaultController extends AbstractController
     /**
      * Provision one access point: staged transaction, diff, apply with
      * rollback, confirm. ?dry=1 only reports what would change.
-     *
-     * @Route("/ap/{name}/provision", name="ap_provision", methods={"POST"})
      */
+    #[Route(path: '/ap/{name}/provision', name: 'ap_provision', methods: ['POST'])]
     public function apProvisionAction(Request $request, $name)
     {
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
@@ -716,9 +708,8 @@ class DefaultController extends AbstractController
 
     /**
      * Scan the neighbourhood so foreign BSSIDs get a name.
-     *
-     * @Route("/ap/{name}/scan", name="ap_scan", methods={"POST"})
      */
+    #[Route(path: '/ap/{name}/scan', name: 'ap_scan', methods: ['POST'])]
     public function apScanAction($name)
     {
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
@@ -731,9 +722,8 @@ class DefaultController extends AbstractController
 
     /**
      * Ask the client for a fresh beacon measurement and wait for the reports.
-     *
-     * @Route("/client/{mac}/measure", name="client_measure", methods={"POST"})
      */
+    #[Route(path: '/client/{mac}/measure', name: 'client_measure', methods: ['POST'])]
     public function clientMeasureAction(Request $request, $mac, \ApManBundle\Service\ClientCommandService $cmd)
     {
         $mac = strtolower($mac);
@@ -914,9 +904,8 @@ class DefaultController extends AbstractController
 
     /**
      * Cluster wide consistency of the running wlan configuration.
-     *
-     * @Route("/consistency", name="consistency")
      */
+    #[Route(path: '/consistency', name: 'consistency')]
     public function consistencyAction(Request $request, \ApManBundle\Service\WlanConsistencyService $check)
     {
         $maxAge = $request->query->has('refresh') ? 0 : 600;
@@ -930,9 +919,8 @@ class DefaultController extends AbstractController
      * Per device psk overview and the WPS enrolment that feeds it. The old
      * implementation scraped syslog for WPS-PIN-NEEDED and identified the
      * access point by source ip; this drives the registration instead.
-     *
-     * @Route("/ppsk", name="ppsk")
      */
+    #[Route(path: '/ppsk', name: 'ppsk')]
     public function ppskAction(\ApManBundle\Service\PpskService $ppsk)
     {
         $em = $this->doctrine->getManager();
@@ -961,9 +949,7 @@ class DefaultController extends AbstractController
         ]);
     }
 
-    /**
-     * @Route("/ppsk/{ssidId}/distribute", name="ppsk_distribute", methods={"POST"})
-     */
+    #[Route(path: '/ppsk/{ssidId}/distribute', name: 'ppsk_distribute', methods: ['POST'])]
     public function ppskDistributeAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
@@ -984,9 +970,8 @@ class DefaultController extends AbstractController
 
     /**
      * The networks, with the facts that decide whether one works.
-     *
-     * @Route("/ssids", name="ssids")
      */
+    #[Route(path: '/ssids', name: 'ssids')]
     public function ssidsAction(\ApManBundle\Service\WirelessSchemaService $schema)
     {
         $em = $this->doctrine->getManager();
@@ -1041,9 +1026,8 @@ class DefaultController extends AbstractController
     /**
      * One network in full: every option OpenWrt knows, grouped, documented, and
      * with its default shown where nothing is set.
-     *
-     * @Route("/ssid/{id}", name="ssid_detail")
      */
+    #[Route(path: '/ssid/{id}', name: 'ssid_detail')]
     public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, $id)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
@@ -1152,9 +1136,8 @@ class DefaultController extends AbstractController
      * Only what differs from the default is stored: clearing a field removes
      * the row instead of writing an empty one, so the configuration stays a
      * list of decisions rather than a dump of every option that exists.
-     *
-     * @Route("/ssid/{id}/save", name="ssid_save", methods={"POST"})
      */
+    #[Route(path: '/ssid/{id}/save', name: 'ssid_save', methods: ['POST'])]
     public function ssidSaveAction(\ApManBundle\Service\WirelessSchemaService $schema, Request $request, $id)
     {
         $em = $this->doctrine->getManager();
@@ -1308,9 +1291,8 @@ class DefaultController extends AbstractController
      * shared keys step aside, so the key issued here is the only thing an
      * unknown device can come in on. It pins itself to the first device that
      * uses it, and the shared keys come back the moment that happens.
-     *
-     * @Route("/ipsk/register/{ssidId}", name="ipsk_register", methods={"POST"})
      */
+    #[Route(path: '/ipsk/register/{ssidId}', name: 'ipsk_register', methods: ['POST'])]
     public function ipskRegisterAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
@@ -1369,9 +1351,8 @@ class DefaultController extends AbstractController
      *
      * Without ?apply=1 it only reports what it would do, which is the way to
      * look at a production network before touching it.
-     *
-     * @Route("/ppsk/{ssidId}/convert", name="ppsk_convert", methods={"POST"})
      */
+    #[Route(path: '/ppsk/{ssidId}/convert', name: 'ppsk_convert', methods: ['POST'])]
     public function ppskConvertAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
@@ -1412,9 +1393,8 @@ class DefaultController extends AbstractController
      * including the ones that were turned away — which is the half a psk file
      * can never show. For an SAE network it is the only place a key's use shows
      * up at all: hostapd reports no keyid there.
-     *
-     * @Route("/radius", name="radius")
      */
+    #[Route(path: '/radius', name: 'radius')]
     public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, Request $request)
     {
         $em = $this->doctrine->getManager();
@@ -1509,9 +1489,8 @@ class DefaultController extends AbstractController
      * access points report it back for every station that authenticated with
      * that key, so the controller can say who is on the network, and whether a
      * key that was handed out was ever used at all.
-     *
-     * @Route("/ipsk", name="ipsk")
      */
+    #[Route(path: '/ipsk', name: 'ipsk')]
     public function ipskAction(\ApManBundle\Service\PpskService $ppsk)
     {
         $em = $this->doctrine->getManager();
@@ -1534,9 +1513,7 @@ class DefaultController extends AbstractController
         ]);
     }
 
-    /**
-     * @Route("/ipsk/create", name="ipsk_create", methods={"POST"})
-     */
+    #[Route(path: '/ipsk/create', name: 'ipsk_create', methods: ['POST'])]
     public function ipskCreateAction(\ApManBundle\Service\PpskService $ppsk, Request $request)
     {
         $name = trim((string) $request->get('name'));
@@ -1611,9 +1588,8 @@ class DefaultController extends AbstractController
 
     /**
      * Has anybody used this key yet, and where is it right now?
-     *
-     * @Route("/ipsk/{id}/status", name="ipsk_status")
      */
+    #[Route(path: '/ipsk/{id}/status', name: 'ipsk_status')]
     public function ipskStatusAction($id)
     {
         $em = $this->doctrine->getManager();
@@ -1674,9 +1650,8 @@ class DefaultController extends AbstractController
     /**
      * Withdraw an issued key. The device using it loses its connection at once,
      * every other client keeps theirs.
-     *
-     * @Route("/ipsk/{id}/revoke", name="ipsk_revoke", methods={"POST"})
      */
+    #[Route(path: '/ipsk/{id}/revoke', name: 'ipsk_revoke', methods: ['POST'])]
     public function ipskRevokeAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $id)
     {
         $key = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->find($id);
@@ -1755,9 +1730,8 @@ class DefaultController extends AbstractController
     /**
      * Adopt the wifi-station sections that already exist on an access point,
      * so the controller can take ownership without losing keys.
-     *
-     * @Route("/ppsk/import/{apId}", name="ppsk_import", methods={"POST"})
      */
+    #[Route(path: '/ppsk/import/{apId}', name: 'ppsk_import', methods: ['POST'])]
     public function ppskImportAction(\ApManBundle\Service\PpskService $ppsk, $apId)
     {
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->find($apId);
@@ -1772,9 +1746,8 @@ class DefaultController extends AbstractController
     /**
      * WPS always covers the whole SSID: the device being enrolled stands
      * somewhere, not next to one particular radio.
-     *
-     * @Route("/ppsk/wps/{ssidId}", name="ppsk_wps", methods={"POST"})
      */
+    #[Route(path: '/ppsk/wps/{ssidId}', name: 'ppsk_wps', methods: ['POST'])]
     public function ppskWpsAction(Request $request, \ApManBundle\Service\PpskService $ppsk, $ssidId)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
@@ -1821,9 +1794,8 @@ class DefaultController extends AbstractController
      * agent version and features, hostapd bss/mld topology, the bss config the
      * ap really runs (compared against ours), 802.11k/v counters and the
      * channel survey.
-     *
-     * @Route("/aps", name="aps")
      */
+    #[Route(path: '/aps', name: 'aps')]
     public function apsAction()
     {
         $em = $this->doctrine->getManager();
@@ -1970,9 +1942,7 @@ class DefaultController extends AbstractController
         return $stats;
     }
 
-    /**
-     * @Route("/griddata")
-     */
+    #[Route(path: '/griddata')]
     public function gridDataAction(\ApManBundle\Service\wrtJsonRpc $rpc)
     {
         $status = $this->getStatusDump($rpc, false);
@@ -2220,9 +2190,7 @@ class DefaultController extends AbstractController
         return $response;
     }
 
-    /**
-     * @Route("/disconnect")
-     */
+    #[Route(path: '/disconnect')]
     public function disconnectAction(Request $request)
     {
         $doc = $this->doctrine;
@@ -2253,9 +2221,7 @@ class DefaultController extends AbstractController
         return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
-    /**
-     * @Route("/deauth")
-     */
+    #[Route(path: '/deauth')]
     public function deauthAction(Request $request)
     {
         $doc = $this->doctrine;
@@ -2287,9 +2253,7 @@ class DefaultController extends AbstractController
         return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
-    /**
-     * @Route("/wnm_disassoc_imminent_prepare")
-     */
+    #[Route(path: '/wnm_disassoc_imminent_prepare')]
     public function wnmDisassocImminentPrepare(Request $request)
     {
         if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device'))) {
@@ -2326,9 +2290,9 @@ class DefaultController extends AbstractController
     }
 
     /**
-     * @Route("/wnm_disassoc_imminent")
      * https://docs.samsungknox.com/admin/knox-platform-for-enterprise/kbas/kba-115013403768.htm
      */
+    #[Route(path: '/wnm_disassoc_imminent')]
     public function wnmDisassocImminent(Request $request)
     {
         if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
@@ -2398,9 +2362,7 @@ class DefaultController extends AbstractController
         return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
-    /**
-     * @Route("/bss_transition_request_prepare")
-     */
+    #[Route(path: '/bss_transition_request_prepare')]
     public function wnmBssTransitionPrepare(Request $request, \ApManBundle\Service\SteeringService $steering)
     {
         $mac = strtolower((string) $request->get('mac'));
@@ -2490,9 +2452,8 @@ class DefaultController extends AbstractController
 
     /**
      * Send a transition request and wait for the client's answer, decoded.
-     *
-     * @Route("/bss_transition_request/send", name="bss_transition_send", methods={"POST"})
      */
+    #[Route(path: '/bss_transition_request/send', name: 'bss_transition_send', methods: ['POST'])]
     public function wnmBssTransitionSend(Request $request, \ApManBundle\Service\SteeringService $steering, \ApManBundle\Service\ClientCommandService $commands)
     {
         $mac = strtolower((string) $request->request->get('mac'));
@@ -2589,9 +2550,9 @@ class DefaultController extends AbstractController
     }
 
     /**
-     * @Route("/bss_transition_request")
      * https://docs.samsungknox.com/admin/knox-platform-for-enterprise/kbas/kba-115013403768.htm
      */
+    #[Route(path: '/bss_transition_request')]
     public function wnmBssTransitionRequest(Request $request)
     {
         if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
@@ -2645,9 +2606,7 @@ class DefaultController extends AbstractController
         return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
-    /**
-     * @Route("/rrm_beacon_req")
-     */
+    #[Route(path: '/rrm_beacon_req')]
     public function rrmBeaconRequest(Request $request)
     {
         if (empty($request->get('mac')) || empty($request->get('system')) || empty($request->get('device')) || empty($request->get('ssid'))) {
@@ -2701,9 +2660,7 @@ class DefaultController extends AbstractController
         return $this->redirect($this->generateUrl('apman_default_index'));
     }
 
-    /**
-     * @Route("/station")
-     */
+    #[Route(path: '/station')]
     public function stationAction(Request $request)
     {
         $doc = $this->doctrine;
@@ -2887,9 +2844,7 @@ class DefaultController extends AbstractController
         return new Response($output);
     }
 
-    /**
-     * @Route("/chtest")
-     */
+    #[Route(path: '/chtest')]
     public function chtest(Request $request)
     {
         $stdin = fopen('php://stdin', 'r');

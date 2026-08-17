@@ -2,7 +2,7 @@
 
 namespace ApManBundle\Controller;
 
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -26,9 +26,7 @@ class DeviceApiController extends AbstractController
         $this->rpcService = $rpcService;
     }
 
-    /**
-     * @Route("/api/device/status")
-     */
+    #[Route(path: '/api/device/status')]
     public function statusHandler(Request $request)
     {
         $em = $this->doctrine->getManager();
@@ -129,9 +127,7 @@ class DeviceApiController extends AbstractController
         return new Response(json_encode(['status' => 0, 'devices_updated' => $updated]));
     }
 
-    /**
-     * @Route("/api/device/event")
-     */
+    #[Route(path: '/api/device/event')]
     public function eventHandler(Request $request)
     {
         $em = $this->doctrine->getManager();
@@ -175,7 +171,10 @@ class DeviceApiController extends AbstractController
             if (property_exists($data->message, 'signal')) {
                 $che->setSignalstr($data->message->signal);
             }
-            $em->merge($che);
+            // the entry is new, never managed — merge() only ever copied it
+            // into a managed instance here, which is what persist() does. ORM 3
+            // dropped merge(); the Event branch below always did it this way.
+            $em->persist($che);
         } else {
             $devent = new \ApManBundle\Entity\Event();
             $devent->setTs(new \DateTime('now'));

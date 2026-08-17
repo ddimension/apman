@@ -6,50 +6,42 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * ClientHeatMap.
- *
- * @ORM\Table(name="client_heatmap")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'client_heatmap')]
+#[ORM\Entity]
 class ClientHeatMap
 {
     /**
      * @var \DateTime
-     *
-     * @ORM\Column(name="ts", type="datetime")
      */
+    #[ORM\Column(name: 'ts', type: 'datetime')]
     private $ts;
 
     /**
      * @var \ApManBundle\Entity\Device
-     *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Device", cascade={"persist"})
-     * @ORM\JoinColumns({
-     *   @ORM\JoinColumn(name="device_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     * })
-     * @ORM\Id
      */
+    #[ORM\JoinColumn(name: 'device_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\Device::class, cascade: ['persist'])]
+    #[ORM\Id]
     private $device;
 
     /**
      * @var string
-     *
-     * @ORM\Column(name="address", type="string", length=17, nullable=false)
-     * @ORM\Id
      */
+    #[ORM\Column(name: 'address', type: 'string', length: 17, nullable: false)]
+    #[ORM\Id]
     private $address;
 
     /**
      * @var string
-     *
-     * @ORM\Column(name="event", type="text", length=4096, nullable=false)
      */
+    #[ORM\Column(name: 'event', type: 'text', length: 4096, nullable: false)]
     private $event;
 
     /**
      * @var int
-     *
-     * @ORM\Column(name="signalstr", type="integer", nullable=true)
      */
+    #[ORM\Column(name: 'signalstr', type: 'integer', nullable: true)]
     private $signalstr;
 
     public function __toString()

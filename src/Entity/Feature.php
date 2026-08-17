@@ -6,40 +6,35 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * Feature.
- *
- * @ORM\Table(name="feature")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'feature')]
+#[ORM\Entity]
 class Feature
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", length=64, nullable=false)
      */
+    #[ORM\Column(name: 'name', type: 'string', length: 64, nullable: false)]
     private $name;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="implementation", type="string", length=64, nullable=false)
      */
+    #[ORM\Column(name: 'implementation', type: 'string', length: 64, nullable: false)]
     private $implementation;
 
     /**
      * @var array|null
-     *
-     * @ORM\Column(name="config", type="array", nullable=false)
      */
+    #[ORM\Column(name: 'config', type: 'array', nullable: false)]
     private $config = [];
 
     /**

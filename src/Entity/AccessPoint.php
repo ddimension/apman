@@ -6,76 +6,62 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * AccessPoint.
- *
- * @ORM\Table(name="accesspoint")
- * @ORM\Entity
  */
+#[ORM\Table(name: 'accesspoint')]
+#[ORM\Entity]
 class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
 {
     /**
      * @var int
-     *
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
      */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="name", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'name', type: 'string', nullable: true)]
     private $name;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="username", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'username', type: 'string', nullable: true)]
     private $username;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="password", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'password', type: 'string', nullable: true)]
     private $password;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="ubus_url", type="string", nullable=true)
      */
+    #[ORM\Column(name: 'ubus_url', type: 'string', nullable: true)]
     private $ubus_url;
 
     /**
      * @var string|null
-     *
-     * @ORM\Column(name="ipv4", type="string", length=15, nullable=true)
      */
+    #[ORM\Column(name: 'ipv4', type: 'string', length: 15, nullable: true)]
     private $ipv4;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
-     *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\Radio", mappedBy="accesspoint", cascade={"persist"})
      */
+    #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\Radio::class, mappedBy: 'accesspoint', cascade: ['persist'])]
     private $radios;
 
-    /**
-     * @ORM\Column(type="json", nullable=true)
-     */
+    #[ORM\Column(type: 'json', nullable: true)]
     private $status = [];
 
-    /**
-     * @ORM\Column(type="boolean", nullable=true)
-     */
+    #[ORM\Column(type: 'boolean', nullable: true)]
     private $ProvisioningEnabled;
 
-    /**
-     * @ORM\Column(type="boolean", nullable=true)
-     */
+    #[ORM\Column(type: 'boolean', nullable: true)]
     private $IsProductive;
 
     /**

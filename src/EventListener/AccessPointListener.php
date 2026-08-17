@@ -4,7 +4,7 @@ namespace ApManBundle\EventListener;
 
 use ApManBundle\Factory\CacheFactory;
 use ApManBundle\Service\wrtJsonRpc;
-use Doctrine\ORM\Event\LifecycleEventArgs;
+use Doctrine\ORM\Event\PostLoadEventArgs;
 
 class AccessPointListener
 {
@@ -18,9 +18,14 @@ class AccessPointListener
         $this->cacheFactory->getCache();
     }
 
-    public function postLoad(LifecycleEventArgs $args)
+    /**
+     * ORM 3 hands each lifecycle event its own argument class instead of one
+     * shared LifecycleEventArgs, and getEntity() went with the old class —
+     * getObject() says the same thing.
+     */
+    public function postLoad(PostLoadEventArgs $args)
     {
-        $entity = $args->getEntity();
+        $entity = $args->getObject();
         if (method_exists($entity, 'setRpcService')) {
             $entity->setRpcService($this->rpcService);
         }

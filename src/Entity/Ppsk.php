@@ -23,12 +23,10 @@ use Doctrine\ORM\Mapping as ORM;
  * identity that can be rotated or withdrawn on its own. For MAC agnostic
  * entries (address 00:00:00:00:00:00) the constraint still means one row per
  * key, which is what makes an iPSK an identity.
- *
- * @ORM\Table(name="ppsk", uniqueConstraints={
- *     @ORM\UniqueConstraint(name="ppsk_ssid_mac_psk", columns={"ssid_id", "mac", "psk"})
- * })
- * @ORM\Entity
  */
+#[ORM\Table(name: 'ppsk')]
+#[ORM\UniqueConstraint(name: 'ppsk_ssid_mac_psk', columns: ['ssid_id', 'mac', 'psk'])]
+#[ORM\Entity]
 class Ppsk
 {
     /** MAC agnostic entry: the key alone identifies the device */
@@ -48,72 +46,53 @@ class Ppsk
     /** hostapd stores the keyid in a fixed buffer; stay well below it */
     public const KEYID_MAX = 24;
 
-    /**
-     * @ORM\Column(name="id", type="integer")
-     * @ORM\Id
-     * @ORM\GeneratedValue(strategy="IDENTITY")
-     */
+    #[ORM\Column(name: 'id', type: 'integer')]
+    #[ORM\Id]
+    #[ORM\GeneratedValue(strategy: 'IDENTITY')]
     private $id;
 
-    /**
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\SSID")
-     * @ORM\JoinColumn(name="ssid_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
-     */
+    #[ORM\JoinColumn(name: 'ssid_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\SSID::class)]
     private $ssid;
 
-    /**
-     * @ORM\Column(name="name", type="string", length=128, nullable=true)
-     */
+    #[ORM\Column(name: 'name', type: 'string', length: 128, nullable: true)]
     private $name;
 
     /**
      * Client MAC, or 00:00:00:00:00:00 for a key that is not bound to one.
      * MAC bound keys break when a client randomises per connection.
-     *
-     * @ORM\Column(name="mac", type="string", length=17)
      */
+    #[ORM\Column(name: 'mac', type: 'string', length: 17)]
     private $mac = self::ANY_MAC;
 
     /**
      * Passphrase (8..63 chars) or a raw 64 hex character PSK, which is what
      * hostapd generates during WPS enrolment.
-     *
-     * @ORM\Column(name="psk", type="string", length=64)
      */
+    #[ORM\Column(name: 'psk', type: 'string', length: 64)]
     private $psk;
 
-    /**
-     * @ORM\Column(name="vid", type="integer", nullable=true)
-     */
+    #[ORM\Column(name: 'vid', type: 'integer', nullable: true)]
     private $vid;
 
-    /**
-     * @ORM\Column(name="enabled", type="boolean")
-     */
+    #[ORM\Column(name: 'enabled', type: 'boolean')]
     private $enabled = true;
 
-    /**
-     * @ORM\Column(name="source", type="string", length=16)
-     */
+    #[ORM\Column(name: 'source', type: 'string', length: 16)]
     private $source = self::SOURCE_MANUAL;
 
-    /**
-     * @ORM\Column(name="created", type="datetime")
-     */
+    #[ORM\Column(name: 'created', type: 'datetime')]
     private $created;
 
-    /**
-     * @ORM\Column(name="comment", type="text", nullable=true)
-     */
+    #[ORM\Column(name: 'comment', type: 'text', nullable: true)]
     private $comment;
 
     /**
      * The identity hostapd reports back for a station that authenticated with
      * this key ("keyid=" in the psk file). Without it a wildcard MAC key is
      * anonymous — every client looks the same.
-     *
-     * @ORM\Column(name="keyid", type="string", length=32, nullable=true)
      */
+    #[ORM\Column(name: 'keyid', type: 'string', length: 32, nullable: true)]
     private $keyid;
 
     /**
@@ -124,27 +103,21 @@ class Ppsk
      * authenticates becomes the key's address and every other device is locked
      * out from then on. Wrong for a key handed to a person with three devices,
      * right for one that stands for a single machine.
-     *
-     * @ORM\Column(name="pin_mac", type="boolean", options={"default": false})
      */
+    #[ORM\Column(name: 'pin_mac', type: 'boolean', options: ['default' => false])]
     private $pinMac = false;
 
-    /**
-     * @ORM\Column(name="first_seen", type="datetime", nullable=true)
-     */
+    #[ORM\Column(name: 'first_seen', type: 'datetime', nullable: true)]
     private $firstSeen;
 
-    /**
-     * @ORM\Column(name="last_seen", type="datetime", nullable=true)
-     */
+    #[ORM\Column(name: 'last_seen', type: 'datetime', nullable: true)]
     private $lastSeen;
 
     /**
      * The address of the station that used this key last. Not an identity —
      * clients randomise it — but it is what makes a key traceable in the logs.
-     *
-     * @ORM\Column(name="last_mac", type="string", length=17, nullable=true)
      */
+    #[ORM\Column(name: 'last_mac', type: 'string', length: 17, nullable: true)]
     private $lastMac;
 
     /**
@@ -159,9 +132,8 @@ class Ppsk
      * Deliberately a plain id and not a relation: it points at a row that may
      * have been deleted in the meantime, and a dangling registration must not
      * block anything.
-     *
-     * @ORM\Column(name="restores_id", type="integer", nullable=true)
      */
+    #[ORM\Column(name: 'restores_id', type: 'integer', nullable: true)]
     private $restoresId;
 
     public function __construct()
