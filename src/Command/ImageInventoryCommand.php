@@ -89,22 +89,16 @@ class ImageInventoryCommand extends Command
             return 1;
         }
 
-        $collect = function ($topic, $payload) use ($only) {
-            $this->onProperty(new \ApManBundle\Mqtt\Message($topic, $payload), $only);
-        };
-        // both are retained, so the broker replays the whole fleet at once
-        $client->subscribe('apman/ap/+/properties/system/board', $collect, 1);
-        $client->subscribe('apman/ap/+/properties/agent', $collect, 1);
-        // the periodic status is the liveness test — see below
-        $client->subscribe('apman/ap/+/device/hostapd/+/status', $collect, 0);
-
         $err->writeln(sprintf('collecting for %d s ...', $wait), OutputInterface::VERBOSITY_VERBOSE);
-        $deadline = microtime(true) + $wait;
-        while (microtime(true) < $deadline) {
-            // 20 ms of sleep when nothing is pending: idle enough not to spin,
-            // short enough to drain a retained flood without falling behind
-            $client->loopOnce(microtime(true), true, 20000);
-        }
+        // both property topics are retained, so the broker replays the whole
+        // fleet at once; the periodic status is the liveness test — see below
+        $client->listen([
+            'apman/ap/+/properties/system/board' => 1,
+            'apman/ap/+/properties/agent' => 1,
+            'apman/ap/+/device/hostapd/+/status' => 0,
+        ], function (\ApManBundle\Mqtt\Message $message) use ($only) {
+            $this->onProperty($message, $only);
+        }, $wait);
         $client->disconnect();
 
         if (!$this->devices) {
@@ -266,21 +260,22 @@ class ImageInventoryCommand extends Command
             $id = 'inv-'.$key.'-'.$name.'-'.$run;
             $this->pending[$id] = $name;
         }
-        $client->onMessage(function ($msg) use ($key) {
-            $this->onAnswer($msg, $key);
-        });
+        // subscribe first, then ask, then wait — in that order, or an answer
+        // that comes back quickly would arrive before anybody listens
+        $filters = [];
         foreach ($this->devices as $name => $device) {
-            $client->subscribe('apman/ap/'.$name.'/command_result/#', 1);
+            $filters['apman/ap/'.$name.'/command_result/#'] = 1;
         }
+        $client->subscribe($filters, function (\ApManBundle\Mqtt\Message $message) use ($key) {
+            $this->onAnswer($message, $key);
+        });
         foreach ($this->pending as $id => $name) {
             $cmd = $this->rpcService->createRpcRequest($id, 'call', null, $call[0], $call[1], $call[2]);
             $client->publish('apman/ap/'.$name.'/command', json_encode($cmd), 1);
         }
-
-        $deadline = microtime(true) + max(1, (int) $timeout);
-        while ($this->pending && microtime(true) < $deadline) {
-            $client->loop(200);
-        }
+        $client->wait(max(1, (int) $timeout), function () {
+            return !$this->pending;
+        });
         if ($this->pending) {
             $output->writeln(sprintf('<comment>%s: no answer from %s</comment>',
                 $key, implode(', ', array_values($this->pending))));

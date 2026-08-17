@@ -202,7 +202,7 @@ class SubscriptionService
     private function dispatch(\ApManBundle\Mqtt\Message $message)
     {
         try {
-            if (!$this->handleMosquittoMessage($message)) {
+            if (!$this->handleMessage($message)) {
                 $this->logger->debug('Failed to handle message. '.$message->topic);
             }
         } catch (\Throwable $e) {
@@ -210,7 +210,7 @@ class SubscriptionService
         }
     }
 
-    private function handleMosquittoMessage($message)
+    private function handleMessage($message)
     {
         $em = $this->doctrine->getManager();
         if (!$em->isOpen()) {
@@ -263,7 +263,7 @@ class SubscriptionService
             } else {
                 return false;
             }
-            //	            $this->logger->info('handleMosquittoMessage(): AP Message.');
+            //	            $this->logger->info('handleMessage(): AP Message.');
         } else {
             return false;
         }
@@ -271,13 +271,13 @@ class SubscriptionService
         if (false !== strpos($device, '.')) {
             $device = substr($device, strpos($device, '.') + 1);
         }
-        //$this->logger->info('handleMosquittoMessage(): AP Message.', [$hostname, $device, $message->topic]);
+        //$this->logger->info('handleMessage(): AP Message.', [$hostname, $device, $message->topic]);
 
         /*
         // Cache Expiration
         if (isset($this->cacheCreated)) {
             if ($this->cacheCreated+10 < time()) {
-                    $this->logger->notice('handleMosquittoMessage(): Expire local database object cache.');
+                    $this->logger->notice('handleMessage(): Expire local database object cache.');
                 unset($this->cacheLocal['ap-by-name']);
                 unset($this->cacheLocal['dev-by-ap-ifname']);
             }
@@ -307,13 +307,13 @@ class SubscriptionService
         }
 
         if (!isset($this->cacheLocal['ap-by-name'][$hostname])) {
-            $this->logger->info('handleMoqsquittoMessage(): ap not found '.$hostname);
+            $this->logger->info('handleMessage(): ap not found '.$hostname);
 
             return true;
         }
         $ap = $this->cacheLocal['ap-by-name'][$hostname];
         if (is_null($ap)) {
-            $this->logger->info('handleMoqsquittoMessage(): ap not found '.$hostname);
+            $this->logger->info('handleMessage(): ap not found '.$hostname);
 
             return true;
         }
@@ -324,11 +324,11 @@ class SubscriptionService
             }
             $agent['received'] = time();
             $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId().'.agent', $agent, 180 * 86400);
-            $this->logger->info('handleMoqsquittoMessage(): agent '.($agent['version'] ?? '?').' on '.$hostname);
+            $this->logger->info('handleMessage(): agent '.($agent['version'] ?? '?').' on '.$hostname);
 
             return true;
         } elseif ('properties' == $tp[3] && 'system' == $tp[4]) {
-            $this->logger->info('handleMoqsquittoMessage(): saved system.'.$tp[5].' for '.$hostname);
+            $this->logger->info('handleMessage(): saved system.'.$tp[5].' for '.$hostname);
             $data = [];
             $data[$tp[5]] = json_decode($message->payload, true);
             $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId(), $data);
@@ -345,24 +345,24 @@ class SubscriptionService
                     ['id' => $session['ubus_rpc_session'], 'received' => time()],
                     180 * 86400
                 );
-                $this->logger->info('handleMoqsquittoMessage(): stored ubus session for '.$hostname);
+                $this->logger->info('handleMessage(): stored ubus session for '.$hostname);
             }
 
             return true;
         } elseif ('notifications' == $tp[3] && 'hostapd' == $tp[4] && 'bss.add' == $tp[5]) {
             $bssmsg = json_decode($message->payload, true);
             if (!is_array($bssmsg)) {
-                $this->logger->error('handleMoqsquittoMessage(): bss add notification is not an array. '.$hostname.' '.print_r($bssmsg, true));
+                $this->logger->error('handleMessage(): bss add notification is not an array. '.$hostname.' '.print_r($bssmsg, true));
 
                 return false;
             }
             if (!isset($bssmsg['name'])) {
-                $this->logger->error('handleMoqsquittoMessage(): missing name property in bss add notification from '.$hostname);
+                $this->logger->error('handleMessage(): missing name property in bss add notification from '.$hostname);
 
                 return false;
             }
             $device = $bssmsg['name'];
-        //$this->logger->info('handleMoqsquittoMessage(): prehandled accesspoint bss add notification '.$tp[5].' for device '.$device.' from '.$hostname,(array)$message);
+        //$this->logger->info('handleMessage(): prehandled accesspoint bss add notification '.$tp[5].' for device '.$device.' from '.$hostname,(array)$message);
         } elseif ('wireless' == $tp[3] && 'status' == $tp[4]) {
             return $this->apService->lifetimeMessageHandler(
                 $ap,
@@ -379,27 +379,27 @@ class SubscriptionService
             );
             /*
             } elseif ($tp[3] == 'properties') {
-            $this->logger->info('handleMoqsquittoMessage(): implement properties handler for message from '.$hostname,(array)$message);
+            $this->logger->info('handleMessage(): implement properties handler for message from '.$hostname,(array)$message);
             return false;
             */
         }
         //echo "XX: ".$message->topic.' '.$message->payload."\n";
-        //$this->logger->info('handleMoqsquittoMessage(): debug '.$hostname, [$message->topic]);
+        //$this->logger->info('handleMessage(): debug '.$hostname, [$message->topic]);
 
         // Handle device specific messages
         if (!isset($this->cacheLocal['dev-by-ap-ifname'][$hostname])) {
-            $this->logger->info('handleMoqsquittoMessage(): ap not found '.$hostname);
+            $this->logger->info('handleMessage(): ap not found '.$hostname);
 
             return true;
         }
         if (!isset($this->cacheLocal['dev-by-ap-ifname'][$hostname][$device])) {
-            $this->logger->info('handleMoqsquittoMessage(): device '.$device.' not found '.$hostname);
+            $this->logger->info('handleMessage(): device '.$device.' not found '.$hostname);
 
             return true;
         }
         $device = $this->cacheLocal['dev-by-ap-ifname'][$hostname][$device];
         if (is_null($device)) {
-            $this->logger->error('handleMosquittoMessage(): device not found ', ['apname' => $hostname, 'topic' => $message->topic]);
+            $this->logger->error('handleMessage(): device not found ', ['apname' => $hostname, 'topic' => $message->topic]);
 
             return false;
         }
@@ -433,13 +433,13 @@ class SubscriptionService
 
             return true;
         } elseif ('notifications' == $tp[3] and 'hostapd' == $tp[4] and 'bss.add' == $tp[5]) {
-            $this->logger->info('handleMoqsquittoMessage(): accesspoint bss.add notification '.$tp[5].' for '.$hostname, (array) $message);
+            $this->logger->info('handleMessage(): accesspoint bss.add notification '.$tp[5].' for '.$hostname, (array) $message);
             /* This is now done via the ApLifetimeHandler
             $opts = new \stdClass();
             $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', $opts);
             $topic = 'apman/ap/'.$ap->getName().'/command';
             $this->client->publish($topic, json_encode($cmd));
-            $this->logger->info('handleMoqsquittoMessage(): sent update_beacon command because of notification '.$tp[5].' for '.$hostname,(array)$message);
+            $this->logger->info('handleMessage(): sent update_beacon command because of notification '.$tp[5].' for '.$hostname,(array)$message);
              */
             return true;
         } elseif ('notifications' == $tp[3]) {
@@ -470,7 +470,7 @@ class SubscriptionService
                 }
 
                 $this->logger->info(
-                    "handleMoqsquittoMessage(): saved $event as ClindHeatMap.",
+                    "handleMessage(): saved $event as ClindHeatMap.",
                     [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),
@@ -499,7 +499,7 @@ class SubscriptionService
                 }
                 $em->persist($devent);
                 $this->logger->info(
-                    "handleMoqsquittoMessage(): saved $event as Event.",
+                    "handleMessage(): saved $event as Event.",
                     [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),

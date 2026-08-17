@@ -75,12 +75,6 @@ services:
         tags:
                 - { name: apmanbundle.ssidservice }
         public: true
-    apman.block.link_list:
-        class: ApManBundle\Block\LinkListBlock
-        arguments: [~, "@templating", "@security.token_storage", "@doctrine.orm.entity_manager", "@apman.accesspointservice" ]
-        tags:
-            - {name: sonata.block}
-        public: true
     admin.accesspoint:
         class: ApManBundle\Admin\AccessPointAdmin
         arguments: [~, ApManBundle\Entity\AccessPoint, ApManBundle\Controller\CustomActionsController ]
