@@ -17,9 +17,17 @@ class MqttFactory
     public function getClient($id = null, $cleanSession = null)
     {
         if (isset($this->client)) {
-            $this->logger->info('Reusing Mqtt client');
+            // A caller that is done with the connection disconnects it, but the
+            // instance stays cached here — handing it out again would make every
+            // later publish in the same request fail. Reconnect instead.
+            if ($this->client instanceof MqttClient && !$this->client->isConnected()) {
+                $this->logger->info('Cached Mqtt client is disconnected, reconnecting');
+                unset($this->client);
+            } else {
+                $this->logger->info('Reusing Mqtt client');
 
-            return $this->client;
+                return $this->client;
+            }
         }
         $this->logger->info('Starting Mqtt client');
         if (empty($id)) {

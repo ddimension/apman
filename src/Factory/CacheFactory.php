@@ -50,6 +50,105 @@ class CacheFactory
         return $this->cache;
     }
 
+    /**
+     * Hand a command result to whoever is waiting for it.
+     *
+     * The web request blocks on the list instead of polling the cache, which
+     * turns a 250 ms raster into a wake up in milliseconds.
+     */
+    public function pushResult($host, $id, $data)
+    {
+        try {
+            $redis = $this->getRedisClient();
+            $key = 'apman:cmdwait:'.$host.':'.$id;
+            $redis->rPush($key, json_encode($data));
+            $redis->expire($key, 120);
+        } catch (\Throwable $e) {
+            $this->logger->debug('pushResult(): '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Wait for whichever of several outstanding answers arrives first.
+     *
+     * BLPOP takes a list of keys and returns the first one that has data, so a
+     * fan out to two dozen bsses waits once for all of them instead of once per
+     * bss.
+     *
+     * @param array $ids id => host
+     *
+     * @return array|null ['id' => ..., 'data' => [...]]
+     */
+    public function waitForAnyResult(array $ids, $timeout = 5)
+    {
+        if (!$ids) {
+            return null;
+        }
+        $keys = [];
+        foreach ($ids as $id => $host) {
+            $keys['apman:cmdwait:'.$host.':'.$id] = $id;
+        }
+
+        // an answer may have landed before we started waiting
+        foreach ($ids as $id => $host) {
+            $cached = $this->getCacheItemValue('command.result.'.$host.'.'.$id);
+            if (is_array($cached)) {
+                try {
+                    $this->getRedisClient()->del('apman:cmdwait:'.$host.':'.$id);
+                } catch (\Throwable $e) {
+                }
+
+                return ['id' => $id, 'data' => $cached];
+            }
+        }
+
+        try {
+            $res = $this->getRedisClient()->blPop(array_keys($keys), max(1, (int) ceil($timeout)));
+        } catch (\Throwable $e) {
+            $this->logger->debug('waitForAnyResult(): '.$e->getMessage());
+
+            return null;
+        }
+        if (!is_array($res) || !isset($res[0], $res[1])) {
+            return null;
+        }
+        $decoded = json_decode($res[1], true);
+
+        return ['id' => $keys[$res[0]] ?? null, 'data' => is_array($decoded) ? $decoded : null];
+    }
+
+    /**
+     * @return array|null the result, or null if none arrived in time
+     */
+    public function waitForResult($host, $id, $timeout = 5)
+    {
+        try {
+            $redis = $this->getRedisClient();
+            $res = $redis->blPop(['apman:cmdwait:'.$host.':'.$id], max(1, (int) ceil($timeout)));
+            if (is_array($res) && isset($res[1])) {
+                $decoded = json_decode($res[1], true);
+
+                return is_array($decoded) ? $decoded : null;
+            }
+        } catch (\Throwable $e) {
+            $this->logger->debug('waitForResult(): '.$e->getMessage());
+        }
+
+        // the answer may have arrived before we started waiting
+        $cached = $this->getCacheItemValue('command.result.'.$host.'.'.$id);
+
+        return is_array($cached) ? $cached : null;
+    }
+
+    private function getRedisClient()
+    {
+        if (!isset($this->client) || !$this->client) {
+            $this->client = $this->getCacheClient();
+        }
+
+        return $this->client;
+    }
+
     public function addCacheItem($key, $data, $expires = null)
     {
         if (is_null($this->cache)) {

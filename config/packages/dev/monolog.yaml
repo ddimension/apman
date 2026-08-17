@@ -1,8 +1,11 @@
 monolog:
     handlers:
         main:
-            type: stream
+            # was a plain stream, which grew to 2.5 GB the one time something ran
+            # in dev by accident and nobody looked for months
+            type: rotating_file
             path: "%kernel.logs_dir%/%kernel.environment%.log"
+            max_files: 3
             level: debug
             channels: ["!event"]
         # uncomment to get logging in your browser
