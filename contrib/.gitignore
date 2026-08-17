@@ -1,0 +1,4 @@
+# Das Inventory kommt frisch aus der Flotte und enthaelt das MQTT-Passwort der
+# Access Points (apman_config) — nichts, was ins Repo gehoert.
+inventory.json
+inventory.json.tmp
