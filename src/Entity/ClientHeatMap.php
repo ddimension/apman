@@ -22,7 +22,7 @@ class ClientHeatMap
     /**
      * @var \ApManBundle\Entity\Device
      *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Device", inversedBy="events", cascade={"persist"})
+     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Device", cascade={"persist"})
      * @ORM\JoinColumns({
      *   @ORM\JoinColumn(name="device_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
      * })

@@ -48,7 +48,7 @@ class SSIDFeatureMap
     /**
      * @var \ApManBundle\Entity\Feature
      *
-     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Feature", inversedBy="feature_maps", cascade={"persist"})
+     * @ORM\ManyToOne(targetEntity="ApManBundle\Entity\Feature", cascade={"persist"})
      * @ORM\JoinColumns({
      *   @ORM\JoinColumn(name="feature_id", referencedColumnName="id", nullable=false, onDelete="CASCADE")
      * })

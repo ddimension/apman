@@ -19,3 +19,7 @@
 /.php-cs-fixer.php
 /.php-cs-fixer.cache
 ###< friendsofphp/php-cs-fixer ###
+
+# tools and scratch files, not part of the application
+/composer.phar
+/test.php

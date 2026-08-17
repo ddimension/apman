@@ -31,21 +31,21 @@ class SSID
     /**
      * @var \Doctrine\Common\Collections\Collection
      *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigOption", mappedBy="ssid", cascade={"persist"})
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigOption", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
      */
     private $config_options;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
      *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigList", mappedBy="ssid", cascade={"persist"})
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigList", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
      */
     private $config_lists;
 
     /**
      * @var \Doctrine\Common\Collections\Collection
      *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigFile", mappedBy="ssid", cascade={"persist"})
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigFile", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
      */
     private $config_files;
 

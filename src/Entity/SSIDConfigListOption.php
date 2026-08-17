@@ -45,6 +45,22 @@ class SSIDConfigListOption
      *
      * @return SSIDConfigOption
      */
+    /**
+     * The list this entry belongs to. The column is not nullable, so an entry
+     * without one cannot be written — and there was no way to set it.
+     */
+    public function setSsidConfigList(SSIDConfigList $list = null)
+    {
+        $this->ssid_config_list = $list;
+
+        return $this;
+    }
+
+    public function getSsidConfigList()
+    {
+        return $this->ssid_config_list;
+    }
+
     public function setValue($value)
     {
         $this->value = $value;

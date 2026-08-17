@@ -31,7 +31,7 @@ class SSIDConfigList
     /**
      * @var \Doctrine\Common\Collections\Collection
      *
-     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigListOption", mappedBy="ssid_config_list")
+     * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigListOption", mappedBy="ssid_config_list", cascade={"persist"}, orphanRemoval=true)
      */
     private $options;
 
@@ -96,6 +96,9 @@ class SSIDConfigList
      */
     public function addOption(SSIDConfigListOption $option)
     {
+        // the owning side is the entry, so adding to the collection alone
+        // would leave ssid_config_list_id empty and the insert would fail
+        $option->setSsidConfigList($this);
         $this->options[] = $option;
 
         return $this;
