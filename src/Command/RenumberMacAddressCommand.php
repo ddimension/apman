@@ -18,7 +18,7 @@ class RenumberMacAddressCommand extends Command
         $this->apservice = $apservice;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:renumber-mac')
@@ -26,7 +26,7 @@ class RenumberMacAddressCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $devices = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll(
     );
@@ -50,5 +50,7 @@ class RenumberMacAddressCommand extends Command
             $em->persist($device);
         }
         $em->flush();
+
+        return 0;
     }
 }

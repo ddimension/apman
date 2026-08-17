@@ -20,7 +20,7 @@ class ImportSSIDsCommand extends Command
         $this->jsonrpc = $jsonrpc;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:import-ssids')
@@ -30,7 +30,7 @@ class ImportSSIDsCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([

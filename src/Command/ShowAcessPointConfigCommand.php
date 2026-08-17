@@ -20,7 +20,7 @@ class ShowAcessPointConfigCommand extends Command
         $this->rpcService = $rpcService;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:show-ap-config')
@@ -29,7 +29,7 @@ class ShowAcessPointConfigCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([

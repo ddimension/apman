@@ -16,7 +16,7 @@ class AssignAllNeighborsCommand extends Command
         $this->apservice = $apservice;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:assign-all-neighbors')
@@ -24,8 +24,10 @@ class AssignAllNeighborsCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->apservice->assignAllNeighbors();
+
+        return 0;
     }
 }

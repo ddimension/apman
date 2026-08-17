@@ -49,7 +49,7 @@ class ImageInventoryCommand extends Command
         $this->rpcService = $rpcService;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:image-inventory')
@@ -73,7 +73,7 @@ class ImageInventoryCommand extends Command
         ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         // the json goes to stdout so the build script can just redirect it;
         // everything a human wants to read has to go to stderr or it would end

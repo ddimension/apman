@@ -38,7 +38,7 @@ class PpskDistributeCommand extends Command
         $this->logger = $logger;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:ppsk-distribute')
@@ -49,7 +49,7 @@ class PpskDistributeCommand extends Command
         ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $needle = $input->getArgument('ssid');
         $repo = $this->doctrine->getRepository('ApManBundle\Entity\SSID');

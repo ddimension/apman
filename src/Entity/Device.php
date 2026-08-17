@@ -28,7 +28,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     /**
      * @var array|null
      */
-    #[ORM\Column(name: 'config', type: 'array', nullable: true)]
+    #[ORM\Column(name: 'config', type: 'json', nullable: true)]
     private $config;
 
     /**

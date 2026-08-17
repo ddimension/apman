@@ -20,7 +20,7 @@ class MigrateDevicesCommand extends Command
         $this->rpcService = $rpcService;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:migrate-devices')
@@ -29,7 +29,7 @@ class MigrateDevicesCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
         $devices = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll();

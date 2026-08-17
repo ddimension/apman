@@ -18,7 +18,7 @@ class DbCleanupCommand extends Command
         $this->apservice = $apservice;
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('apman:dbcleanup')
@@ -26,7 +26,7 @@ class DbCleanupCommand extends Command
             ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $em = $this->doctrine->getManager();
 
@@ -60,5 +60,7 @@ class DbCleanupCommand extends Command
         );
         $query->setParameter('ts', $oldest);
         $last = $query->getResult();
+
+        return 0;
     }
 }
