@@ -43,14 +43,60 @@
             .bar > span { display: block; height: 100%; background: #4a8; }
             .bar.weak > span { background: #d84; }
             .bar.bad > span { background: #c33; }
-            @media (max-width: 700px) {
-                nav.top { font-size: .9rem; }
-                /* every table of ours, not just the one this rule was written
-                   for: a table added later should not silently break on a phone */
-                table.aps, table.aps tbody, table.aps tr, table.aps td,
+            /* ---- narrow screens ------------------------------------------
+               The rule that used to live here stacked every table into blocks
+               and hid the header row with it, so a phone showed a column of
+               values with nothing to say what any of them meant — on /oldStatus
+               that is 23 unlabelled values per station. Tables scroll sideways
+               inside themselves instead: the header stays above its own column,
+               and the page itself never scrolls sideways. */
+            @media (max-width: 760px) {
+                html, body { overflow-x: hidden; }
+                main { padding: .5rem; }
+
+                /* one swipeable row instead of three wrapped ones, so the
+                   content still starts near the top of the screen */
+                nav.top { flex-wrap: nowrap; overflow-x: auto; gap: .1rem;
+                          padding: .25rem .5rem; scrollbar-width: none; }
+                nav.top::-webkit-scrollbar { display: none; }
+                nav.top a { flex: 0 0 auto; padding: .55rem .7rem; font-size: .95rem; }
+                nav.top .brand { flex: 0 0 auto; }
+                nav.top .spacer { display: none; }
+
+                table.aps { display: block; overflow-x: auto;
+                            max-width: 100%; -webkit-overflow-scrolling: touch; }
+                table.aps th, table.aps td { white-space: nowrap; }
+
+                /* the option editor is the exception: three columns, and the
+                   middle one holds the controls you came to type in. Stacked it
+                   reads and edits far better than it scrolls — with the column
+                   name carried along, which is what the old rule threw away. */
                 table.opts, table.opts tbody, table.opts tr, table.opts td { display: block; width: auto; }
-                table.aps th, table.opts th { display: none; }
-                table.aps td, table.opts td { border: none; border-bottom: 1px solid #eee; }
+                table.opts thead, table.opts tr.head { display: none; }
+                table.opts tr { border: 1px solid #e3e3e8; border-radius: 4px;
+                                margin-bottom: .5rem; padding: .4rem .5rem; }
+                table.opts td { border: none; padding: .15rem 0; }
+                table.opts td[data-label]::before {
+                    content: attr(data-label) " ";
+                    display: block; font-size: .72rem; text-transform: uppercase;
+                    letter-spacing: .04em; color: #888;
+                }
+                table.opts td input[type="text"], table.opts td input[type="number"],
+                table.opts td select, table.opts td textarea { width: 100%; box-sizing: border-box; }
+
+                /* a channel list or a hostname has no spaces in it and is
+                   happily 50 characters long, which is wider than the screen —
+                   in a stacked cell that is what pushes the page sideways */
+                table.opts td, .card, main p { overflow-wrap: anywhere; }
+                table.opts code { white-space: normal; }
+
+                /* Safari zooms the whole page when a control smaller than 16px
+                   takes focus, which throws the layout off centre for the rest
+                   of the visit */
+                input, select, textarea, button { font-size: 16px; }
+                button { padding: .45rem .7rem; }
+
+                .toolbar, .gridbar { gap: .4rem; }
             }
         </style>
         {% block stylesheets %}{% endblock %}

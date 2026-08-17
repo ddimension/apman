@@ -497,6 +497,27 @@ refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 	button.act { font-size: 85%; padding: 1px 6px; margin-right: 2px; }
 	button.act.danger { color: #900; }
 	.gridjs-td { vertical-align: top; }
+
+	/* ---- narrow screens ----------------------------------------------
+	   Twelve columns do not become readable by stacking them, so the grid
+	   keeps its shape and scrolls inside its own wrapper. What has to
+	   change is everything around it: the two toolbars become two columns
+	   of full width controls instead of a long wrapping line, and the
+	   search box grows to something a thumb can hit. */
+	@media (max-width: 760px) {
+		.gridjs-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+		.gridjs-table { min-width: 0; }
+		.gridbar { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; align-items: center; }
+		.gridbar .spacer { display: none; }
+		.gridbar label { display: flex; flex-direction: column; gap: .15rem; font-size: .8rem; }
+		.gridbar label > select { width: 100%; }
+		.gridbar.filters select { max-width: none; }
+		.gridbar > button, .gridbar > span { grid-column: span 2; }
+		.gridbar label.small:has(#onlyproblems) { flex-direction: row; align-items: center; gap: .4rem; }
+		.gridjs-search { width: 100%; }
+		.gridjs-search-input { width: 100%; font-size: 16px; }
+		.sub { font-size: 80%; }
+	}
 </style>
 {% endblock %}
 
