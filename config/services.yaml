@@ -25,6 +25,10 @@ services:
             - '../src/Entity/'
             - '../src/Kernel.php'
             - '../src/Tests/'
+            # value objects and thin wrappers around the mqtt and radius
+            # libraries — they are constructed where they are used, not injected
+            - '../src/Mqtt/'
+            - '../src/Radius/'
 
     # controllers are imported separately to make sure services can be injected
     # as action arguments even if you don't extend any base controller class
@@ -35,6 +39,15 @@ services:
     ApManBundle\Service\WirelessSchemaService:
         arguments:
             $projectDir: '%kernel.project_dir%'
+
+    # The RADIUS server lives in the subscriber daemon. Everything about it is
+    # off by default: without a shared secret it refuses to start at all.
+    ApManBundle\Service\RadiusServerService:
+        arguments:
+            $enabled: '%env(bool:RADIUS_ENABLED)%'
+            $bind: '%env(string:RADIUS_BIND)%'
+            $secret: '%env(string:RADIUS_SECRET)%'
+            $testPsk: '%env(string:RADIUS_TEST_PSK)%'
 
     ApManBundle\Service\StatusService:
         arguments:

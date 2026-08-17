@@ -29,6 +29,25 @@ class SSID
     private $name;
 
     /**
+     * Whether a station without a key of its own is handed the network
+     * passphrase by our RADIUS server.
+     *
+     * On by default because that is what the catch all rule of the RADIUS
+     * server did before: switching a network over to per device keys must not
+     * turn every device that has none into a device that cannot connect. Turn
+     * it off and the SSID is closed to anything that has no entry — which is
+     * what a guest or test network wants.
+     *
+     * Not a uci option: it decides what the controller answers, and has no
+     * business travelling to the access points.
+     *
+     * @var bool
+     *
+     * @ORM\Column(name="radius_fallback", type="boolean", options={"default": true})
+     */
+    private $radiusFallback = true;
+
+    /**
      * @var \Doctrine\Common\Collections\Collection
      *
      * @ORM\OneToMany(targetEntity="ApManBundle\Entity\SSIDConfigOption", mappedBy="ssid", cascade={"persist"}, orphanRemoval=true)
@@ -296,6 +315,21 @@ class SSID
     public function setName($name)
     {
         $this->name = $name;
+
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getRadiusFallback()
+    {
+        return (bool) $this->radiusFallback;
+    }
+
+    public function setRadiusFallback($radiusFallback)
+    {
+        $this->radiusFallback = (bool) $radiusFallback;
 
         return $this;
     }
