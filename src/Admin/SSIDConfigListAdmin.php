@@ -10,7 +10,7 @@ use Sonata\Form\Type\CollectionType;
 
 class SSIDConfigListAdmin extends AbstractAdmin
 {
-    protected function configureFormFields(FormMapper $formMapper)
+    protected function configureFormFields(FormMapper $formMapper): void
     {
         $formMapper->add('name');
         $formMapper->add('options', CollectionType::class, [
@@ -23,12 +23,12 @@ class SSIDConfigListAdmin extends AbstractAdmin
             ]);
     }
 
-    protected function configureDatagridFilters(DatagridMapper $datagridMapper)
+    protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper->add('name');
     }
 
-    protected function configureListFields(ListMapper $listMapper)
+    protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('ssid', null, ['associated_property' => 'name']);
         $listMapper->addIdentifier('name');

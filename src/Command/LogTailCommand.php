@@ -32,7 +32,7 @@ class LogTailCommand extends Command
 
         $query = $em->createQuery(
             'SELECT sl
-		     FROM ApManBundle:Syslog sl
+		     FROM ApManBundle\Entity\Syslog sl
 		     ORDER BY sl.ts DESC
 			'
         );
@@ -43,7 +43,7 @@ class LogTailCommand extends Command
             sleep(1);
             $query = $em->createQuery(
                 'SELECT sl
-			     FROM ApManBundle:Syslog sl
+			     FROM ApManBundle\Entity\Syslog sl
 			     WHERE
 			     sl.id>:id
 			     ORDER BY sl.id ASC'

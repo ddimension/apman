@@ -34,7 +34,7 @@ class DbCleanupCommand extends Command
         $oldest->SetTimeStamp(time() - 86400);
         $query = $em->createQuery(
             'DELETE
-		     FROM ApManBundle:Syslog sl
+		     FROM ApManBundle\Entity\Syslog sl
 		     WHERE sl.ts<:ts
 			'
         );
@@ -45,7 +45,7 @@ class DbCleanupCommand extends Command
         $oldest->SetTimeStamp(time() - (2 * 86400));
         $query = $em->createQuery(
             'DELETE
-		     FROM ApManBundle:ClientHeatMap ch
+		     FROM ApManBundle\Entity\ClientHeatMap ch
 		     WHERE ch.ts<:ts
 			'
         );
@@ -54,7 +54,7 @@ class DbCleanupCommand extends Command
 
         $query = $em->createQuery(
             'DELETE
-		     FROM ApManBundle:Event ev
+		     FROM ApManBundle\Entity\Event ev
 		     WHERE ev.ts<:ts
 			'
         );

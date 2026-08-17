@@ -32,7 +32,7 @@ class FeatureTestCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $em = $this->doctrine->getManager();
-        $device = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy([
+        $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
         'id' => 349,
     ]);
         $result = $this->apservice->getDeviceConfig($device);
@@ -48,7 +48,7 @@ class FeatureTestCommand extends Command
         $em->flush();
         exit;
 
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {

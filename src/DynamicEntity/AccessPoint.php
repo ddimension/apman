@@ -3,7 +3,8 @@
 namespace ApManBundle\DynamicEntity;
 
 use ApManBundle\Library\AccessPointState;
-use Symfony\Component\Cache\Simple\FilesystemCache;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
+use Symfony\Component\Cache\Psr16Cache;
 
 class AccessPoint
 {
@@ -35,7 +36,7 @@ class AccessPoint
      */
     public function getSession()
     {
-        $cache = new FilesystemCache();
+        $cache = new Psr16Cache(new FilesystemAdapter());
         $key = 'session_'.$this->getName();
         if ($cache->has($key)) {
             return $cache->get($key);

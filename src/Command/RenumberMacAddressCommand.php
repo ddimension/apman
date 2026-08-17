@@ -28,7 +28,7 @@ class RenumberMacAddressCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $devices = $this->doctrine->getRepository('ApManBundle:Device')->findAll(
+        $devices = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll(
     );
 
         $em = $this->doctrine->getManager();

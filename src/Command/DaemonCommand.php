@@ -42,7 +42,7 @@ class DaemonCommand extends Command
         $loop = true;
         $childs = [];
         while ($loop) {
-            $aps = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findAll();
+            $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findAll();
             if (!count($aps)) {
                 $this->output->writeln('No APs found..');
 
@@ -71,7 +71,7 @@ class DaemonCommand extends Command
                 $qb = $em->createQueryBuilder();
                 $query = $em->createQuery(
                     'SELECT ap
-			     FROM ApManBundle:AccessPoint ap
+			     FROM ApManBundle\Entity\AccessPoint ap
 			     WHERE
 			     ap.id = :id'
                 );

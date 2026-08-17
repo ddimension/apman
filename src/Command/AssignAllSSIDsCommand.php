@@ -31,7 +31,7 @@ class AssignAllSSIDsCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $em = $this->doctrine->getManager();
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {
@@ -40,7 +40,7 @@ class AssignAllSSIDsCommand extends Command
             return false;
         }
 
-        $radios = $this->doctrine->getRepository('ApManBundle:Radio')->findBy([
+        $radios = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findBy([
         'accesspoint' => $ap,
     ]);
         if (!is_array($radios) or !count($radios)) {
@@ -48,7 +48,7 @@ class AssignAllSSIDsCommand extends Command
 
             return false;
         }
-        $ssids = $this->doctrine->getRepository('ApManBundle:SSID')->findAll();
+        $ssids = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findAll();
         if (!count($ssids)) {
             $this->output->writeln('No SSIDs not found.');
 
@@ -65,7 +65,7 @@ class AssignAllSSIDsCommand extends Command
             $i = -1;
             foreach ($radios as $radio) {
                 ++$i;
-                $device = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy([
+                $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
                 'ssid' => $ssid,
                 'radio' => $radio,
             ]);

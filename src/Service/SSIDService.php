@@ -2,7 +2,8 @@
 
 namespace ApManBundle\Service;
 
-use Symfony\Component\Cache\Simple\FilesystemCache;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
+use Symfony\Component\Cache\Psr16Cache;
 
 class SSIDService
 {
@@ -67,7 +68,7 @@ class SSIDService
             }
 
             if (!property_exists($assocClient, 'signal')) {
-                $this->logger->warn('Missing signal field in assoc data of client '.$mac);
+                $this->logger->warning('Missing signal field in assoc data of client '.$mac);
                 continue;
             }
             if ($assocClient->signal < $limit) {
@@ -86,7 +87,7 @@ class SSIDService
         $em = $this->doctrine->getManager();
         $query = $em->createQuery(
             'SELECT cl
-		     FROM ApManBundle:Client cl
+		     FROM ApManBundle\Entity\Client cl
 		     WHERE cl.mac IN(:macs)
 			'
         );
@@ -156,7 +157,7 @@ class SSIDService
         /*
             hostapd.wap-knet0 wnm_disassoc_imminent '{"addr":"60:f1:89:89:9e:c8","duration":400,"neighbors":["92daf93c3d05ff1900007a7c090603017e00"]}'
         */
-        $cache = new FilesystemCache();
+        $cache = new Psr16Cache(new FilesystemAdapter());
         $cacheKey = 'ssid.wnm_disassoc_imminent.'.str_replace(':', '', $client->getMac());
         if ($cache->has($cacheKey)) {
             $this->logger->info('wnmDisassocImminent Process alreadyrunning');

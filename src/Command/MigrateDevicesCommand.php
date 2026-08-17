@@ -32,7 +32,7 @@ class MigrateDevicesCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $em = $this->doctrine->getManager();
-        $devices = $this->doctrine->getRepository('ApManBundle:Device')->findAll();
+        $devices = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll();
         foreach ($devices as $device) {
             $cfg = $device->getConfig();
             unset($cfg['nasid']);

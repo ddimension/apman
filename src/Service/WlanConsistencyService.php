@@ -68,7 +68,7 @@ class WlanConsistencyService
 
     private function run()
     {
-        $aps = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findBy(['IsProductive' => true]);
+        $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findBy(['IsProductive' => true]);
         $blocks = [];
         $errors = [];
         foreach ($aps as $ap) {

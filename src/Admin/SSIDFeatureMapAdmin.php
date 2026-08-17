@@ -37,7 +37,7 @@ final class SSIDFeatureMapAdmin extends AbstractAdmin
             ->add('enabled')
             ->add('feature.name')
             ->add('ssid.name')
-            ->add('_action', null, [
+            ->add(ListMapper::NAME_ACTIONS, null, [
                 'actions' => [
                     'show' => [],
                     'edit' => [],

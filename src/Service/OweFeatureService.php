@@ -133,7 +133,7 @@ class OweFeatureService implements iFeatureService
         //echo "Other SSID: ".$other_ssid_name."\n";
         $query = $em->createQuery(
             'SELECT d
-			FROM ApManBundle:Device d
+			FROM ApManBundle\Entity\Device d
 			WHERE d.ssid = :ssid AND d.radio = :radio'
         );
         $query->setParameter('ssid', $other_ssid);
@@ -170,7 +170,7 @@ class OweFeatureService implements iFeatureService
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT m
-			FROM ApManBundle:SSIDFeatureMap m
+			FROM ApManBundle\Entity\SSIDFeatureMap m
 			WHERE m.feature = :feature
 			AND m.id != :mapid'
         );

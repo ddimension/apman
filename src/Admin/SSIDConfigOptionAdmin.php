@@ -9,27 +9,27 @@ use Sonata\AdminBundle\Form\FormMapper;
 
 class SSIDConfigOptionAdmin extends AbstractAdmin
 {
-    protected function configureFormFields(FormMapper $formMapper)
+    protected function configureFormFields(FormMapper $formMapper): void
     {
         $formMapper->add('ssid');
         $formMapper->add('name');
         $formMapper->add('value');
     }
 
-    protected function configureDatagridFilters(DatagridMapper $datagridMapper)
+    protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper->add('ssid');
         $datagridMapper->add('name');
     }
 
-    protected function configureListFields(ListMapper $listMapper)
+    protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('ssid', null, ['associated_property' => 'name']);
         $listMapper->addIdentifier('name');
         $listMapper->addIdentifier('value');
     }
 
-    public function prePersist($object)
+    public function prePersist(object $object): void
     {
     }
 }

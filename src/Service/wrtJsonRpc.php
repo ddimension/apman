@@ -2,7 +2,8 @@
 
 namespace ApManBundle\Service;
 
-use Symfony\Component\Cache\Simple\FilesystemCache;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
+use Symfony\Component\Cache\Psr16Cache;
 use Symfony\Component\Stopwatch\Stopwatch;
 
 class wrtJsonRpc
@@ -177,12 +178,12 @@ class wrtJsonRpc
         $stopwatch->stop('Call '.$url.' '.$procedure);
         $result = json_decode($result_string);
         if (!self::checkResult($result)) {
-            $this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure, ['duration' => microtime(true) - $start]);
+            $this->logger->warning('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure, ['duration' => microtime(true) - $start]);
 
             return false;
         }
         if ($result->result[0]) {
-            $this->logger->warn('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result), ['duration' => microtime(true) - $start]);
+            $this->logger->warning('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result), ['duration' => microtime(true) - $start]);
 
             return false;
         }
@@ -218,7 +219,7 @@ class wrtJsonRpc
     public function getSession(\ApManBundle\Entity\AccessPoint $ap, $cached = true)
     {
         if ($cached) {
-            $cache = new FilesystemCache();
+            $cache = new Psr16Cache(new FilesystemAdapter());
             $key = 'session_'.$ap->getName();
             if ($cache->has($key)) {
                 return $cache->get($key);

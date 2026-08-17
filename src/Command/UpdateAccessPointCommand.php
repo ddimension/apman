@@ -30,7 +30,7 @@ class UpdateAccessPointCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {

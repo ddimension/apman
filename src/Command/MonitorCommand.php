@@ -30,7 +30,7 @@ class MonitorCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $em = $this->doctrine->getManager();
-        $aps = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findBy([
+        $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findBy([
         'IsProductive' => true,
     ]);
         if (is_null($aps) || !is_array($aps) || !count($aps)) {

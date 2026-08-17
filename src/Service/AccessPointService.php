@@ -2,7 +2,8 @@
 
 namespace ApManBundle\Service;
 
-use Symfony\Component\Cache\Simple\FilesystemCache;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
+use Symfony\Component\Cache\Psr16Cache;
 
 class AccessPointService
 {
@@ -128,7 +129,7 @@ class AccessPointService
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT fm
-			     FROM ApManBundle:SSIDFeatureMap fm
+			     FROM ApManBundle\Entity\SSIDFeatureMap fm
 			     WHERE fm.ssid = :ssid
 			     AND fm.enabled = true
 			     ORDER by fm.priority ASC, fm.id ASC'
@@ -223,7 +224,7 @@ class AccessPointService
 
         $query = $em->createQuery(
             'SELECT r
-			     FROM ApManBundle:Radio r
+			     FROM ApManBundle\Entity\Radio r
 			     WHERE r.accesspoint = :ap
 			     ORDER by r.name ASC'
         );
@@ -240,7 +241,7 @@ class AccessPointService
             $commands['list'][] = $this->uciRequest('radio-'.$radio->getName(), 'add', $opts, $session);
             $query = $em->createQuery(
                 'SELECT d
-			     FROM ApManBundle:Device d
+			     FROM ApManBundle\Entity\Device d
 			     LEFT JOIN d.ssid s
 			     WHERE d.radio = :radio
 			     ORDER by s.setup_order ASC'
@@ -652,7 +653,7 @@ class AccessPointService
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'DELETE
-		     FROM ApManBundle:Radio radio
+		     FROM ApManBundle\Entity\Radio radio
 		     WHERE
 		     radio.accesspoint = :ap
 		     AND radio.id NOT IN (:radios)'
@@ -726,7 +727,7 @@ class AccessPointService
      */
     public function getMacManufacturer($mac)
     {
-        $cache = new FilesystemCache();
+        $cache = new Psr16Cache(new FilesystemAdapter());
         $key = 'macdb';
         if (!$cache->has($key)) {
             if (!file_exists('/usr/share/nmap/nmap-mac-prefixes')) {
@@ -782,7 +783,7 @@ class AccessPointService
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT ap
-	     FROM ApManBundle:AccessPoint ap
+	     FROM ApManBundle\Entity\AccessPoint ap
 	     WHERE
 	     ap.id = :id'
         );
@@ -1030,7 +1031,7 @@ class AccessPointService
     {
         $em = $this->doctrine->getManager();
         if (is_null($aps) || !is_array($aps) || !count($aps)) {
-            $this->logger->warn('No productive Accesspoints found.');
+            $this->logger->warning('No productive Accesspoints found.');
 
             return false;
         }
@@ -1112,7 +1113,7 @@ class AccessPointService
         $client = $this->publisher ?: $this->mqttFactory->getClient();
 
         $cmds = [];
-        $ssids = $this->doctrine->getRepository('ApManBundle:SSID')->findall();
+        $ssids = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findall();
         foreach ($ssids as $ssid) {
             $neighbors = [];
             foreach ($ssid->getDevices() as $device) {
@@ -1237,7 +1238,7 @@ class AccessPointService
             $qb = $em->createQueryBuilder();
             $query = $em->createQuery(
                 'SELECT c
-			 FROM ApManBundle:Client c
+			 FROM ApManBundle\Entity\Client c
 			 WHERE c.mac=:mac'
             );
             $query->setParameter('mac', $mac);

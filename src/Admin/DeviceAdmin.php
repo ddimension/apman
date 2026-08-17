@@ -12,7 +12,7 @@ use Symfony\Component\Form\Extension\Core\Type\TextType;
 
 class DeviceAdmin extends AbstractAdmin
 {
-    protected function configureFormFields(FormMapper $formMapper)
+    protected function configureFormFields(FormMapper $formMapper): void
     {
         $formMapper->add('name', TextType::class);
         $formMapper->add('ifname', TextType::class);
@@ -31,7 +31,7 @@ class DeviceAdmin extends AbstractAdmin
         ));
     }
 
-    protected function configureDatagridFilters(DatagridMapper $datagridMapper)
+    protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper->add('radio.accesspoint.name');
         $datagridMapper->add('ssid');
@@ -40,7 +40,7 @@ class DeviceAdmin extends AbstractAdmin
         $datagridMapper->add('ifname');
     }
 
-    protected function configureListFields(ListMapper $listMapper)
+    protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('radio.accesspoint.name', null, ['label' => 'Accesspoint']);
         $listMapper->addIdentifier('radio.name');

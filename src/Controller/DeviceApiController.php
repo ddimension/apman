@@ -3,11 +3,11 @@
 namespace ApManBundle\Controller;
 
 use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Bundle\FrameworkBundle\Controller\Controller;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class DeviceApiController extends Controller
+class DeviceApiController extends AbstractController
 {
     private $logger;
     private $apservice;

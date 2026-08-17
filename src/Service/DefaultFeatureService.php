@@ -115,7 +115,7 @@ class DefaultFeatureService implements iFeatureService
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT m
-                        FROM ApManBundle:SSIDFeatureMap m
+                        FROM ApManBundle\Entity\SSIDFeatureMap m
                         WHERE m.feature = :feature
                         AND m.id != :mapid'
         );

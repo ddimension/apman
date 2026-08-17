@@ -31,7 +31,7 @@ class ConfigureAccessPointCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $em = $this->doctrine->getManager();
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {
@@ -40,7 +40,7 @@ class ConfigureAccessPointCommand extends Command
             return false;
         }
 
-        $radios = $this->doctrine->getRepository('ApManBundle:Radio')->findBy([
+        $radios = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findBy([
         'accesspoint' => $ap,
     ]);
         if (!is_array($radios) or !count($radios)) {

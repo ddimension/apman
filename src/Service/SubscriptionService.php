@@ -183,15 +183,20 @@ class SubscriptionService
      */
     private function reviveDatabase()
     {
+        // DBAL 3 dropped ping(): the way to find out whether a handle still
+        // works is to use it. The cheapest query the platform knows is enough,
+        // and closing is all that is needed afterwards — the next query opens a
+        // fresh connection by itself.
         try {
             $connection = $this->doctrine->getManager()->getConnection();
-            if (false === $connection->ping()) {
-                $this->logger->warning('Database ping failed, reconnect.');
-                $connection->close();
-                $connection->connect();
-            }
+            $connection->executeQuery($connection->getDatabasePlatform()->getDummySelectSQL());
         } catch (\Throwable $e) {
-            $this->logger->error('Database revive failed: '.$e->getMessage());
+            $this->logger->warning('Database handle is stale, closing it: '.$e->getMessage());
+            try {
+                $connection->close();
+            } catch (\Throwable $ignored) {
+                // nothing left to close
+            }
         }
     }
 
@@ -681,7 +686,7 @@ class SubscriptionService
     private function stampIpsk($keyid, $mac)
     {
         $em = $this->doctrine->getManager();
-        $ppsk = $em->getRepository('ApManBundle:Ppsk')->findOneBy(['keyid' => $keyid]);
+        $ppsk = $em->getRepository('ApManBundle\Entity\Ppsk')->findOneBy(['keyid' => $keyid]);
         if (!$ppsk) {
             $this->logger->warning('stampIpsk(): unknown keyid '.$keyid.' used by '.$mac);
 
@@ -750,7 +755,7 @@ class SubscriptionService
         if (!$this->ppskService->managesOwnKeys($ssid) || !$this->ppskService->usesRadius($ssid)) {
             return;
         }
-        $repo = $this->doctrine->getRepository('ApManBundle:Ppsk');
+        $repo = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk');
         $mac = strtolower($mac);
         if ($repo->findOneBy(['ssid' => $ssid, 'mac' => $mac])) {
             return;
@@ -787,7 +792,7 @@ class SubscriptionService
         $ids = array_keys($this->ppskPending);
         $this->ppskPending = [];
         foreach ($ids as $id) {
-            $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($id);
+            $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
             if (!$ssid) {
                 continue;
             }

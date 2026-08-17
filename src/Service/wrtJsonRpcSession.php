@@ -2,7 +2,8 @@
 
 namespace ApManBundle\Service;
 
-use Symfony\Component\Cache\Simple\FilesystemCache;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
+use Symfony\Component\Cache\Psr16Cache;
 
 class wrtJsonRpcSession
 {
@@ -47,7 +48,7 @@ class wrtJsonRpcSession
 
     public function callCached($namespace, $procedure, $arguments = null, $ttl = 300)
     {
-        $cache = new FilesystemCache();
+        $cache = new Psr16Cache(new FilesystemAdapter());
         $key = 'jsonrpccall.'.hash('sha256', serialize([$this->url, $namespace, $procedure, $arguments]));
         if ($cache->has($key)) {
             return $cache->get($key);
@@ -60,9 +61,9 @@ class wrtJsonRpcSession
 
     public function invalidateCache($namespace, $procedure, $arguments = null, $ttl = 300)
     {
-        $cache = new FilesystemCache();
+        $cache = new Psr16Cache(new FilesystemAdapter());
         $key = 'jsonrpccall.'.hash('sha256', serialize([$this->url, $namespace, $procedure, $arguments]));
 
-        return $cache->deleteItem($key);
+        return $cache->delete($key);
     }
 }

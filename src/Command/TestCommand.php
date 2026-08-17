@@ -33,7 +33,7 @@ class TestCommand extends Command
     {
         $em = $this->doctrine->getManager();
         /*
-        $devices = $this->doctrine->getRepository('ApManBundle:Device')->findAll();
+        $devices = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll();
         foreach ($devices as $device) {
             $cfg = $device->getConfig();
             $status = $device->getStatus();
@@ -43,7 +43,7 @@ class TestCommand extends Command
         $em->flush();
         exit;
         */
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {

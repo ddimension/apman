@@ -302,13 +302,13 @@ class RadiusAuthService
     {
         $connection = $this->doctrine->getManager()->getConnection();
         try {
-            return $connection->fetchAll($sql, $params);
+            return $connection->fetchAllAssociative($sql, $params);
         } catch (\Throwable $e) {
             $this->logger->warning('RadiusAuth: query failed, reconnecting: '.$e->getMessage());
             $connection->close();
             $connection->connect();
 
-            return $connection->fetchAll($sql, $params);
+            return $connection->fetchAllAssociative($sql, $params);
         }
     }
 
@@ -316,13 +316,13 @@ class RadiusAuthService
     {
         $connection = $this->doctrine->getManager()->getConnection();
         try {
-            return $connection->executeUpdate($sql, $params);
+            return $connection->executeStatement($sql, $params);
         } catch (\Throwable $e) {
             $this->logger->warning('RadiusAuth: statement failed, reconnecting: '.$e->getMessage());
             $connection->close();
             $connection->connect();
 
-            return $connection->executeUpdate($sql, $params);
+            return $connection->executeStatement($sql, $params);
         }
     }
 

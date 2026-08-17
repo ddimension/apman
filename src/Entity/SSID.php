@@ -173,7 +173,7 @@ class SSID
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT cfg
-                     FROM ApManBundle:SSIDConfigOption cfg
+                     FROM ApManBundle\Entity\SSIDConfigOption cfg
 		     WHERE
 		     cfg.ssid = :ssid
                      AND cfg.name IN (:names)'
@@ -189,7 +189,7 @@ class SSID
         }
         $query = $em->createQuery(
             'DELETE
-                     FROM ApManBundle:SSIDConfigOption cfg
+                     FROM ApManBundle\Entity\SSIDConfigOption cfg
 		     WHERE
                      cfg.ssid = :ssid
                      AND cfg.name NOT IN (:names)'
@@ -203,7 +203,7 @@ class SSID
         $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT cfg
-                     FROM ApManBundle:SSIDConfigList cfg
+                     FROM ApManBundle\Entity\SSIDConfigList cfg
 		     WHERE
                      cfg.ssid = :ssid
                      AND cfg.name IN (:names)'
@@ -214,7 +214,7 @@ class SSID
         foreach ($configs as $cfg) {
             $query = $em->createQuery(
                 'DELETE
-			     FROM ApManBundle:SSIDConfigListOption cfg
+			     FROM ApManBundle\Entity\SSIDConfigListOption cfg
 			     WHERE
 			     cfg.ssid_config_list = :ssid_config_list'
             );
@@ -233,7 +233,7 @@ class SSID
         }
         $query = $em->createQuery(
             'DELETE
-			     FROM ApManBundle:SSIDConfigList cfg
+			     FROM ApManBundle\Entity\SSIDConfigList cfg
 			     WHERE
 			     cfg.ssid = :ssid
 			     AND cfg.name NOT IN (:names)'

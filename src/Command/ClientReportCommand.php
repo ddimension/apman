@@ -32,7 +32,7 @@ class ClientReportCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $em = $this->doctrine->getManager();
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy([
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findOneBy([
         'name' => $input->getArgument('ssid'),
     ]);
         if (is_null($ssid)) {
@@ -81,7 +81,7 @@ class ClientReportCommand extends Command
         sleep(10);
         $query = $em->createQuery(
             'SELECT sl
-		     FROM ApManBundle:Syslog sl
+		     FROM ApManBundle\Entity\Syslog sl
 		     WHERE
 		     sl.ts>:ts
 		     AND sl.message LIKE :ptr

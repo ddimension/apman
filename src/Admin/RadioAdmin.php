@@ -6,12 +6,12 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
-use Sonata\AdminBundle\Route\RouteCollection;
+use Sonata\AdminBundle\Route\RouteCollectionInterface;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 
 class RadioAdmin extends AbstractAdmin
 {
-    protected function configureFormFields(FormMapper $formMapper)
+    protected function configureFormFields(FormMapper $formMapper): void
     {
         $formMapper->add('name', TextType::class);
         $formMapper->add('config_type');
@@ -36,7 +36,7 @@ class RadioAdmin extends AbstractAdmin
         ->add('config_ht_capab');
     }
 
-    protected function configureDatagridFilters(DatagridMapper $datagridMapper)
+    protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper->add('name')
     ->add('config_disabled')
@@ -46,7 +46,7 @@ class RadioAdmin extends AbstractAdmin
     ->add('config_country');
     }
 
-    protected function configureListFields(ListMapper $listMapper)
+    protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('accesspoint', null, ['associated_property' => 'name'])
         ->addIdentifier('name')
@@ -62,7 +62,7 @@ class RadioAdmin extends AbstractAdmin
         ->addIdentifier('txpower')
         ->addIdentifier('mode')
         ->addIdentifier('hw_info');
-        $listMapper->addIdentifier('_action', null, [
+        $listMapper->add(ListMapper::NAME_ACTIONS, null, [
         'actions' => [
             'radio_status' => [
                 'template' => 'CRUD/list__action_radio_status.html.twig',
@@ -74,7 +74,7 @@ class RadioAdmin extends AbstractAdmin
     ]);
     }
 
-    protected function configureRoutes(RouteCollection $collection)
+    protected function configureRoutes(RouteCollectionInterface $collection): void
     {
         $collection->add('radio_status', $this->getRouterIdParameter().'/status');
         $collection->add('radio_neighbors', $this->getRouterIdParameter().'/neighbors');

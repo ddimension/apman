@@ -3,13 +3,13 @@
 namespace ApManBundle\Controller;
 
 use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Bundle\FrameworkBundle\Controller\Controller;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Amp;
 
-class DefaultController extends Controller
+class DefaultController extends AbstractController
 {
     private $logger;
     private $apservice;
@@ -159,7 +159,7 @@ class DefaultController extends Controller
         }
         if (null === $this->identities) {
             $this->identities = [];
-            foreach ($this->doctrine->getRepository('ApManBundle:Ppsk')->findAll() as $key) {
+            foreach ($this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findAll() as $key) {
                 if ($key->getKeyid()) {
                     $this->identities[$key->getKeyid()] = $key;
                 }
@@ -294,7 +294,7 @@ class DefaultController extends Controller
     {
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy(['name' => $name]);
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
         if (!$ap) {
             throw $this->createNotFoundException('No access point '.$name);
         }
@@ -397,7 +397,7 @@ class DefaultController extends Controller
             ]);
         }
 
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy(['name' => $name]);
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
         if (!$ap) {
             return $this->json(['ok' => false, 'error' => 'unknown access point'], 404);
         }
@@ -454,7 +454,7 @@ class DefaultController extends Controller
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
 
-        $client = $this->doctrine->getRepository('ApManBundle:Client')->findOneBy(['mac' => $mac]);
+        $client = $this->doctrine->getRepository('ApManBundle\Entity\Client')->findOneBy(['mac' => $mac]);
 
         // where is it associated right now, and where was it seen probing
         $query = $em->createQuery('SELECT d,r,a FROM ApManBundle\Entity\Device d
@@ -626,7 +626,7 @@ class DefaultController extends Controller
      */
     public function apProvisionAction(Request $request, $name)
     {
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy(['name' => $name]);
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
         if (!$ap) {
             return $this->json(['ok' => false, 'error' => 'unknown access point'], 404);
         }
@@ -721,7 +721,7 @@ class DefaultController extends Controller
      */
     public function apScanAction($name)
     {
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy(['name' => $name]);
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
         if (!$ap) {
             return $this->json(['ok' => false, 'error' => 'unknown access point'], 404);
         }
@@ -936,7 +936,7 @@ class DefaultController extends Controller
     public function ppskAction(\ApManBundle\Service\PpskService $ppsk)
     {
         $em = $this->doctrine->getManager();
-        $ssids = $this->doctrine->getRepository('ApManBundle:SSID')->findAll();
+        $ssids = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findAll();
         $rows = [];
         foreach ($ssids as $ssid) {
             $keys = $ppsk->getForSsid($ssid);
@@ -957,7 +957,7 @@ class DefaultController extends Controller
         return $this->render('default/ppsk.html.twig', [
             'rows' => $rows,
             'pin' => $ppsk->generatePin(),
-            'aps' => $this->doctrine->getRepository('ApManBundle:AccessPoint')->findBy([], ['name' => 'ASC']),
+            'aps' => $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findBy([], ['name' => 'ASC']),
         ]);
     }
 
@@ -966,7 +966,7 @@ class DefaultController extends Controller
      */
     public function ppskDistributeAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
     {
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($ssidId);
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
         if (!$ssid) {
             return $this->json(['ok' => false, 'error' => 'unknown ssid'], 404);
         }
@@ -1001,7 +1001,7 @@ class DefaultController extends Controller
                     $aps[$device->getRadio()->getAccessPoint()->getName()] = true;
                 }
             }
-            $keys = $this->doctrine->getRepository('ApManBundle:Ppsk')->findBy(['ssid' => $ssid]);
+            $keys = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(['ssid' => $ssid]);
 
             $rows[] = [
                 'id' => $ssid->getId(),
@@ -1046,7 +1046,7 @@ class DefaultController extends Controller
      */
     public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, $id)
     {
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($id);
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
         if (!$ssid) {
             throw $this->createNotFoundException('no such ssid');
         }
@@ -1089,7 +1089,7 @@ class DefaultController extends Controller
             'devices' => $devices,
             'values' => $values,
             'lists' => $lists,
-            'keys' => $this->doctrine->getRepository('ApManBundle:Ppsk')->findBy(['ssid' => $ssid]),
+            'keys' => $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(['ssid' => $ssid]),
             'radius' => $this->radiusSummary($ssid, $values),
         ]);
     }
@@ -1112,7 +1112,7 @@ class DefaultController extends Controller
 
         $counts = [];
         try {
-            $counts = $this->doctrine->getManager()->getConnection()->fetchAll(
+            $counts = $this->doctrine->getManager()->getConnection()->fetchAllAssociative(
                 'SELECT result, COUNT(*) AS n, MAX(created) AS last FROM radius_auth'
                 .' WHERE ssid_name = :ssid AND created > DATE_SUB(NOW(), INTERVAL 24 HOUR)'
                 .' GROUP BY result',
@@ -1124,7 +1124,7 @@ class DefaultController extends Controller
         }
 
         $shared = 0;
-        foreach ($this->doctrine->getRepository('ApManBundle:Ppsk')->findBy([
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy([
             'ssid' => $ssid, 'mac' => \ApManBundle\Entity\Ppsk::ANY_MAC, 'enabled' => true,
         ]) as $key) {
             if (!$key->isRegistration()) {
@@ -1158,7 +1158,7 @@ class DefaultController extends Controller
     public function ssidSaveAction(\ApManBundle\Service\WirelessSchemaService $schema, Request $request, $id)
     {
         $em = $this->doctrine->getManager();
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($id);
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
         if (!$ssid) {
             return $this->json(['ok' => false, 'error' => 'no such ssid'], 404);
         }
@@ -1313,7 +1313,7 @@ class DefaultController extends Controller
      */
     public function ipskRegisterAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
     {
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($ssidId);
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
         if (!$ssid) {
             return $this->json(['ok' => false, 'error' => 'unknown ssid'], 404);
         }
@@ -1374,7 +1374,7 @@ class DefaultController extends Controller
      */
     public function ppskConvertAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $ssidId)
     {
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($ssidId);
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
         if (!$ssid) {
             return $this->json(['ok' => false, 'error' => 'unknown ssid'], 404);
         }
@@ -1439,13 +1439,13 @@ class DefaultController extends Controller
 
         // the numbers over the day, straight from the history: cheap enough at
         // this size and always in step with the table below it
-        $stats = $em->getConnection()->fetchAll(
+        $stats = $em->getConnection()->fetchAllAssociative(
             'SELECT ssid_name, result, COUNT(*) AS n, ROUND(AVG(duration_ms), 1) AS ms,'
             .' MAX(created) AS last'
             .' FROM radius_auth WHERE created > DATE_SUB(NOW(), INTERVAL 24 HOUR)'
             .' GROUP BY ssid_name, result ORDER BY ssid_name, result'
         );
-        $unknown = $em->getConnection()->fetchAll(
+        $unknown = $em->getConnection()->fetchAllAssociative(
             'SELECT mac, ssid_name, COUNT(*) AS n, MAX(created) AS last FROM radius_auth'
             ." WHERE result <> 'accept' AND created > DATE_SUB(NOW(), INTERVAL 24 HOUR)"
             .' GROUP BY mac, ssid_name ORDER BY MAX(created) DESC LIMIT 20'
@@ -1454,7 +1454,7 @@ class DefaultController extends Controller
         // which SSIDs point their access points at us, and which of those run
         // SAE — where a per device key works over RADIUS and nowhere else
         $pointing = [];
-        foreach ($em->getRepository('ApManBundle:SSID')->findAll() as $ssid) {
+        foreach ($em->getRepository('ApManBundle\Entity\SSID')->findAll() as $ssid) {
             $config = $ssid->exportConfig();
             $server = $config->auth_server ?? ($config->auth_server_addr ?? null);
             if (!$server) {
@@ -1544,7 +1544,7 @@ class DefaultController extends Controller
         if ('' === $name) {
             return $this->json(['ok' => false, 'error' => 'a name is required — it is the identity of this key']);
         }
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($ssidId);
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
         if (!$ssid) {
             return $this->json(['ok' => false, 'error' => 'unknown ssid']);
         }
@@ -1617,7 +1617,7 @@ class DefaultController extends Controller
     public function ipskStatusAction($id)
     {
         $em = $this->doctrine->getManager();
-        $key = $em->getRepository('ApManBundle:Ppsk')->find($id);
+        $key = $em->getRepository('ApManBundle\Entity\Ppsk')->find($id);
         if (!$key) {
             return $this->json(['ok' => false, 'error' => 'unknown key'], 404);
         }
@@ -1679,7 +1679,7 @@ class DefaultController extends Controller
      */
     public function ipskRevokeAction(\ApManBundle\Service\PpskService $ppsk, Request $request, $id)
     {
-        $key = $this->doctrine->getRepository('ApManBundle:Ppsk')->find($id);
+        $key = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->find($id);
         if (!$key) {
             return $this->json(['ok' => false, 'error' => 'unknown key'], 404);
         }
@@ -1760,7 +1760,7 @@ class DefaultController extends Controller
      */
     public function ppskImportAction(\ApManBundle\Service\PpskService $ppsk, $apId)
     {
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->find($apId);
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->find($apId);
         if (!$ap) {
             return $this->json(['ok' => false, 'error' => 'unknown access point'], 404);
         }
@@ -1777,7 +1777,7 @@ class DefaultController extends Controller
      */
     public function ppskWpsAction(Request $request, \ApManBundle\Service\PpskService $ppsk, $ssidId)
     {
-        $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->find($ssidId);
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($ssidId);
         if (!$ssid) {
             return $this->json(['ok' => false, 'error' => 'unknown ssid'], 404);
         }
@@ -2229,7 +2229,7 @@ class DefaultController extends Controller
         $system = $request->query->get('system', '');
         $device = $request->query->get('device', '');
         $mac = $request->query->get('mac', '');
-        $ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $doc->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $system,
     ]);
         $opts = new \stdClass();
@@ -2263,7 +2263,7 @@ class DefaultController extends Controller
         $device = $request->query->get('device', '');
         $ban_time = intval($request->query->get('ban_time', 0));
         $mac = $request->query->get('mac', '');
-        $ap = $doc->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $doc->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $system,
     ]);
         $opts = new \stdClass();
@@ -2297,7 +2297,7 @@ class DefaultController extends Controller
         }
         $query = $em->createQuery(
             'SELECT d
-			FROM ApManBundle:Device d
+			FROM ApManBundle\Entity\Device d
 			LEFT JOIN d.radio r
 			LEFT JOIN r.accesspoint a
                         WHERE d.ifname = :ifname AND a.name = :ap'
@@ -2364,7 +2364,7 @@ class DefaultController extends Controller
 
          */
         if ($request->get('target') > 0) {
-            $targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy([
+            $targetDev = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
             'id' => $request->get('target'),
         ]);
             $rrm = $targetDev->getRrm();
@@ -2378,7 +2378,7 @@ class DefaultController extends Controller
             $opts->abridged = true;
         }
 
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $request->get('system'),
     ]);
 
@@ -2501,7 +2501,7 @@ class DefaultController extends Controller
         if ('' === $mac || '' === $system || '' === $ifname) {
             return $this->json(['ok' => false, 'error' => 'mac, system and device are required'], 400);
         }
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy(['name' => $system]);
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $system]);
         if (!$ap) {
             return $this->json(['ok' => false, 'error' => 'unknown access point'], 404);
         }
@@ -2518,7 +2518,7 @@ class DefaultController extends Controller
         $targetId = (int) $request->request->get('target', 0);
         $targetName = 'client decides';
         if ($targetId > 0) {
-            $targetDev = $this->doctrine->getRepository('ApManBundle:Device')->find($targetId);
+            $targetDev = $this->doctrine->getRepository('ApManBundle\Entity\Device')->find($targetId);
             if (!$targetDev) {
                 return $this->json(['ok' => false, 'error' => 'unknown target'], 404);
             }
@@ -2612,7 +2612,7 @@ class DefaultController extends Controller
         }
 
         if ($request->get('target') > 0) {
-            $targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy([
+            $targetDev = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
             'id' => $request->get('target'),
         ]);
             $rrm = $targetDev->getRrm();
@@ -2625,7 +2625,7 @@ class DefaultController extends Controller
             $opts->neighbors = [$rrm->value[2]];
         }
 
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $request->get('system'),
     ]);
 
@@ -2667,7 +2667,7 @@ class DefaultController extends Controller
         $opts->ssid = $request->get('ssid');
 
         if ($request->get('target') > 0) {
-            $targetDev = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy([
+            $targetDev = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
             'id' => $request->get('target'),
         ]);
             $rrm = $targetDev->getRrm();
@@ -2681,7 +2681,7 @@ class DefaultController extends Controller
             $opts->abridged = true;
         }
 
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $request->get('system'),
     ]);
 
@@ -2733,7 +2733,7 @@ class DefaultController extends Controller
 
         $query = $em->createQuery(
             'SELECT d
-			FROM ApManBundle:Device d
+			FROM ApManBundle\Entity\Device d
 			LEFT JOIN d.radio r
 			LEFT JOIN r.accesspoint a
                         WHERE d.ifname = :ifname AND a.name = :ap'

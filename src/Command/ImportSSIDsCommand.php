@@ -33,7 +33,7 @@ class ImportSSIDsCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $em = $this->doctrine->getManager();
-        $ap = $this->doctrine->getRepository('ApManBundle:AccessPoint')->findOneBy([
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {
@@ -42,7 +42,7 @@ class ImportSSIDsCommand extends Command
             return false;
         }
 
-        $radio = $this->doctrine->getRepository('ApManBundle:Radio')->findOneBy([
+        $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findOneBy([
         'name' => $input->getArgument('radio'),
         'accesspoint' => $ap,
     ]);
@@ -87,7 +87,7 @@ class ImportSSIDsCommand extends Command
             }
             unset($cfg->device);
 
-            $device = $this->doctrine->getRepository('ApManBundle:Device')->findOneBy([
+            $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
             'name' => $name,
             'radio' => $radio,
         ]);
@@ -104,7 +104,7 @@ class ImportSSIDsCommand extends Command
                     unset($cfg->$lck);
                 }
             }
-            $ssid = $this->doctrine->getRepository('ApManBundle:SSID')->findOneBy([
+            $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findOneBy([
             'name' => $cfg->ssid,
         ]);
             if (is_null($ssid)) {

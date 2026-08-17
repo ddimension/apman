@@ -161,7 +161,7 @@ class StatusService
         if (!$neighborsCached) {
             $this->cacheFactory->addCacheItem($neighborCacheKey, $neighbors, self::NEIGHBOR_TTL);
         }
-        $aps = $doc->getRepository('ApManBundle:AccessPoint')->findAll();
+        $aps = $doc->getRepository('ApManBundle\Entity\AccessPoint')->findAll();
         // one redis round trip for all device states instead of one per device
         $statusKeys = [];
         foreach ($aps as $ap) {

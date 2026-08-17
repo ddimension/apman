@@ -50,7 +50,7 @@ class PpskService
      */
     public function getForSsid($ssid)
     {
-        return $this->doctrine->getRepository('ApManBundle:Ppsk')->findBy(
+        return $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(
             ['ssid' => $ssid, 'enabled' => true],
             ['mac' => 'ASC']
         );
@@ -133,7 +133,7 @@ class PpskService
             return $this->flagCache[$id]['auto'];
         }
         try {
-            $row = $this->doctrine->getManager()->getConnection()->fetchAssoc(
+            $row = $this->doctrine->getManager()->getConnection()->fetchAssociative(
                 'SELECT auto_ppsk, moving_psk FROM ssid WHERE id = :id', ['id' => $id]
             );
         } catch (\Throwable $e) {
@@ -181,7 +181,7 @@ class PpskService
         }
 
         $em = $this->doctrine->getManager();
-        $repo = $this->doctrine->getRepository('ApManBundle:Ppsk');
+        $repo = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk');
         // a registration key belongs to the enrolment that issued it; pinning
         // is its job, not ours
         if ($shared->isRegistration()) {
@@ -371,11 +371,11 @@ class PpskService
         // ask its own memory and quietly restore nothing.
         $connection = $em->getConnection();
         foreach (array_unique($ids) as $id) {
-            $row = $connection->fetchAssoc('SELECT id, keyid, enabled FROM ppsk WHERE id = :id', ['id' => $id]);
+            $row = $connection->fetchAssociative('SELECT id, keyid, enabled FROM ppsk WHERE id = :id', ['id' => $id]);
             if (!$row || $row['enabled']) {
                 continue;
             }
-            $connection->executeUpdate('UPDATE ppsk SET enabled = 1 WHERE id = :id', ['id' => $id]);
+            $connection->executeStatement('UPDATE ppsk SET enabled = 1 WHERE id = :id', ['id' => $id]);
             $back[] = $row['keyid'] ?: $row['id'];
         }
         $ppsk->setRestoresId(null);
@@ -827,7 +827,7 @@ class PpskService
         }
 
         $known = [];
-        foreach ($this->doctrine->getRepository('ApManBundle:Ppsk')->findBy(['ssid' => $ssid]) as $entry) {
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(['ssid' => $ssid]) as $entry) {
             $known[strtolower((string) $entry->getMac())] = $entry;
         }
 
@@ -878,7 +878,7 @@ class PpskService
      */
     private function nameForStation($mac, array $info)
     {
-        $client = $this->doctrine->getRepository('ApManBundle:Client')->findOneBy(['mac' => $mac]);
+        $client = $this->doctrine->getRepository('ApManBundle\Entity\Client')->findOneBy(['mac' => $mac]);
         if ($client && $client->getName()) {
             return $client->getName();
         }
@@ -1356,7 +1356,7 @@ class PpskService
             if (64 !== strlen($psk) || !ctype_xdigit($psk)) {
                 continue;
             }
-            $existing = $this->doctrine->getRepository('ApManBundle:Ppsk')
+            $existing = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')
                 ->findOneBy(['ssid' => $ssid, 'mac' => $mac]);
             if ($existing) {
                 continue;
@@ -1445,7 +1445,7 @@ class PpskService
                         ++$skipped;
                         continue;
                     }
-                    $existing = $this->doctrine->getRepository('ApManBundle:Ppsk')
+                    $existing = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')
                         ->findOneBy(['ssid' => $ssid, 'mac' => $mac]);
                     if ($existing) {
                         ++$skipped;

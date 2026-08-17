@@ -31,7 +31,7 @@ final class ClientAdmin extends AbstractAdmin
             ->add('name')
             ->add('mode_g')
             ->add('mode_a')
-            ->add('_action', null, [
+            ->add(ListMapper::NAME_ACTIONS, null, [
                 'actions' => [
                     'show' => [],
                     'edit' => [],

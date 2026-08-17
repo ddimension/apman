@@ -52,7 +52,7 @@ class PpskDistributeCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $needle = $input->getArgument('ssid');
-        $repo = $this->doctrine->getRepository('ApManBundle:SSID');
+        $repo = $this->doctrine->getRepository('ApManBundle\Entity\SSID');
         $ssid = ctype_digit((string) $needle) ? $repo->find($needle) : $repo->findOneBy(['name' => $needle]);
         if (!$ssid) {
             $output->writeln('<error>no such ssid: '.$needle.'</error>');

@@ -6,13 +6,13 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
-use Sonata\AdminBundle\Route\RouteCollection;
+use Sonata\AdminBundle\Route\RouteCollectionInterface;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\Extension\Core\Type\UrlType;
 
 class AccessPointAdmin extends AbstractAdmin
 {
-    protected function configureFormFields(FormMapper $formMapper)
+    protected function configureFormFields(FormMapper $formMapper): void
     {
         $formMapper->add('name', TextType::class)
             ->add('username', TextType::class)
@@ -23,13 +23,13 @@ class AccessPointAdmin extends AbstractAdmin
             ->add('IsProductive');
     }
 
-    protected function configureDatagridFilters(DatagridMapper $datagridMapper)
+    protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper->add('name');
         $datagridMapper->add('username');
     }
 
-    protected function configureListFields(ListMapper $listMapper)
+    protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('name');
         $listMapper->addIdentifier('ipv4');
@@ -42,7 +42,7 @@ class AccessPointAdmin extends AbstractAdmin
         $listMapper->addIdentifier('IsProductive');
         $listMapper->addIdentifier('load');
         $listMapper->addIdentifier('state');
-        $listMapper->addIdentifier('_action', null, [
+        $listMapper->add(ListMapper::NAME_ACTIONS, null, [
         'actions' => [
             'syslog' => [
                 'template' => 'CRUD/list__action_syslog.html.twig',
@@ -57,9 +57,8 @@ class AccessPointAdmin extends AbstractAdmin
     ]);
     }
 
-    public function getBatchActions()
+    protected function configureBatchActions(array $actions): array
     {
-        $actions = parent::getBatchActions();
 
 //        if ($this->hasRoute('print') && $this->isGranted('VIEW')) {
         $actions['configure_and_restart'] = ['label' => 'Stop, Configure and Reboot', 'ask_confirmation' => true];
@@ -74,7 +73,7 @@ class AccessPointAdmin extends AbstractAdmin
         return $actions;
     }
 
-    protected function configureRoutes(RouteCollection $collection)
+    protected function configureRoutes(RouteCollectionInterface $collection): void
     {
         $collection->add('syslog', $this->getRouterIdParameter().'/syslog');
         $collection->add('login', $this->getRouterIdParameter().'/login');

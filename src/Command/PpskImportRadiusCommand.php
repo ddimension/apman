@@ -216,7 +216,7 @@ class PpskImportRadiusCommand extends Command
         }
         // disabled keys count too: the key is unique per SSID in the database,
         // whether it currently reaches the access points or not
-        $known = $this->doctrine->getRepository('ApManBundle:Ppsk')
+        $known = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')
             ->findOneBy(['ssid' => $entry['ssid'], 'psk' => $psk]);
         if ($known) {
             return 'already here as '.($known->getKeyid() ?: $known->getMac())
@@ -233,7 +233,7 @@ class PpskImportRadiusCommand extends Command
     private function ssidsByBroadcastName()
     {
         $out = [];
-        foreach ($this->doctrine->getRepository('ApManBundle:SSID')->findAll() as $ssid) {
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\SSID')->findAll() as $ssid) {
             $config = $ssid->exportConfig();
             $name = $config->ssid ?? null;
             if (!$name) {

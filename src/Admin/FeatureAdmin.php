@@ -31,7 +31,7 @@ final class FeatureAdmin extends AbstractAdmin
             ->add('name')
             ->add('implementation')
             ->add('config')
-            ->add('_action', null, [
+            ->add(ListMapper::NAME_ACTIONS, null, [
                 'actions' => [
                     'show' => [],
                     'edit' => [],

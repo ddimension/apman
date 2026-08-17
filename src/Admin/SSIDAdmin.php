@@ -10,7 +10,7 @@ use Sonata\Form\Type\CollectionType;
 
 class SSIDAdmin extends AbstractAdmin
 {
-    protected function configureFormFields(FormMapper $formMapper)
+    protected function configureFormFields(FormMapper $formMapper): void
     {
         $formMapper->with('Basics')
         ->add('name')
@@ -159,12 +159,12 @@ class SSIDAdmin extends AbstractAdmin
          */
     }
 
-    protected function configureDatagridFilters(DatagridMapper $datagridMapper)
+    protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper->add('name');
     }
 
-    protected function configureListFields(ListMapper $listMapper)
+    protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('name');
         $listMapper->addIdentifier('is_enabled', 'boolean');
