@@ -66,5 +66,7 @@ class AddAccessPointCommand extends Command
         $em->persist($ap);
         $em->flush();
         $output->writeln('Saved AP '.$ap->getName().' with id '.$ap->getId());
+
+        return 0;
     }
 }

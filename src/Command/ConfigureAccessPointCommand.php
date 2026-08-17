@@ -57,5 +57,7 @@ class ConfigureAccessPointCommand extends Command
         };
         $ap->publishConfig($logger);
         */
+
+        return 0;
     }
 }

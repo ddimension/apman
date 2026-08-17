@@ -107,5 +107,7 @@ class AssignSSIDCommand extends Command
             }
         }
         $em->flush();
+
+        return 0;
     }
 }

@@ -57,5 +57,7 @@ class ShowAcessPointConfigCommand extends Command
                 print_r($result);
             }
         }
+
+        return 0;
     }
 }

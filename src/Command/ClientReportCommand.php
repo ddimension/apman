@@ -93,5 +93,7 @@ class ClientReportCommand extends Command
         foreach ($entries as $entry) {
             $this->output->writeln(sprintf('% 15s:%s', $entry->getSource(), $entry->getMessage()));
         }
+
+        return 0;
     }
 }

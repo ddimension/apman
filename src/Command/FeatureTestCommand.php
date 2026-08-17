@@ -103,5 +103,7 @@ class FeatureTestCommand extends Command
             $opts->match = array('device' => $input->getArgument('radio'), 'mode' => 'ap');
             $stat = $session->call('uci','get', $opts);
         */
+
+        return 0;
     }
 }

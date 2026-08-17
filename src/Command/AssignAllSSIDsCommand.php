@@ -98,5 +98,7 @@ class AssignAllSSIDsCommand extends Command
             }
         }
         $em->flush();
+
+        return 0;
     }
 }

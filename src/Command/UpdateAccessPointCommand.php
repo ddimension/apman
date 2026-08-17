@@ -40,5 +40,7 @@ class UpdateAccessPointCommand extends Command
         }
 
         $this->apservice->refreshRadios($ap);
+
+        return 0;
     }
 }

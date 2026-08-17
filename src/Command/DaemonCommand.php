@@ -135,6 +135,8 @@ class DaemonCommand extends Command
                 }
             }
         }
+
+        return 0;
     }
 
     public function childSignalHandler($signo, $pid = null, $status = null)
@@ -146,6 +148,7 @@ class DaemonCommand extends Command
             $pid = pcntl_waitpid(-1, $status, WNOHANG);
         }
 
-        return true;
+        // "true" would be coerced to exit code 1, which reads as failure
+        return 0;
     }
 }

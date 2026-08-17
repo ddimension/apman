@@ -124,5 +124,7 @@ class ImportSSIDsCommand extends Command
             $em->persist($device);
         }
         $em->flush();
+
+        return 0;
     }
 }
