@@ -2,14 +2,20 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:import-ssids')]
 class ImportSSIDsCommand extends Command
 {
-    protected static $defaultName = 'apman:import-ssids';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
+    private $jsonrpc;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $jsonrpc, $name = null)
     {
@@ -23,7 +29,6 @@ class ImportSSIDsCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:import-ssids')
             ->setDescription('Import SSIDs from an AP radio')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ->addArgument('radio', InputArgument::REQUIRED, 'Radio Name')
@@ -37,9 +42,9 @@ class ImportSSIDsCommand extends Command
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {
-            $this->output->writeln('Add this accesspoint. Cannot find it.');
+            $output->writeln('Add this accesspoint. Cannot find it.');
 
-            return false;
+            return 1;
         }
 
         $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findOneBy([
@@ -47,17 +52,17 @@ class ImportSSIDsCommand extends Command
         'accesspoint' => $ap,
     ]);
         if (is_null($radio)) {
-            $this->output->writeln('Readd this accesspoint. The given radio is missing.');
+            $output->writeln('Readd this accesspoint. The given radio is missing.');
 
-            return false;
+            return 1;
         }
 
         $rpcService = $this->jsonrpc;
         $session = $rpcService->login($ap->getUbusUrl(), $ap->getUsername(), $ap->getPassword());
         if (false === $session) {
-            $this->output->writeln('Cannot connect to AP '.$ap->getName());
+            $output->writeln('Cannot connect to AP '.$ap->getName());
 
-            return false;
+            return 1;
         }
 
         $opts = new \stdClass();
@@ -67,9 +72,9 @@ class ImportSSIDsCommand extends Command
         $opts->match = ['device' => $input->getArgument('radio')];
         $stat = $session->call('uci', 'get', $opts);
         if (!count(get_object_vars($stat->values))) {
-            $this->output->writeln('No SSIDs/Devices found on AP '.$ap->getName());
+            $output->writeln('No SSIDs/Devices found on AP '.$ap->getName());
 
-            return false;
+            return 1;
         }
         $localConfigKeys = [
         'macaddr',
@@ -95,7 +100,7 @@ class ImportSSIDsCommand extends Command
                 $device = new \ApManBundle\Entity\Device();
                 $device->setName($name);
                 $device->setRadio($radio);
-                $this->output->writeln('Added Radio Device '.$name);
+                $output->writeln('Added Radio Device '.$name);
             }
             $deviceConfig = [];
             foreach ($localConfigKeys as $lck) {
@@ -111,9 +116,9 @@ class ImportSSIDsCommand extends Command
                 // Add SSID
                 $ssid = new \ApManBundle\Entity\SSID();
                 $ssid->setName($cfg->ssid);
-                $this->output->writeln('Created SSID '.$ssid->getName());
+                $output->writeln('Created SSID '.$ssid->getName());
             } else {
-                $this->output->writeln('Updating SSID '.$ssid->getName());
+                $output->writeln('Updating SSID '.$ssid->getName());
             }
             $em->persist($ssid);
             $em->flush();

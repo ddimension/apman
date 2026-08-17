@@ -2,14 +2,19 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:assign-all-ssids')]
 class AssignAllSSIDsCommand extends Command
 {
-    protected static $defaultName = 'apman:assign-all-ssids';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
@@ -22,7 +27,6 @@ class AssignAllSSIDsCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:assign-all-ssids')
             ->setDescription('Assign all SSIDs to an accesspoint')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ;
@@ -35,24 +39,24 @@ class AssignAllSSIDsCommand extends Command
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {
-            $this->output->writeln('Add this accesspoint. Cannot find it.');
+            $output->writeln('Add this accesspoint. Cannot find it.');
 
-            return false;
+            return 1;
         }
 
         $radios = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findBy([
         'accesspoint' => $ap,
     ]);
         if (!is_array($radios) or !count($radios)) {
-            $this->output->writeln('Readd this accesspoint. No radios found');
+            $output->writeln('Readd this accesspoint. No radios found');
 
-            return false;
+            return 1;
         }
         $ssids = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findAll();
         if (!count($ssids)) {
-            $this->output->writeln('No SSIDs not found.');
+            $output->writeln('No SSIDs not found.');
 
-            return false;
+            return 1;
         }
         foreach ($ssids as $ssid) {
             $localConfigKeys = [
@@ -70,7 +74,7 @@ class AssignAllSSIDsCommand extends Command
                 'radio' => $radio,
             ]);
                 if (!is_null($device)) {
-                    $this->output->writeln('Radio Device '.$device->getName().' for SSID '.$ssid->getName().' already exists.');
+                    $output->writeln('Radio Device '.$device->getName().' for SSID '.$ssid->getName().' already exists.');
                     continue;
                 }
 
@@ -82,7 +86,7 @@ class AssignAllSSIDsCommand extends Command
                 $deviceConfig = [];
                 $deviceConfig['macaddr'] = exec($this->container->get('kernel')->getRootDir().'/../bin/randmac.pl');
                 if (!$deviceConfig['macaddr']) {
-                    return false;
+                    return 1;
                 }
                 $ssidConfig = $ssid->exportConfig();
                 if (isset($ssidConfig->ieee80211r) && 1 == $ssidConfig->ieee80211r) {
@@ -94,7 +98,7 @@ class AssignAllSSIDsCommand extends Command
                 }
                 $device->setConfig($deviceConfig);
                 $em->persist($device);
-                $this->output->writeln('Added Radio Device '.$device->getName().' for SSID '.$ssid->getName());
+                $output->writeln('Added Radio Device '.$device->getName().' for SSID '.$ssid->getName());
             }
         }
         $em->flush();

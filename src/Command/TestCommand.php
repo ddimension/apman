@@ -2,14 +2,20 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:test')]
 class TestCommand extends Command
 {
-    protected static $defaultName = 'apman:test';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
+    private $rpcService;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
@@ -23,7 +29,6 @@ class TestCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:test')
             ->setDescription('Test')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ;
@@ -47,15 +52,15 @@ class TestCommand extends Command
         'name' => $input->getArgument('name'),
     ]);
         if (is_null($ap)) {
-            $this->output->writeln('Add this accesspoint. Cannot find it.');
+            $output->writeln('Add this accesspoint. Cannot find it.');
 
-            return false;
+            return 1;
         }
         $session = $this->rpcService->getSession($ap);
         if (false === $session) {
-            $this->output->writeln('Failed to get session.');
+            $output->writeln('Failed to get session.');
 
-            return false;
+            return 1;
         }
         $opts = new \stdClass();
         //$opts->device = 'wmon0';

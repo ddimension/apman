@@ -2,14 +2,20 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:add-ap')]
 class AddAccessPointCommand extends Command
 {
-    protected static $defaultName = 'apman:add-ap';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
+    private $rpcService;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
@@ -23,7 +29,6 @@ class AddAccessPointCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:add-ap')
             ->setDescription('Add Accesspoint')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ->addArgument('username', InputArgument::REQUIRED, 'username')
@@ -44,7 +49,7 @@ class AddAccessPointCommand extends Command
         if (false === $session) {
             $output->writeln('Cannot connect to AP '.$ap->getName());
 
-            return false;
+            return 1;
         }
         $opts = new \stdClass();
         $opts->config = 'wireless';
@@ -53,7 +58,7 @@ class AddAccessPointCommand extends Command
         if (!isset($stat->values) || !count((array) $stat->values)) {
             $output->writeln('No radios found on AP '.$ap->getName());
 
-            return false;
+            return 1;
         }
         foreach ((array) $stat->values as $name => $cfg) {
             $output->writeln('Adding radio '.$name);

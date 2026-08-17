@@ -2,6 +2,7 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -32,9 +33,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  *    unique per SSID here, on purpose. It moves as one MAC agnostic entry that
  *    both stations use, which is what the shared key already meant.
  */
+#[AsCommand(name: 'apman:ppsk-import-radius')]
 class PpskImportRadiusCommand extends Command
 {
-    protected static $defaultName = 'apman:ppsk-import-radius';
 
     private $doctrine;
     private $ppsk;
@@ -55,7 +56,6 @@ class PpskImportRadiusCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:ppsk-import-radius')
             ->setDescription('Take the per device keys of a FreeRADIUS users file into the controller')
             ->addArgument('file', InputArgument::REQUIRED, 'the FreeRADIUS users file to read')
             ->addOption('apply', null, InputOption::VALUE_NONE,

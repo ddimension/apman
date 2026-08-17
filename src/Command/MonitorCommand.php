@@ -2,13 +2,19 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:monitor')]
 class MonitorCommand extends Command
 {
-    protected static $defaultName = 'apman:monitor';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
+    private $rpcService;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
@@ -22,7 +28,6 @@ class MonitorCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:monitor')
             ->setDescription('Monitor')
             ;
     }
@@ -34,9 +39,9 @@ class MonitorCommand extends Command
         'IsProductive' => true,
     ]);
         if (is_null($aps) || !is_array($aps) || !count($aps)) {
-            $this->output->writeln('No productive Accesspoints found.');
+            $output->writeln('No productive Accesspoints found.');
 
-            return false;
+            return 1;
         }
         $apsNotActive = [];
         $total = 0;

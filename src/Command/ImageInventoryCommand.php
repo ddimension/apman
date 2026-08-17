@@ -2,6 +2,7 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -23,9 +24,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  * channel when asked for: the apman uci config (--with-config) and the list of
  * explicitly installed packages (--with-packages).
  */
+#[AsCommand(name: 'apman:image-inventory')]
 class ImageInventoryCommand extends Command
 {
-    protected static $defaultName = 'apman:image-inventory';
 
     /** ubus status 4, "not found" — the file does not exist on this device */
     private const UBUS_NOT_FOUND = 4;
@@ -52,7 +53,6 @@ class ImageInventoryCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:image-inventory')
             ->setDescription('Collect a device inventory for image builds over mqtt')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED,
                 'Write the inventory here instead of to stdout')

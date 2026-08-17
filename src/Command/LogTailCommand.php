@@ -2,13 +2,18 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:logtail')]
 class LogTailCommand extends Command
 {
-    protected static $defaultName = 'apman:logtail';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
@@ -21,7 +26,6 @@ class LogTailCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:logtail')
             ->setDescription('Logtail')
             ;
     }
@@ -51,7 +55,7 @@ class LogTailCommand extends Command
             $query->setParameter('id', $last->getId());
             $entries = $query->getResult();
             foreach ($entries as $entry) {
-                $this->output->writeln(sprintf('% 15s:%s', $entry->getSource(), $entry->getMessage()));
+                $output->writeln(sprintf('% 15s:%s', $entry->getSource(), $entry->getMessage()));
                 $last = $entry;
             }
         }

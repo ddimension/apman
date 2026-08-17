@@ -2,14 +2,20 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:show-ap-config')]
 class ShowAcessPointConfigCommand extends Command
 {
-    protected static $defaultName = 'apman:show-ap-config';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
+    private $rpcService;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
@@ -23,7 +29,6 @@ class ShowAcessPointConfigCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:show-ap-config')
             ->setDescription('Show AccessPoint wifi-iface configuration.')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ;

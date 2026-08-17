@@ -2,6 +2,7 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -9,10 +10,16 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Process\Process;
 
 //declare(ticks=1);
+#[AsCommand(name: 'apman:daemon')]
 class DaemonCommand extends Command
 {
-    protected static $defaultName = 'apman:daemon';
     private $parentPID;
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
+    private $ssidservice;
+    private $rpcService;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\SSIDService $ssidservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
@@ -27,7 +34,6 @@ class DaemonCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:daemon')
             ->setDescription('Poll stats in background')
 //            ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
 //            ->addArgument('radio', InputArgument::REQUIRED, 'Radio Name')
@@ -44,9 +50,9 @@ class DaemonCommand extends Command
         while ($loop) {
             $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findAll();
             if (!count($aps)) {
-                $this->output->writeln('No APs found..');
+                $output->writeln('No APs found..');
 
-                return false;
+                return 1;
             }
             $apIds = [];
             foreach ($aps as $ap) {

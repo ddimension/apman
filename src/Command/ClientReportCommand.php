@@ -2,14 +2,20 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:clientreport')]
 class ClientReportCommand extends Command
 {
-    protected static $defaultName = 'apman:clientreport';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
+    private $rpcService;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $rpcService, $name = null)
     {
@@ -23,7 +29,6 @@ class ClientReportCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:clientreport')
             ->setDescription('Get Beacon Reports of all clients')
             ->addArgument('ssid', InputArgument::REQUIRED, 'SSID')
             ;
@@ -36,9 +41,9 @@ class ClientReportCommand extends Command
         'name' => $input->getArgument('ssid'),
     ]);
         if (is_null($ssid)) {
-            $this->output->writeln('SSID not found.');
+            $output->writeln('SSID not found.');
 
-            return false;
+            return 1;
         }
         $startTime = new \DateTime('now');
         foreach ($ssid->getDevices() as $device) {
@@ -46,17 +51,17 @@ class ClientReportCommand extends Command
             $ap = $radio->getAccesspoint();
             $cfg = $device->getConfig();
             $clients = $device->getClients(true);
-            //$this->output->writeln("Clients: ".print_r($clients,true));
+            //$output->writeln("Clients: ".print_r($clients,true));
             if (!count($clients)) {
                 continue;
             }
             if (empty($device->getIfname())) {
-                $this->output->writeln('ifname missing for '.$ap->getName().':'.$radio->getName().':'.$device->getName());
+                $output->writeln('ifname missing for '.$ap->getName().':'.$radio->getName().':'.$device->getName());
                 continue;
             }
             $session = $this->rpcService->getSession($ap);
             if (false === $session) {
-                $this->output->writeln('Cannot connect to AP '.$ap->getName());
+                $output->writeln('Cannot connect to AP '.$ap->getName());
                 continue;
             }
 
@@ -64,7 +69,7 @@ class ClientReportCommand extends Command
             $duration = 400;
             $duration = 10;
             foreach ($clients as $client) {
-                $this->output->writeln('Requesting Report for Client '.$client);
+                $output->writeln('Requesting Report for Client '.$client);
                 $opts = new \stdClass();
                 $opts->addr = $client;
                 $opts->mode = 0;
@@ -91,7 +96,7 @@ class ClientReportCommand extends Command
         $query->setParameter('ptr', '%beacon%');
         $entries = $query->getResult();
         foreach ($entries as $entry) {
-            $this->output->writeln(sprintf('% 15s:%s', $entry->getSource(), $entry->getMessage()));
+            $output->writeln(sprintf('% 15s:%s', $entry->getSource(), $entry->getMessage()));
         }
 
         return 0;

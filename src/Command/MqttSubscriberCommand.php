@@ -2,16 +2,19 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 //declare(ticks=1);
+#[AsCommand(name: 'apman:subscriber')]
 class MqttSubscriberCommand extends Command
 {
-    protected static $defaultName = 'apman:subscriber';
     private $parentPID;
+
+    private $subs;
 
     public function __construct(
         \ApManBundle\Service\SubscriptionService $subs,
@@ -25,7 +28,6 @@ class MqttSubscriberCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:subscriber')
             ->setDescription('Run mqtt subscriber.')
 //            ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
 //            ->addArgument('radio', InputArgument::REQUIRED, 'Radio Name')

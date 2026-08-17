@@ -2,14 +2,19 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:assign-ssid')]
 class AssignSSIDCommand extends Command
 {
-    protected static $defaultName = 'apman:assign-ssid';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
@@ -22,7 +27,6 @@ class AssignSSIDCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:assign-ssid')
             ->setDescription('Assign SSID to an accesspoint')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ->addArgument('ssid', InputArgument::REQUIRED, 'SSID')
@@ -38,7 +42,7 @@ class AssignSSIDCommand extends Command
         if (is_null($ap)) {
             echo 'Add this accesspoint. Cannot find it.';
 
-            return false;
+            return 1;
         }
 
         $radios = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findBy([
@@ -47,7 +51,7 @@ class AssignSSIDCommand extends Command
         if (!is_array($radios) or !count($radios)) {
             echo 'Readd this accesspoint. No radios found';
 
-            return false;
+            return 1;
         }
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findOneBy([
         'name' => $input->getArgument('ssid'),
@@ -55,7 +59,7 @@ class AssignSSIDCommand extends Command
         if (is_null($ssid)) {
             echo 'SSID not found.';
 
-            return false;
+            return 1;
         }
 
         $ssids = [$ssid];
@@ -88,7 +92,7 @@ class AssignSSIDCommand extends Command
                 /*
                             $deviceConfig['macaddr'] = exec($this->container->get('kernel')->getRootDir().'/../bin/randmac.pl');
                             if (!$deviceConfig['macaddr']) {
-                                return false;
+                                return 1;
                             }
                  */
                 $ssidConfig = $ssid->exportConfig();

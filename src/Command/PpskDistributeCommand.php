@@ -2,6 +2,7 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -18,9 +19,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  * and report that nobody answered. So the subscriber starts this command
  * instead and keeps ingesting.
  */
+#[AsCommand(name: 'apman:ppsk-distribute')]
 class PpskDistributeCommand extends Command
 {
-    protected static $defaultName = 'apman:ppsk-distribute';
 
     private $doctrine;
     private $ppsk;
@@ -41,7 +42,6 @@ class PpskDistributeCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:ppsk-distribute')
             ->setDescription('Write the per device keys of one SSID to every access point that carries it')
             ->addArgument('ssid', InputArgument::REQUIRED, 'SSID id or name')
             ->addOption('force', 'f', InputOption::VALUE_NONE,

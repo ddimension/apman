@@ -2,14 +2,19 @@
 
 namespace ApManBundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'apman:config-ap')]
 class ConfigureAccessPointCommand extends Command
 {
-    protected static $defaultName = 'apman:config-ap';
+
+    private $doctrine;
+    private $logger;
+    private $apservice;
 
     public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
     {
@@ -22,7 +27,6 @@ class ConfigureAccessPointCommand extends Command
     protected function configure(): void
     {
         $this
-            ->setName('apman:config-ap')
             ->setDescription('Configure all SSIDs on an accesspoint')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ;
