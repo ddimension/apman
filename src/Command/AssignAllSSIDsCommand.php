@@ -79,7 +79,7 @@ class AssignAllSSIDsCommand extends Command
                 }
 
                 $device = new \ApManBundle\Entity\Device();
-                $device->setName($radio->getName().'_'.str_replace(['-', '+', '/', '*', '$'], '_', $ssid->getName()));
+                $device->setName(\ApManBundle\Entity\Device::sectionName($radio, $ssid));
                 $device->setRadio($radio);
                 $device->setSSID($ssid);
 

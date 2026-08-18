@@ -82,9 +82,28 @@ class Device extends \ApManBundle\DynamicEntity\Device
      */
     public function setName($name)
     {
-        $this->name = $name;
+        // The name IS the uci section name, and uci only accepts letters,
+        // digits and underscores there. Everything else makes the "uci add"
+        // of this device fail with "invalid argument", and because a
+        // provisioning run is one transaction, that reverts the whole access
+        // point — one SSID with a space in its name took every other network
+        // on that access point down with it.
+        $this->name = preg_replace('/[^A-Za-z0-9_]/', '_', (string) $name);
 
         return $this;
+    }
+
+    /**
+     * The uci section name for one network on one radio.
+     *
+     * Callers used to spell this out with a str_replace() blacklist of their
+     * own, and the three copies had drifted apart — the one in
+     * apman:assign-all-ssids was missing the space, which is how "OpenNet
+     * Secure" ended up unprovisionable on the access points set up with it.
+     */
+    public static function sectionName(Radio $radio, SSID $ssid)
+    {
+        return preg_replace('/[^A-Za-z0-9_]/', '_', $radio->getName().'_'.$ssid->getName());
     }
 
     /**

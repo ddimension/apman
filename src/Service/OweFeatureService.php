@@ -225,7 +225,7 @@ class OweFeatureService implements iFeatureService
         foreach ($open_ssid->getDevices() as $md) {
             $radio = $md->getRadio();
             $device = new \ApManBundle\Entity\Device();
-            $device->setName($radio->getName().'_'.str_replace([' ', '-', '+', '/', '*', '$'], '_', $owe_ssid->getName()));
+            $device->setName(\ApManBundle\Entity\Device::sectionName($radio, $owe_ssid));
             $device->setRadio($radio);
             $device->setSSID($owe_ssid);
             $device->setAddress(exec($this->kernel->getProjectDir().'/bin/randmac.pl'));
