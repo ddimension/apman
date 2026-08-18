@@ -2,226 +2,204 @@
 
 namespace ApManBundle\Controller;
 
+use ApManBundle\Factory\CacheFactory;
+use ApManBundle\Factory\MqttFactory;
+use ApManBundle\Service\AccessPointService;
+use ApManBundle\Service\wrtJsonRpc;
+use Psr\Log\LoggerInterface;
 use Sonata\AdminBundle\Controller\CRUDController;
 use Sonata\AdminBundle\Datagrid\ProxyQueryInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class CustomActionsController extends CRUDController
 {
     private $rpcService;
+    private $logger;
     private $mqttFactory;
     private $cacheFactory;
+    private $apService;
 
+    /**
+     * Everything this controller needs comes in through the constructor.
+     *
+     * $this->container of a Sonata CRUD controller is the service subscriber
+     * locator of AbstractController — it holds twig, the router and a handful
+     * of Sonata services, and nothing else. Asking it for an application
+     * service throws, which is what every batch action here used to do the
+     * moment the confirmation was acknowledged.
+     */
     public function __construct(
-        \ApManBundle\Service\wrtJsonRpc $rpcService,
-        \Psr\Log\LoggerInterface $logger,
-        \ApManBundle\Factory\MqttFactory $mqttFactory,
-        \ApManBundle\Factory\CacheFactory $cacheFactory
+        wrtJsonRpc $rpcService,
+        LoggerInterface $logger,
+        MqttFactory $mqttFactory,
+        CacheFactory $cacheFactory,
+        AccessPointService $apService,
     ) {
         $this->rpcService = $rpcService;
         $this->logger = $logger;
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
-        $this->cacheFactory->getCache();
+        $this->apService = $apService;
     }
 
-    public function batchActionConfigure(ProxyQueryInterface $selectedModelQuery, Request $request)
+    /**
+     * Ask the clients of these access points to go somewhere else, and give
+     * them the time to do it.
+     *
+     * An 802.11v BSS transition request with disassociation imminent set, and
+     * the bsses of the same ssid on the other access points as candidates: a
+     * client that understands it roams on its own instead of being dropped
+     * when the bss goes down underneath it.
+     *
+     * hostapd's ubus object used to have wnm_disassoc_imminent for this and no
+     * longer does — it answered "method not found" on every access point here,
+     * so nothing was ever evacuated. bss_transition_request is what the client
+     * detail page uses and what the access points actually implement.
+     *
+     * @param iterable<\ApManBundle\Entity\AccessPoint> $aps
+     */
+    private function evacuateClients(iterable $aps, int $deadline = 2): void
     {
-        $selectedModels = $selectedModelQuery->execute();
         $client = $this->mqttFactory->getClient();
-        if ($client) {
-            $deadline = 2;
-            $haveClients = false;
-            foreach ($selectedModels as $ap) {
-                foreach ($ap->getRadios() as $radio) {
-                    foreach ($radio->getDevices() as $device) {
-                        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
-                        if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
-                            foreach ($status['assoclist']['results'] as $c) {
-                                if (!count($c)) {
-                                    continue;
-                                }
-                                $haveClients = true;
-                                $opts = new \stdClass();
-                                $opts->addr = $c['mac'];
-                                $opts->duration = $deadline * 10;
-                                $opts->abridged = true;
-                                $opts->neighbors = [];
-                                foreach ($device->getSsid()->getDevices() as $neighbor) {
-                                    if ($neighbor->getRadio()->getAccessPoint() == $ap) {
-                                        continue;
-                                    }
-                                    $rrm = $neighbor->getRrm();
-                                    $rrm = json_decode(json_encode($rrm));
-                                    if (is_object($rrm) && property_exists($rrm, 'value') && is_array($rrm->value) && isset($rrm->value[2])) {
-                                        $opts->neighbors[] = $rrm->value[2];
-                                    }
-                                }
-                                $topic = 'apman/ap/'.$ap->getName().'/command';
-                                $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'wnm_disassoc_imminent', $opts);
-                                $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-
-                                $res = $client->publish($topic, json_encode($cmd));
+        if (!$client) {
+            return;
+        }
+        $haveClients = false;
+        foreach ($aps as $ap) {
+            foreach ($ap->getRadios() as $radio) {
+                foreach ($radio->getDevices() as $device) {
+                    $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+                    if (!is_array($status) || !isset($status['assoclist']['results']) || !is_array($status['assoclist']['results'])) {
+                        continue;
+                    }
+                    foreach ($status['assoclist']['results'] as $c) {
+                        if (!is_array($c) || !count($c) || !isset($c['mac'])) {
+                            continue;
+                        }
+                        $haveClients = true;
+                        $opts = new \stdClass();
+                        $opts->addr = $c['mac'];
+                        $opts->abridged = true;
+                        $opts->disassociation_imminent = true;
+                        // in beacon intervals, roughly 100 ms each
+                        $opts->disassociation_timer = $deadline * 10;
+                        $opts->neighbors = [];
+                        foreach ($device->getSsid()->getDevices() as $neighbor) {
+                            if ($neighbor->getRadio()->getAccessPoint() == $ap) {
+                                continue;
+                            }
+                            $rrm = json_decode(json_encode($neighbor->getRrm()));
+                            if (is_object($rrm) && property_exists($rrm, 'value') && is_array($rrm->value) && isset($rrm->value[2])) {
+                                $opts->neighbors[] = $rrm->value[2];
                             }
                         }
+                        $topic = 'apman/ap/'.$ap->getName().'/command';
+                        $cmd = $this->rpcService->createRpcRequest('evacuate-'.$device->getIfname(), 'call', null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
+                        $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+                        $client->publish($topic, json_encode($cmd));
                     }
                 }
             }
-            // $client->loop(100);
-            // Wait for evacuation
-            if ($haveClients) {
-                sleep($deadline);
-            }
         }
+        if ($haveClients) {
+            sleep($deadline);
+        }
+    }
+
+    /**
+     * Turn one applyConfig() report into a flash message.
+     *
+     * @return bool whether the run was a success
+     */
+    private function reportProvisioning(\ApManBundle\Entity\AccessPoint $ap, array $report): bool
+    {
+        if ($report['ok'] ?? false) {
+            $note = $report['note'] ?? (($report['change_count'] ?? 0).' change(s) applied');
+            $this->addFlash('sonata_flash_success', $ap->getName().': '.$note);
+
+            return true;
+        }
+
+        $message = $report['error'] ?? 'provisioning failed';
+        if (!empty($report['failed'])) {
+            $failed = [];
+            foreach (array_slice($report['failed'], 0, 3, true) as $id => $why) {
+                $failed[] = $id.': '.$why;
+            }
+            $message .= ' — '.implode('; ', $failed);
+        }
+        $this->logger->error($ap->getName().': provisioning failed: '.$message);
+        $this->addFlash('sonata_flash_error', $ap->getName().': '.$message);
+
+        return false;
+    }
+
+    /**
+     * Provision the selected access points the same way the ap detail page
+     * does: stage the whole wireless configuration in one uci transaction, ask
+     * the access point for the resulting diff and only apply it with rpcd's
+     * rollback timer armed.
+     *
+     * The old code called publishConfig() directly, which stages the
+     * transaction and stops there — with a ubus session known it never
+     * committed, so a run that reported "Reconfigured." had changed nothing on
+     * the access point.
+     */
+    public function batchActionConfigure(ProxyQueryInterface $selectedModelQuery, Request $request)
+    {
+        $selectedModels = iterator_to_array($selectedModelQuery->execute(), false);
+        $this->evacuateClients($selectedModels);
 
         foreach ($selectedModels as $ap) {
-            $this->container->get('apman.accesspointservice')->publishConfig($ap);
+            $this->reportProvisioning($ap, $this->apService->applyConfig($ap));
         }
-
-        $this->addFlash('sonata_flash_success', 'Reconfigured.');
 
         return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
     }
 
+    /**
+     * Stop the radios, provision, reboot.
+     *
+     * The reboot happens whether or not the configuration went through: this
+     * is the action people reach for when an access point is in a bad state,
+     * and the flash messages say what the configuration run did.
+     */
     public function batchActionConfigureAndRestart(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-        $selectedModels = $selectedModelQuery->execute();
+        $selectedModels = iterator_to_array($selectedModelQuery->execute(), false);
+        $this->evacuateClients($selectedModels);
 
         $client = $this->mqttFactory->getClient();
-        if ($client) {
-            $deadline = 2;
-            $haveClients = false;
-            foreach ($selectedModels as $ap) {
-                foreach ($ap->getRadios() as $radio) {
-                    foreach ($radio->getDevices() as $device) {
-                        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
-                        if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
-                            foreach ($status['assoclist']['results'] as $c) {
-                                if (!count($c)) {
-                                    continue;
-                                }
-                                $haveClients = true;
-                                $opts = new \stdClass();
-                                $opts->addr = $c['mac'];
-                                $opts->duration = $deadline * 10;
-                                $opts->abridged = true;
-                                $opts->neighbors = [];
-                                foreach ($device->getSsid()->getDevices() as $neighbor) {
-                                    if ($neighbor->getRadio()->getAccessPoint() == $ap) {
-                                        continue;
-                                    }
-                                    $rrm = $neighbor->getRrm();
-                                    $rrm = json_decode(json_encode($rrm));
-                                    if (is_object($rrm) && property_exists($rrm, 'value') && is_array($rrm->value) && isset($rrm->value[2])) {
-                                        $opts->neighbors[] = $rrm->value[2];
-                                    }
-                                }
-                                $topic = 'apman/ap/'.$ap->getName().'/command';
-                                $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'wnm_disassoc_imminent', $opts);
-                                $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
+        if (!$client) {
+            $this->addFlash('sonata_flash_error', 'Cannot connect to mqtt.');
 
-                                $res = $client->publish($topic, json_encode($cmd));
-                            }
-                        }
-                    }
-                }
-            }
-            //$client->loop(100);
-            // Wait for evacuation
-            if ($haveClients) {
-                sleep($deadline);
-            }
+            return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
         }
 
         foreach ($selectedModels as $ap) {
-            $topic = 'apman/ap/'.$ap->getName().'/command/bulk';
-            $cmds = [
-            'list' => [],
-            'options' => [
-            'cancel_on_error' => false,
-            ],
-            ];
+            $this->apService->stopRadio($ap);
+            $this->reportProvisioning($ap, $this->apService->applyConfig($ap));
 
-            $cmds['list'][] = $this->container->get('apman.accesspointservice')->stopRadio($ap, true);
-
-            $eopts = new \stdclass();
-            $eopts->command = 'sleep';
-            $eopts->params = ['15'];
-            $cmds['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'file', 'exec', $eopts);
-
-            $tmp = $this->container->get('apman.accesspointservice')->publishConfig($ap, true);
-            $cmds['list'] = array_merge($cmds['list'], $tmp['list']);
-
-            $eopts = new \stdclass();
-            $eopts->command = 'sleep';
-            $eopts->params = ['15'];
-            $cmds['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'file', 'exec', $eopts);
-
-            $opts = new \stdClass();
-            $cmds['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'reboot', $opts);
-
-            $res = $client->publish($topic, json_encode($cmds));
-            $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmds));
+            $topic = 'apman/ap/'.$ap->getName().'/command';
+            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'reboot', new \stdClass());
+            $client->publish($topic, json_encode($cmd));
+            $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
         }
 
-        $this->addFlash('sonata_flash_success', 'Reconfigured and Restarted successfully');
+        $this->addFlash('sonata_flash_success', 'Reboot initiated.');
 
         return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
     }
 
     public function batchActionStopRadio(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-        $selectedModels = $selectedModelQuery->execute();
-
-        $client = $this->mqttFactory->getClient();
-        if ($client) {
-            $deadline = 2;
-            $haveClients = false;
-            foreach ($selectedModels as $ap) {
-                foreach ($ap->getRadios() as $radio) {
-                    foreach ($radio->getDevices() as $device) {
-                        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
-                        if (is_array($status) && isset($status['assoclist']) && is_array($status['assoclist']) && count($status['assoclist']) && isset($status['assoclist']['results'])) {
-                            foreach ($status['assoclist']['results'] as $c) {
-                                if (!count($c)) {
-                                    continue;
-                                }
-                                $haveClients = true;
-                                $opts = new \stdClass();
-                                $opts->addr = $c['mac'];
-                                $opts->duration = $deadline * 10;
-                                $opts->abridged = true;
-                                $opts->neighbors = [];
-                                foreach ($device->getSsid()->getDevices() as $neighbor) {
-                                    if ($neighbor->getRadio()->getAccessPoint() == $ap) {
-                                        continue;
-                                    }
-                                    $rrm = $neighbor->getRrm();
-                                    $rrm = json_decode(json_encode($rrm));
-                                    if (is_object($rrm) && property_exists($rrm, 'value') && is_array($rrm->value) && isset($rrm->value[2])) {
-                                        $opts->neighbors[] = $rrm->value[2];
-                                    }
-                                }
-                                $topic = 'apman/ap/'.$ap->getName().'/command';
-                                $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'wnm_disassoc_imminent', $opts);
-                                $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
-
-                                $res = $client->publish($topic, json_encode($cmd));
-                            }
-                        }
-                    }
-                }
-            }
-            //$client->loop(100);
-            // Wait for evacuation
-            if ($haveClients) {
-                sleep($deadline);
-            }
-        }
+        $selectedModels = iterator_to_array($selectedModelQuery->execute(), false);
+        $this->evacuateClients($selectedModels);
 
         foreach ($selectedModels as $ap) {
-            $this->container->get('apman.accesspointservice')->stopRadio($ap);
+            $this->apService->stopRadio($ap);
         }
         $this->addFlash('sonata_flash_success', 'Stopped radios.');
 
@@ -230,9 +208,8 @@ class CustomActionsController extends CRUDController
 
     public function batchActionStartRadio(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-        $selectedModels = $selectedModelQuery->execute();
-        foreach ($selectedModels as $ap) {
-            $this->container->get('apman.accesspointservice')->startRadio($ap);
+        foreach ($selectedModelQuery->execute() as $ap) {
+            $this->apService->startRadio($ap);
         }
         $this->addFlash('sonata_flash_success', 'Started radios.');
 
@@ -241,8 +218,7 @@ class CustomActionsController extends CRUDController
 
     public function batchActionWiFiRestart(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-        $selectedModels = $selectedModelQuery->execute();
-        foreach ($selectedModels as $ap) {
+        foreach ($selectedModelQuery->execute() as $ap) {
             $session = $this->rpcService->getSession($ap);
             if (false === $session) {
                 $this->addFlash('sonata_flash_error', 'Cannot connect to AP '.$ap->getName());
@@ -252,9 +228,9 @@ class CustomActionsController extends CRUDController
             $opts = new \stdClass();
             $opts->command = 'wifi';
             $opts->params = ['reload'];
-            $stat = $session->call('file', 'exec', $opts);
+            $session->call('file', 'exec', $opts);
         }
-        $this->addFlash('sonata_flash_success', 'Called \"wifi restart\".');
+        $this->addFlash('sonata_flash_success', 'Called "wifi restart".');
 
         return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
     }
@@ -263,20 +239,17 @@ class CustomActionsController extends CRUDController
     {
         $client = $this->mqttFactory->getClient();
         if (!$client) {
-            $this->logger->error($ap->getName().': Failed to get mqtt client.');
-            $this->addFlash('sonata_flash_error', 'Cannot connect to mqtt for '.$ap->getName());
+            $this->logger->error('Failed to get mqtt client.');
+            $this->addFlash('sonata_flash_error', 'Cannot connect to mqtt.');
 
             return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
         }
 
-        $selectedModels = $selectedModelQuery->execute();
-        foreach ($selectedModels as $ap) {
+        foreach ($selectedModelQuery->execute() as $ap) {
             $topic = 'apman/ap/'.$ap->getName().'/command';
-            $opts = new \stdClass();
-            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'reboot', $opts);
+            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'system', 'reboot', new \stdClass());
             $this->logger->info($ap->getName().': Sent reboot command.');
-            $res = $client->publish($topic, json_encode($cmd));
-            //$client->loop(1);
+            $client->publish($topic, json_encode($cmd));
         }
         $this->addFlash('sonata_flash_success', 'Reboot initiated.');
         $client->disconnect();
@@ -286,14 +259,14 @@ class CustomActionsController extends CRUDController
 
     public function batchActionRefreshRadios(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
-        $selectedModels = $selectedModelQuery->execute();
-        foreach ($selectedModels as $ap) {
-            $this->container->get('apman.accesspointservice')->refreshRadios($ap);
+        foreach ($selectedModelQuery->execute() as $ap) {
+            $this->apService->refreshRadios($ap);
         }
         $this->addFlash('sonata_flash_success', 'Refreshed initiated.');
 
         return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
     }
+
 
     /**
      * @param $id

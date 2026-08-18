@@ -7,6 +7,9 @@ use Symfony\Component\Cache\Psr16Cache;
 
 class AccessPointService
 {
+    /** ubus answers this when the object or the section does not exist */
+    private const UBUS_NOT_FOUND = 4;
+
     private $ppskService;
     private $steering;
     private $logger;
@@ -490,6 +493,9 @@ class AccessPointService
     public function applyConfig($ap, $dryRun = false, $timeout = 90)
     {
         $logger = $this->logger;
+        if (!$ap->getProvisioningEnabled()) {
+            return ['ok' => false, 'ap' => $ap->getName(), 'error' => 'provisioning is disabled for this access point'];
+        }
         $session = $this->getApSession($ap);
         $commands = $this->publishConfig($ap, true);
         if (!is_array($commands) || empty($commands['list'])) {
@@ -514,6 +520,7 @@ class AccessPointService
             return ['ok' => false, 'error' => 'no mqtt connection'];
         }
         $topic = 'apman/ap/'.$ap->getName().'/command/bulk';
+        $this->clearResults($ap, $this->commandIds($commands));
         $client->publish($topic, json_encode($commands), 1);
 
         if (!$session) {
@@ -529,9 +536,17 @@ class AccessPointService
         $report['answered'] = count($results);
         $report['failed'] = [];
         foreach ($results as $id => $res) {
-            if (isset($res['error'])) {
-                $report['failed'][$id] = ($res['error']['message'] ?? 'failed').' ('.($res['error']['code'] ?? '?').')';
+            if (!isset($res['error'])) {
+                continue;
             }
+            // The clean up deletes a whole section type at a time, and uci
+            // answers "not found" when the access point has none of that type
+            // — no wifi-vlan and no wifi-station is the normal case. Counting
+            // that as a failure reverted every single provisioning run.
+            if (self::UBUS_NOT_FOUND === ($res['error']['code'] ?? null) && str_starts_with((string) $id, 'delete-')) {
+                continue;
+            }
+            $report['failed'][$id] = ($res['error']['message'] ?? 'failed').' ('.($res['error']['code'] ?? '?').')';
         }
 
         if (!$results) {
@@ -554,7 +569,7 @@ class AccessPointService
 
         if ($report['failed']) {
             // do not apply a half staged configuration
-            $this->sendUci($client, $ap, 'revert-failed', 'revert', $session);
+            $this->sendUci($client, $ap, 'revert-failed', 'revert', $session, $this->wirelessOpts());
             $client->disconnect();
             $report['ok'] = false;
             $report['error'] = 'staging failed, changes reverted';
@@ -563,7 +578,7 @@ class AccessPointService
         }
 
         if (0 === $changeCount) {
-            $this->sendUci($client, $ap, 'revert-nochange', 'revert', $session);
+            $this->sendUci($client, $ap, 'revert-nochange', 'revert', $session, $this->wirelessOpts());
             $client->disconnect();
             $report['ok'] = true;
             $report['note'] = 'configuration already up to date, nothing applied';
@@ -577,6 +592,7 @@ class AccessPointService
         $opts->timeout = $timeout;
         $opts->ubus_rpc_session = $session;
         $cmd = $this->rpcService->createRpcRequest('apply', 'call', null, 'uci', 'apply', $opts);
+        $this->clearResults($ap, ['apply', 'confirm']);
         $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
         $logger->notice($ap->getName().': applied '.$changeCount.' change(s), rollback armed for '.$timeout.'s');
 
@@ -606,6 +622,49 @@ class AccessPointService
         return $report;
     }
 
+    /**
+     * @return array the ids of a bulk command list
+     */
+    private function commandIds(array $commands)
+    {
+        $ids = [];
+        foreach ($commands['list'] as $cmd) {
+            if (isset($cmd->id)) {
+                $ids[] = $cmd->id;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Forget what an earlier run answered.
+     *
+     * The ids of a provisioning run are derived from the radio and device
+     * names, so they are the same on every run, and the subscriber keeps every
+     * answer under them for an hour. Without this, collectResults() finds the
+     * previous run's answers the moment it starts looking and reports its diff
+     * — before this run's commands have even reached the access point.
+     */
+    private function clearResults($ap, array $ids)
+    {
+        foreach ($ids as $id) {
+            $this->cacheFactory->deleteCacheItem('command.result.'.$ap->getName().'.'.$id);
+        }
+    }
+
+    /**
+     * uci revert wants to know what to revert; without a config it answers
+     * "invalid argument" and the staged transaction stays where it is.
+     */
+    private function wirelessOpts()
+    {
+        $opts = new \stdClass();
+        $opts->config = 'wireless';
+
+        return $opts;
+    }
+
     private function sendUci($client, $ap, $id, $method, $session, ?\stdClass $opts = null)
     {
         $opts = $opts ?: new \stdClass();
@@ -621,12 +680,7 @@ class AccessPointService
      */
     private function collectResults($ap, array $commands, $seconds)
     {
-        $ids = [];
-        foreach ($commands['list'] as $cmd) {
-            if (isset($cmd->id)) {
-                $ids[$cmd->id] = true;
-            }
-        }
+        $ids = array_fill_keys($this->commandIds($commands), true);
         $results = [];
         $deadline = microtime(true) + $seconds;
         while ($ids && microtime(true) < $deadline) {

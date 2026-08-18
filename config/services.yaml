@@ -64,10 +64,12 @@ services:
            - '@ApManBundle\Service\wrtJsonRpc'
         tags:
            - { name: doctrine.event_listener, event: postLoad }
+    # One instance for the whole application: the class is already a service
+    # through the src/ glob above, and that is the one everything autowired
+    # gets. A second definition here would give the daemon and SSIDService
+    # different objects — and only one of them would carry the mqtt publisher.
     apman.accesspointservice:
-        class: ApManBundle\Service\AccessPointService
-        tags:
-                - { name: apmanbundle.apservice }
+        alias: ApManBundle\Service\AccessPointService
         public: true
     apman.ssidservice:
         class: ApManBundle\Service\SSIDService
