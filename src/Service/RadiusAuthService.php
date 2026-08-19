@@ -198,7 +198,7 @@ class RadiusAuthService
      * The attributes we care about, in the shapes the rest of the controller
      * uses: MAC lower case with colons, SSID as broadcast.
      */
-    private function readRequest(Context $context)
+    public function readRequest(Context $context)
     {
         $request = $context->getRequest();
         $get = function ($type) use ($request) {

@@ -19,6 +19,8 @@ class SubscriptionService
     private $cacheLocal = ['ap-by-name' => [], 'dev-by-ap-ifname' => []];
     private $cacheRefreshed = 0;
     private $ppskService;
+    /** the AP the message currently being handled came from */
+    private $apContext;
     /** ssid ids whose keys changed and have to go out again */
     private $ppskPending = [];
     private const CACHE_REFRESH_INTERVAL = 60;
@@ -36,10 +38,12 @@ class SubscriptionService
         MqttFactory $mqttFactory,
         CacheFactory $cacheFactory,
         PpskService $ppskService,
+        ApContextService $apContext,
         ?RadiusServerService $radius = null
     ) {
         $this->radius = $radius;
         $this->ppskService = $ppskService;
+        $this->apContext = $apContext;
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
@@ -206,12 +210,19 @@ class SubscriptionService
      */
     private function dispatch(\ApManBundle\Mqtt\Message $message)
     {
+        $tp = explode('/', $message->topic);
+        // From here on, every log line written while this message is handled
+        // carries the AP it came from. The raw hostname, before the lookup:
+        // messages from hosts the controller does not know get stamped too.
+        $this->apContext->setAp(('ap' === ($tp[1] ?? null)) ? ($tp[2] ?? null) : null);
         try {
             if (!$this->handleMessage($message)) {
                 $this->logger->debug('Failed to handle message. '.$message->topic);
             }
         } catch (\Throwable $e) {
             $this->logger->error('Failed to handle message. '.$e.' '.$e->getTraceAsString());
+        } finally {
+            $this->apContext->clearAp();
         }
     }
 
@@ -615,7 +626,7 @@ class SubscriptionService
                 // was handed out is recognised the moment it is used instead
                 // of on the next poll
                 if (!empty($fields['keyid']) && $address) {
-                    $this->stampIpsk($fields['keyid'], $address);
+                    $this->stampIpsk($fields['keyid'], $address, $ap ? $ap->getName() : null);
                 } elseif ($address) {
                     // no keyid: either an ordinary station on the network
                     // passphrase, or one whose key came from RADIUS — the
@@ -683,12 +694,13 @@ class SubscriptionService
     }
 
     /** mark an issued key as used, from whichever source reported it */
-    private function stampIpsk($keyid, $mac)
+    private function stampIpsk($keyid, $mac, $apName = null)
     {
+        $from = $apName ? '['.$apName.'] ' : '';
         $em = $this->doctrine->getManager();
         $ppsk = $em->getRepository('ApManBundle\Entity\Ppsk')->findOneBy(['keyid' => $keyid]);
         if (!$ppsk) {
-            $this->logger->warning('stampIpsk(): unknown keyid '.$keyid.' used by '.$mac);
+            $this->logger->warning('stampIpsk(): '.$from.'unknown keyid '.$keyid.' used by '.$mac);
 
             return;
         }
@@ -696,7 +708,7 @@ class SubscriptionService
         $mac = strtolower($mac);
         if (!$ppsk->getFirstSeen()) {
             $ppsk->setFirstSeen($now);
-            $this->logger->notice('stampIpsk(): ipsk '.$keyid.' used for the first time by '.$mac);
+            $this->logger->notice('stampIpsk(): '.$from.'ipsk '.$keyid.' used for the first time by '.$mac);
         }
         $ppsk->setLastSeen($now);
         $ppsk->setLastMac($mac);
@@ -710,7 +722,7 @@ class SubscriptionService
         $wasRegistration = $ppsk->isRegistration();
         if ($ppsk->isPinPending()) {
             $ppsk->setMac($mac);
-            $this->logger->notice('stampIpsk(): ipsk '.$keyid.' pinned to '.$mac.
+            $this->logger->notice('stampIpsk(): '.$from.'ipsk '.$keyid.' pinned to '.$mac.
                 ', redistributing');
             if ($ppsk->getSsid()) {
                 $this->ppskPending[$ppsk->getSsid()->getId()] = true;
@@ -722,7 +734,7 @@ class SubscriptionService
             if ($wasRegistration) {
                 $back = $this->ppskService->finishRegistration($ppsk);
                 if ($back) {
-                    $this->logger->notice('stampIpsk(): registration on '.
+                    $this->logger->notice('stampIpsk(): '.$from.'registration on '.
                         $ppsk->getSsid()->getName().' finished, back in service: '.implode(', ', $back));
                 }
             }
@@ -819,7 +831,7 @@ class SubscriptionService
      * This is what turns "a key was handed out" into "the key was actually
      * used", which is what the interface shows as success.
      */
-    private function recordIpskUse(array $data)
+    private function recordIpskUse(array $data, $apName = null)
     {
         if (empty($data['sta_ctrl']) || !is_array($data['sta_ctrl'])) {
             return;
@@ -837,7 +849,7 @@ class SubscriptionService
             }
             $this->cacheFactory->addCacheItem($guard, time(), 60);
 
-            $this->stampIpsk($keyid, $mac);
+            $this->stampIpsk($keyid, $mac, $apName);
         }
     }
 
@@ -936,7 +948,7 @@ class SubscriptionService
         // from 1970, which made every age reading nonsense right after a boot.
         $data['received'] = time();
         $this->cacheFactory->addCacheItem($key, $data);
-        $this->recordIpskUse($data);
+        $this->recordIpskUse($data, $ap->getName());
         $updated[] = $ap->getName().' '.$device->getIfname();
         $this->logger->info('Updated status.', ['status' => 0, 'devices_updated' => $updated]);
         // handle station updates
@@ -947,12 +959,28 @@ class SubscriptionService
 
     private function handleRadiusMessage($message)
     {
+        $data = json_decode($message->payload);
+        // The radius export carries its AP as NAS-Identifier (fallback: the
+        // NAS IP). Stamp the log lines below with it; dispatch() clears the
+        // holder when this message is done.
+        $nas = null;
+        if (isset($data->request) && is_array($data->request)) {
+            foreach ($data->request as $value) {
+                if ('NAS-Identifier' === ($value[0] ?? null)) {
+                    $nas = $value[1] ?? null;
+                    break;
+                }
+                if ('NAS-IP-Address' === ($value[0] ?? null)) {
+                    $nas = $value[1] ?? null;
+                }
+            }
+        }
+        $this->apContext->setAp($nas);
         $this->logger->info('handleRadiusMessage(): radius', [
                 'topic' => $message->topic,
                 'payload' => $message->payload,
         ]);
         $attribs = new \stdclass();
-        $data = json_decode($message->payload);
         if (isset($data->request)) {
             $attribs->request = new \stdclass();
             foreach ($data->request as $value) {

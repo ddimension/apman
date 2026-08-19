@@ -29,10 +29,12 @@ class RadiusServerService
     /** answer every request with this key — for bringing the socket up, not for use */
     private $testPsk;
     private $server;
+    private $apContext;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
         RadiusAuthService $auth,
+        \ApManBundle\Service\ApContextService $apContext,
         $enabled = false,
         $bind = '0.0.0.0:1812',
         $secret = '',
@@ -40,6 +42,7 @@ class RadiusServerService
     ) {
         $this->logger = $logger;
         $this->auth = $auth;
+        $this->apContext = $apContext;
         $this->enabled = (bool) $enabled;
         $this->bind = $bind ?: '0.0.0.0:1812';
         $this->secret = (string) $secret;
@@ -106,6 +109,11 @@ class RadiusServerService
     private function handle(Context $context)
     {
         try {
+            // Radius packets name their AP as NAS-Identifier (or the NAS IP);
+            // stamp every log line this request produces with it. Cleared in
+            // finally, so the line below the catch keeps it too.
+            $request = $this->auth->readRequest($context);
+            $this->apContext->setAp($request['nas'] ?: null);
             if ('' !== $this->testPsk) {
                 $this->auth->answerFixed($context, $this->testPsk);
 
@@ -114,6 +122,8 @@ class RadiusServerService
             $this->auth->handle($context);
         } catch (\Throwable $e) {
             $this->logger->error('RadiusServer: '.$e->getMessage().' '.$e->getTraceAsString());
+        } finally {
+            $this->apContext->clearAp();
         }
     }
 }
