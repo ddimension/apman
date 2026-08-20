@@ -7,6 +7,8 @@ use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollectionInterface;
+use Sonata\AdminBundle\Show\ShowMapper;
+use Symfony\Component\Form\CallbackTransformer;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 
 class RadioAdmin extends AbstractAdmin
@@ -32,46 +34,97 @@ class RadioAdmin extends AbstractAdmin
         $formMapper->add('config_supported_rates');
         $formMapper->add('config_rts');
         $formMapper->add('config_antenna_gain')
-//	$formMapper->add('config_ht_capab', 'array');
-        ->add('config_ht_capab');
+            ->add('config_ht_capab', TextType::class);
+
+        // config_ht_capab is a json column: the form needs a string, the
+        // entity an array. Without this the create page dies with
+        // "Array to string conversion".
+        $formMapper->get('config_ht_capab')->addModelTransformer(new CallbackTransformer(
+            function ($htCapabAsArray) {
+                return json_encode($htCapabAsArray, JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            },
+            function ($htCapabAsString) {
+                if (!is_string($htCapabAsString) || '' === trim($htCapabAsString)) {
+                    return null;
+                }
+
+                return json_decode($htCapabAsString, true, 512, JSON_THROW_ON_ERROR);
+            }
+        ));
     }
 
     protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper->add('name')
-    ->add('config_disabled')
-    ->add('config_channel')
-    ->add('config_hwmode')
-    ->add('config_htmode')
-    ->add('config_country');
+            ->add('config_disabled')
+            ->add('config_channel')
+            ->add('config_hwmode')
+            ->add('config_htmode')
+            ->add('config_country');
     }
 
     protected function configureListFields(ListMapper $listMapper): void
     {
-        $listMapper->addIdentifier('accesspoint', null, ['associated_property' => 'name'])
-        ->addIdentifier('name')
-        ->addIdentifier('is_enabled', 'boolean')
-    ->addIdentifier('config_channel', null, ['label' => 'Channel'])
-    ->addIdentifier('config_channels', null, ['label' => 'Channel List'])
-    ->addIdentifier('config_band', null, ['label' => 'Band'])
-    ->addIdentifier('config_hwmode', null, ['label' => 'HW Mode'])
-    ->addIdentifier('config_htmode', null, ['label' => 'HT Mode'])
-    ->addIdentifier('config_txpower', null, ['label' => 'Tx Power'])
-    ->addIdentifier('config_country', null, ['label' => 'Country'])
-        ->addIdentifier('channel')
-        ->addIdentifier('txpower')
-        ->addIdentifier('mode')
-        ->addIdentifier('hw_info');
+        $listMapper->add('accesspoint', null, ['associated_property' => 'name'])
+            ->addIdentifier('name')
+            ->add('is_enabled', 'boolean')
+            ->add('config_channel', null, ['label' => 'Channel'])
+            ->add('config_channels', null, ['label' => 'Channel List'])
+            ->add('config_band', null, ['label' => 'Band'])
+            ->add('config_hwmode', null, ['label' => 'HW Mode'])
+            ->add('config_htmode', null, ['label' => 'HT Mode'])
+            ->add('config_txpower', null, ['label' => 'Tx Power'])
+            ->add('config_country', null, ['label' => 'Country'])
+            ->add('channel')
+            ->add('txpower')
+            ->add('mode')
+            ->add('hw_info');
+
+        // The default actions have to be listed too, see AccessPointAdmin.
         $listMapper->add(ListMapper::NAME_ACTIONS, null, [
-        'actions' => [
-            'radio_status' => [
-                'template' => 'CRUD/list__action_radio_status.html.twig',
+            'actions' => [
+                'show' => [],
+                'edit' => [],
+                'delete' => [],
+                'radio_status' => [
+                    'template' => 'CRUD/list__action_radio_status.html.twig',
+                ],
+                'radio_neighbors' => [
+                    'template' => 'CRUD/list__action_radio_neighbors.html.twig',
+                ],
             ],
-            'radio_neighbors' => [
-                'template' => 'CRUD/list__action_radio_neighbors.html.twig',
-            ],
-        ],
-    ]);
+        ]);
+    }
+
+    protected function configureShowFields(ShowMapper $showMapper): void
+    {
+        $showMapper
+            ->add('accesspoint', null, ['associated_property' => 'name'])
+            ->add('name')
+            ->add('is_enabled', 'boolean')
+            ->add('config_type')
+            ->add('config_path')
+            ->add('config_disabled')
+            ->add('config_channel', null, ['label' => 'Channel'])
+            ->add('config_channels', null, ['label' => 'Channel List'])
+            ->add('config_band', null, ['label' => 'Band'])
+            ->add('config_hwmode', null, ['label' => 'HW Mode'])
+            ->add('config_txpower', null, ['label' => 'Tx Power'])
+            ->add('config_country', null, ['label' => 'Country'])
+            ->add('config_require_mode')
+            ->add('config_log_level')
+            ->add('config_htmode', null, ['label' => 'HT Mode'])
+            ->add('config_noscan')
+            ->add('config_beacon_int')
+            ->add('config_basic_rate')
+            ->add('config_supported_rates')
+            ->add('config_rts')
+            ->add('config_antenna_gain')
+            ->add('config_ht_capab', 'array')
+            ->add('channel')
+            ->add('txpower')
+            ->add('mode')
+            ->add('hw_info');
     }
 
     protected function configureRoutes(RouteCollectionInterface $collection): void

@@ -6,6 +6,7 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
+use Sonata\AdminBundle\Show\ShowMapper;
 
 class PpskAdmin extends AbstractAdmin
 {
@@ -31,12 +32,33 @@ class PpskAdmin extends AbstractAdmin
 
     protected function configureListFields(ListMapper $listMapper): void
     {
-        $listMapper->addIdentifier('ssid', null, ['associated_property' => 'name']);
+        $listMapper->add('ssid', null, ['associated_property' => 'name']);
         $listMapper->addIdentifier('name');
         $listMapper->add('mac');
         $listMapper->add('vid');
         $listMapper->add('source');
-        $listMapper->add('enabled');
-        $listMapper->add('created');
+        $listMapper->add('enabled', 'boolean');
+        $listMapper->add('created', 'datetime');
+        $listMapper->add(ListMapper::NAME_ACTIONS, null, [
+            'actions' => [
+                'show' => [],
+                'edit' => [],
+                'delete' => [],
+            ],
+        ]);
+    }
+
+    protected function configureShowFields(ShowMapper $showMapper): void
+    {
+        $showMapper
+            ->add('ssid', null, ['associated_property' => 'name'])
+            ->add('name')
+            ->add('mac')
+            ->add('psk')
+            ->add('vid')
+            ->add('enabled', 'boolean')
+            ->add('source')
+            ->add('created', 'datetime')
+            ->add('comment');
     }
 }

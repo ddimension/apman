@@ -7,26 +7,16 @@ class Device
     /**
      * get Status.
      *
+     * NOTE: Entity\Device overrides getStatus() with the real database column.
+     * This copy only existed to be shadowed by it, and it called itself —
+     * every getter below starts with $this->getStatus(), so the one place the
+     * recursion could have been reached again was right here.
+     *
      * @return \string
      */
     public function getStatus()
     {
-        $status = $this->getStatus();
-        if (!is_array($status)) {
-            return null;
-        }
-        if (!array_key_exists('status', $status)) {
-            return null;
-        }
-        if (!is_array($status['status'])) {
-            return null;
-        }
-        if (!array_key_exists('up', $status['status'])) {
-            return null;
-        }
-        $res = 'Up: '.$status['status']['up'] ? 'Up' : 'Down';
-
-        return $res;
+        return null;
     }
 
     /**
@@ -226,6 +216,6 @@ class Device
      */
     public function getRrmOwn()
     {
-        $this->getRrm();
+        return $this->getRrm();
     }
 }

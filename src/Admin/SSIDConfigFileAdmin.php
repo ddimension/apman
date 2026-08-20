@@ -6,6 +6,7 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
+use Sonata\AdminBundle\Show\ShowMapper;
 
 class SSIDConfigFileAdmin extends AbstractAdmin
 {
@@ -24,9 +25,25 @@ class SSIDConfigFileAdmin extends AbstractAdmin
 
     protected function configureListFields(ListMapper $listMapper): void
     {
-        $listMapper->addIdentifier('ssid', null, ['associated_property' => 'name']);
+        $listMapper->add('ssid', null, ['associated_property' => 'name']);
         $listMapper->addIdentifier('name');
-        $listMapper->addIdentifier('filename');
-        $listMapper->addIdentifier('content');
+        $listMapper->add('filename');
+        $listMapper->add('content');
+        $listMapper->add(ListMapper::NAME_ACTIONS, null, [
+            'actions' => [
+                'show' => [],
+                'edit' => [],
+                'delete' => [],
+            ],
+        ]);
+    }
+
+    protected function configureShowFields(ShowMapper $showMapper): void
+    {
+        $showMapper
+            ->add('ssid', null, ['associated_property' => 'name'])
+            ->add('name')
+            ->add('filename')
+            ->add('content');
     }
 }

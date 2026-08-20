@@ -7,6 +7,7 @@ use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollectionInterface;
+use Sonata\AdminBundle\Show\ShowMapper;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\Extension\Core\Type\UrlType;
 
@@ -17,7 +18,7 @@ class AccessPointAdmin extends AbstractAdmin
         $formMapper->add('name', TextType::class)
             ->add('username', TextType::class)
             ->add('password', TextType::class)
-        ->add('ubus_url', UrlType::class)
+            ->add('ubus_url', UrlType::class)
             ->add('ipv4', TextType::class)
             ->add('ProvisioningEnabled')
             ->add('IsProductive');
@@ -32,35 +33,58 @@ class AccessPointAdmin extends AbstractAdmin
     protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('name');
-        $listMapper->addIdentifier('ipv4');
-        $listMapper->addIdentifier('model');
-        $listMapper->addIdentifier('system');
-        $listMapper->addIdentifier('codename');
-        $listMapper->addIdentifier('kernel');
-        $listMapper->addIdentifier('uptime', 'datetime');
-        $listMapper->addIdentifier('ProvisioningEnabled');
-        $listMapper->addIdentifier('IsProductive');
-        $listMapper->addIdentifier('load');
-        $listMapper->addIdentifier('state');
+        $listMapper->add('ipv4');
+        $listMapper->add('model');
+        $listMapper->add('system');
+        $listMapper->add('codename');
+        $listMapper->add('kernel');
+        $listMapper->add('uptime', 'datetime');
+        $listMapper->add('ProvisioningEnabled', 'boolean');
+        $listMapper->add('IsProductive', 'boolean');
+        $listMapper->add('load');
+        $listMapper->add('state');
+
+        // The default actions have to be listed too: passing an 'actions'
+        // option replaces them, and without show/edit/delete an access point
+        // cannot be viewed or changed from the list at all.
         $listMapper->add(ListMapper::NAME_ACTIONS, null, [
-        'actions' => [
-            'syslog' => [
-                'template' => 'CRUD/list__action_syslog.html.twig',
+            'actions' => [
+                'show' => [],
+                'edit' => [],
+                'delete' => [],
+                'syslog' => [
+                    'template' => 'CRUD/list__action_syslog.html.twig',
+                ],
+                'login' => [
+                    'template' => 'CRUD/list__action_login.html.twig',
+                ],
+                'lldp' => [
+                    'template' => 'CRUD/list__action_lldp.html.twig',
+                ],
             ],
-            'login' => [
-                'template' => 'CRUD/list__action_login.html.twig',
-            ],
-            'lldp' => [
-                'template' => 'CRUD/list__action_lldp.html.twig',
-            ],
-        ],
-    ]);
+        ]);
+    }
+
+    protected function configureShowFields(ShowMapper $showMapper): void
+    {
+        $showMapper
+            ->add('name')
+            ->add('ipv4')
+            ->add('ubus_url', 'url')
+            ->add('username')
+            ->add('model')
+            ->add('system')
+            ->add('codename')
+            ->add('kernel')
+            ->add('uptime', 'datetime')
+            ->add('load')
+            ->add('state')
+            ->add('ProvisioningEnabled', 'boolean')
+            ->add('IsProductive', 'boolean');
     }
 
     protected function configureBatchActions(array $actions): array
     {
-
-//        if ($this->hasRoute('print') && $this->isGranted('VIEW')) {
         $actions['configure_and_restart'] = ['label' => 'Stop, Configure and Reboot', 'ask_confirmation' => true];
         $actions['configure'] = ['label' => 'Configure', 'ask_confirmation' => true];
         $actions['stop_radio'] = ['label' => 'Stop Radio', 'ask_confirmation' => true];
@@ -68,7 +92,6 @@ class AccessPointAdmin extends AbstractAdmin
         $actions['wifi_restart'] = ['label' => 'WiFi Restart', 'ask_confirmation' => true];
         $actions['refresh_radios'] = ['label' => 'Wifi Radio Config refresh from AP', 'ask_confirmation' => true];
         $actions['reboot'] = ['label' => 'Reboot', 'ask_confirmation' => true];
-        //       }
 
         return $actions;
     }

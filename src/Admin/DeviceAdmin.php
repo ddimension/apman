@@ -6,6 +6,7 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
+use Sonata\AdminBundle\Show\ShowMapper;
 use Symfony\Component\Form\CallbackTransformer;
 use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
@@ -42,18 +43,44 @@ class DeviceAdmin extends AbstractAdmin
 
     protected function configureListFields(ListMapper $listMapper): void
     {
-        $listMapper->addIdentifier('radio.accesspoint.name', null, ['label' => 'Accesspoint']);
-        $listMapper->addIdentifier('radio.name');
+        $listMapper->add('radio.accesspoint.name', null, ['label' => 'Accesspoint']);
+        $listMapper->add('radio.name');
         $listMapper->addIdentifier('name');
-        $listMapper->addIdentifier('ifname');
-        $listMapper->addIdentifier('address');
-        $listMapper->addIdentifier('ssid.name');
-        $listMapper->addIdentifier('is_enabled', 'boolean');
-        $listMapper->addIdentifier('statistics_transmit', 'decimal', ['label' => 'Transmit (B)']);
-        $listMapper->addIdentifier('statistics_receive', 'decimal', ['label' => 'Receive (B)']);
-        $listMapper->addIdentifier('channel');
-        $listMapper->addIdentifier('tx_power');
-        $listMapper->addIdentifier('hw_mode');
-        $listMapper->addIdentifier('clients');
+        $listMapper->add('ifname');
+        $listMapper->add('address');
+        $listMapper->add('ssid.name');
+        $listMapper->add('is_enabled', 'boolean');
+        $listMapper->add('statistics_transmit', 'decimal', ['label' => 'Transmit (B)']);
+        $listMapper->add('statistics_receive', 'decimal', ['label' => 'Receive (B)']);
+        $listMapper->add('channel');
+        $listMapper->add('tx_power');
+        $listMapper->add('hw_mode');
+        $listMapper->add('clients');
+        $listMapper->add(ListMapper::NAME_ACTIONS, null, [
+            'actions' => [
+                'show' => [],
+                'edit' => [],
+                'delete' => [],
+            ],
+        ]);
+    }
+
+    protected function configureShowFields(ShowMapper $showMapper): void
+    {
+        $showMapper
+            ->add('radio.accesspoint.name', null, ['label' => 'Accesspoint'])
+            ->add('radio.name')
+            ->add('name')
+            ->add('ifname')
+            ->add('address')
+            ->add('ssid.name')
+            ->add('is_enabled', 'boolean')
+            ->add('statistics_transmit', 'decimal', ['label' => 'Transmit (B)'])
+            ->add('statistics_receive', 'decimal', ['label' => 'Receive (B)'])
+            ->add('channel')
+            ->add('tx_power')
+            ->add('hw_mode')
+            ->add('clients')
+            ->add('config', 'array');
     }
 }

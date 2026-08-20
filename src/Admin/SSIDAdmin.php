@@ -6,6 +6,7 @@ use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
+use Sonata\AdminBundle\Show\ShowMapper;
 use Sonata\Form\Type\CollectionType;
 
 class SSIDAdmin extends AbstractAdmin
@@ -167,8 +168,24 @@ class SSIDAdmin extends AbstractAdmin
     protected function configureListFields(ListMapper $listMapper): void
     {
         $listMapper->addIdentifier('name');
-        $listMapper->addIdentifier('is_enabled', 'boolean');
+        $listMapper->add('is_enabled', 'boolean');
         $listMapper->add('device_count', null, ['label' => 'Radios']);
-        $listMapper->addIdentifier('setup_order');
+        $listMapper->add('setup_order');
+        $listMapper->add(ListMapper::NAME_ACTIONS, null, [
+            'actions' => [
+                'show' => [],
+                'edit' => [],
+                'delete' => [],
+            ],
+        ]);
+    }
+
+    protected function configureShowFields(ShowMapper $showMapper): void
+    {
+        $showMapper
+            ->add('name')
+            ->add('setup_order')
+            ->add('is_enabled', 'boolean')
+            ->add('device_count', null, ['label' => 'Radios']);
     }
 }
