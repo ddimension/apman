@@ -1160,6 +1160,11 @@ class AccessPointService
             $state = null;
         }
         $stateOld = $state;
+        // Nothing known yet is not the same as offline, even though intval()
+        // turns both into 0. Keep them apart: an access point we have never
+        // heard from has to be able to climb out of it, and the branches below
+        // use $unknown to tell the two apart.
+        $unknown = (null === $state);
         $state = intval($state);
         $cif = 0;
         // Handle online message
@@ -1172,7 +1177,7 @@ class AccessPointService
             $this->cacheFactory->addCacheItem('status.online['.$ap->getId().']', $msg);
             $this->logger->info('ApLifetimeHandler(): save online status from '.$ap->getName(), $msg);
             if ('online' == $msg['status']) {
-                if (\ApManBundle\Library\AccessPointState::STATE_OFFLINE == $state) {
+                if ($unknown || \ApManBundle\Library\AccessPointState::STATE_OFFLINE == $state) {
                     $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ONLINE);
                 }
             } else {
@@ -1183,13 +1188,28 @@ class AccessPointService
             $this->cacheFactory->addCacheItem('status.wireless['.$ap->getId().']', $msg);
             $this->logger->info('ApLifetimeHandler(): save wireless status (length: '.strlen($message->payload).') from '.$ap->getName());
 
+            // A wireless status message is itself proof that the access point is
+            // talking to us. Returning here was how an access point got stuck:
+            // once the state had gone (or it had never been seen), every status
+            // message bailed out before the state could be written back, and
+            // only a fresh MQTT connect could ever lift it out again.
             if ($state < \ApManBundle\Library\AccessPointState::STATE_ONLINE) {
-                return false;
+                $this->logger->info('ApLifetimeHandler(): '.$ap->getName().' sent wireless status while '.
+                    ($unknown ? 'unknown' : \ApManBundle\Library\AccessPointState::getStateName($state)).
+                    ', taking that as online');
+                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ONLINE);
             }
 
             $pending = false;
-            $up = false;
             $failed = false;
+            // Counted, not overwritten. This used to be a plain $up that every
+            // radio reassigned, so the last one in the loop decided for the
+            // whole access point — an access point with one radio up and one
+            // down reported whatever the iteration order happened to hand over
+            // last. $pending and $failed were accumulated all along; $up was
+            // the odd one out.
+            $radios = 0;
+            $radiosUp = 0;
 
             foreach ($msg as $name => $rstate) {
                 //var_dump($rstate);
@@ -1207,10 +1227,9 @@ class AccessPointService
                 if ($rstate['retry_setup_failed']) {
                     $failed = true;
                 }
+                ++$radios;
                 if ($rstate['up']) {
-                    $up = true;
-                } else {
-                    $up = false;
+                    ++$radiosUp;
                 }
                 if (isset($rstate['interfaces']) && is_array($rstate['interfaces'])) {
                     $cif += count($rstate['interfaces']);
@@ -1234,6 +1253,16 @@ class AccessPointService
                         }
                     }
                 }
+            }
+            // One radio up is enough to keep going. Demanding all of them would
+            // park an access point with a single dead radio in PENDING, and
+            // PENDING never reaches ACTIVE — so the radios that *are* working
+            // would lose their beacons and neighbour reports too. The partial
+            // case is worth knowing about, not worth stopping for.
+            $up = $radiosUp > 0;
+            if ($radios > 0 && $radiosUp < $radios) {
+                $this->logger->warning('ApLifetimeHandler(): '.$ap->getName().' has '.
+                    $radiosUp.' of '.$radios.' enabled radios up');
             }
             if ($failed) {
                 $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_FAILED);
@@ -1378,15 +1407,28 @@ class AccessPointService
         return;
     }
 
+    /**
+     * How long a state is remembered. Deliberately far longer than anything the
+     * access points do: the default 30 seconds meant the state expired between
+     * two status messages, and since a missing entry reads back as 0 —
+     * STATE_OFFLINE — a perfectly healthy access point was reported offline for
+     * no reason other than a gap in the traffic. Offline is something we are
+     * told (the agent's MQTT last will) or something we conclude from the age
+     * of the last message, never something a cache eviction decides.
+     */
+    private const STATE_TTL = 7 * 86400;
+
     private function changeLifetimeState($ap, int $state)
     {
         $stateKey = 'status.state['.$ap->getId().']';
         $stateOld = $this->cacheFactory->getCacheItemValue($stateKey);
-        if ($state != $stateOld) {
+        if ($state !== $stateOld) {
             $this->logger->notice("changeLifetimeState(): changing state from '".\ApManBundle\Library\AccessPointState::getStateName($stateOld).
             "' to '".\ApManBundle\Library\AccessPointState::getStateName($state)."'  of ap ".$ap->getName());
+            // when it changed, so "how long has it been failing" is answerable
+            $this->cacheFactory->addCacheItem('status.state.since['.$ap->getId().']', time(), self::STATE_TTL);
         }
-        $this->cacheFactory->addCacheItem($stateKey, $state);
+        $this->cacheFactory->addCacheItem($stateKey, $state, self::STATE_TTL);
 
         return $state;
     }
