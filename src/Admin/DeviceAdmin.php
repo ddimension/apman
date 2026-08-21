@@ -46,6 +46,9 @@ class DeviceAdmin extends AbstractAdmin
         $listMapper->add('radio.accesspoint.name', null, ['label' => 'Accesspoint']);
         $listMapper->add('radio.name');
         $listMapper->addIdentifier('name');
+        // from the state tree, composed once per status message by
+        // StateTreeService — the bss level had no state of its own before
+        $listMapper->add('state', null, ['label' => 'State']);
         $listMapper->add('ifname');
         $listMapper->add('address');
         $listMapper->add('ssid.name');

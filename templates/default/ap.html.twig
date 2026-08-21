@@ -20,6 +20,36 @@
 	{% endif %}
 </p>
 
+{# The access point as a tree. Every node says what it is and how long it has
+   been that: the radio carries the DFS state, the bsses under it carry theirs,
+   and what the access point is follows from them rather than being guessed at
+   the top. #}
+<table class="aps">
+	<tr><th>Node</th><th>State</th><th>Since</th><th>Last heard</th></tr>
+	<tr>
+		<td><b>{{ tree.name }}</b></td>
+		<td><span class="pill {{ tree.state_name in ['ACTIVE', 'READY'] ? 'up' : 'down' }}">{{ tree.state_name }}</span></td>
+		<td class="small">{{ tree.since ? ((date().timestamp - tree.since) // 60) ~ ' min' : '—' }}</td>
+		<td class="small">{{ tree.seen ? (date().timestamp - tree.seen) ~ ' s' : 'never' }}{{ tree.fresh ? '' : ' (stale)' }}</td>
+	</tr>
+	{% for radio in tree.children %}
+		<tr>
+			<td>&nbsp;&nbsp;{{ radio.name }}</td>
+			<td>{{ radio.state_name }}</td>
+			<td class="small">{{ radio.since ? ((date().timestamp - radio.since) // 60) ~ ' min' : '—' }}</td>
+			<td class="small">{{ radio.seen ? (date().timestamp - radio.seen) ~ ' s' : 'never' }}</td>
+		</tr>
+		{% for bss in radio.children %}
+			<tr class="small">
+				<td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{{ bss.name }}</td>
+				<td>{{ bss.state_name }}</td>
+				<td>{{ bss.since ? ((date().timestamp - bss.since) // 60) ~ ' min' : '—' }}</td>
+				<td>{{ bss.seen ? (date().timestamp - bss.seen) ~ ' s' : 'never' }}</td>
+			</tr>
+		{% endfor %}
+	{% endfor %}
+</table>
+
 <p>
 	<button type="button" id="dryrun">Show pending changes</button>
 	<button type="button" id="provision">Provision (rollback armed)</button>

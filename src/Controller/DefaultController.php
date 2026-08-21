@@ -285,7 +285,7 @@ class DefaultController extends AbstractController
      * plus the actions that can be run against it with feedback.
      */
     #[Route(path: '/ap/{name}', name: 'ap_detail')]
-    public function apDetailAction($name)
+    public function apDetailAction($name, \ApManBundle\Service\StateTreeService $stateTree)
     {
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
@@ -358,6 +358,9 @@ class DefaultController extends AbstractController
             'state' => \ApManBundle\Library\AccessPointState::getStateName(
                 $cf->getCacheItemValue('status.state['.$ap->getId().']')
             ),
+            // the same access point as a tree: its radios, and under each of
+            // them its bsses, every node with its own state
+            'tree' => $stateTree->ap($ap),
             'devices' => $devices,
         ]);
     }

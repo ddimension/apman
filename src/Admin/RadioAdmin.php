@@ -67,6 +67,9 @@ class RadioAdmin extends AbstractAdmin
     {
         $listMapper->add('accesspoint', null, ['associated_property' => 'name'])
             ->addIdentifier('name')
+            // from the state tree: this level carries the DFS/CAC state, which
+            // used to be guessed one level up at the access point
+            ->add('state', null, ['label' => 'State'])
             ->add('is_enabled', 'boolean')
             ->add('config_channel', null, ['label' => 'Channel'])
             ->add('config_channels', null, ['label' => 'Channel List'])

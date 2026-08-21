@@ -43,6 +43,9 @@ class AccessPointAdmin extends AbstractAdmin
         $listMapper->add('IsProductive', 'boolean');
         $listMapper->add('load');
         $listMapper->add('state');
+        // what the tree makes of the same access point, from its radios and
+        // their bsses. Sits next to the flat state while the two are compared.
+        $listMapper->add('treeState', null, ['label' => 'Tree']);
 
         // The default actions have to be listed too: passing an 'actions'
         // option replaces them, and without show/edit/delete an access point
@@ -79,6 +82,7 @@ class AccessPointAdmin extends AbstractAdmin
             ->add('uptime', 'datetime')
             ->add('load')
             ->add('state')
+            ->add('treeState', null, ['label' => 'Tree state'])
             ->add('ProvisioningEnabled', 'boolean')
             ->add('IsProductive', 'boolean');
     }

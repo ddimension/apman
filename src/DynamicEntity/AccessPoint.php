@@ -26,6 +26,7 @@ class AccessPoint
         $this->cache = $cache;
         $this->stateCache = $this->cache->getMultipleCacheItemValues([
         'status.state['.$this->getId().']',
+        'state.ap.composed['.$this->getId().']',
         'status.ap.'.$this->getId().'.board',
         'status.ap.'.$this->getId().'.info',
         ]);
@@ -200,5 +201,34 @@ class AccessPoint
         $state = $this->stateCache[$key];
 
         return AccessPointState::getStateName($state);
+    }
+
+    /**
+     * What the state tree makes of this access point — its radios and their
+     * bsses composed. Sits next to getState() while the two are compared;
+     * getState() is the flat machine and goes when the tree replaces it.
+     */
+    public function getTreeState()
+    {
+        $key = 'state.ap.composed['.$this->getId().']';
+        $node = is_array($this->stateCache) ? ($this->stateCache[$key] ?? null) : null;
+        if (!is_array($node)) {
+            return 'Unknown';
+        }
+
+        return \ApManBundle\Library\NodeState::name(
+            \ApManBundle\Library\NodeState::TYPE_AP, $node['state'] ?? null);
+    }
+
+    /** how long it has been in that state, in seconds, or null */
+    public function getTreeStateSince()
+    {
+        $key = 'state.ap.composed['.$this->getId().']';
+        $node = is_array($this->stateCache) ? ($this->stateCache[$key] ?? null) : null;
+        if (!is_array($node) || empty($node['since'])) {
+            return null;
+        }
+
+        return time() - (int) $node['since'];
     }
 }

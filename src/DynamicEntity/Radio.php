@@ -179,4 +179,40 @@ class Radio
 
         return join(', ', $hw);
     }
+
+    /**
+     * The composed state from StateTreeService, injected by AccessPointListener
+     * on postLoad like the access point's has always been. Read only: the tree
+     * writes it once per status message, this hands it to Sonata and the pages.
+     */
+    private $treeCache;
+
+    public function setCache($cache)
+    {
+        $this->treeCache = $cache->getMultipleCacheItemValues([
+            'state.radio.composed['.$this->getId().']',
+        ]);
+    }
+
+    public function getState()
+    {
+        $node = $this->treeCache['state.radio.composed['.$this->getId().']'] ?? null;
+        if (!is_array($node)) {
+            return 'Unknown';
+        }
+
+        return \ApManBundle\Library\NodeState::name(
+            \ApManBundle\Library\NodeState::TYPE_RADIO, $node['state'] ?? null);
+    }
+
+    /** how long it has been in that state, in seconds, or null */
+    public function getStateSince()
+    {
+        $node = $this->treeCache['state.radio.composed['.$this->getId().']'] ?? null;
+        if (!is_array($node) || empty($node['since'])) {
+            return null;
+        }
+
+        return time() - (int) $node['since'];
+    }
 }

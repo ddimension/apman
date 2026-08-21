@@ -4,12 +4,15 @@
 <h2>Access Points</h2>
 <table class="aps">
 	<tr>
-		<th>AP</th><th>State</th><th>Agent</th><th>Features</th><th>Intervals</th>
+		<th>AP</th><th>State</th><th>Tree</th><th>Agent</th><th>Features</th><th>Intervals</th>
 	</tr>
 	{% for ap in aps %}
 		<tr class="ap {{ ap.online == 'online' ? 'up' : 'down' }}">
 			<td><b><a href="{{ path('ap_detail', {'name': ap.name}) }}">{{ ap.name }}</a></b>{% if not ap.productive %} <i>(non productive)</i>{% endif %}</td>
 			<td>{{ ap.state }}{% if ap.online %} / {{ ap.online }}{% endif %}</td>
+			{# composed from the radios and their bsses, next to the flat state
+			   while the two are being compared #}
+			<td>{{ ap.treeState }}</td>
 			<td>
 				{% if ap.agent %}
 					{{ ap.agent.agent|default('apman') }} {{ ap.agent.version|default('?') }}

@@ -171,7 +171,7 @@ class StateTreeService
      */
     public function compareWithFlat(AccessPoint $ap, string $flatName): void
     {
-        $tree = $this->ap($ap);
+        $tree = $this->refresh($ap);
         $pair = $tree['state_name'].'|'.$flatName;
         $key = 'state.compare['.$ap->getId().']';
         if ($this->cacheFactory->getCacheItemValue($key) === $pair) {
@@ -180,6 +180,63 @@ class StateTreeService
         $this->cacheFactory->addCacheItem($key, $pair, self::TTL);
         $this->logger->notice(sprintf('stateTree: %s composes to %s, flat machine says %s',
             $ap->getName(), $tree['state_name'], $flatName));
+    }
+
+    /**
+     * Compose the access point and its radios and write the result down.
+     *
+     * The composed state is what everything outside this service wants — a
+     * Sonata column, a page, and from stage three the events. Composing it on
+     * every read would mean walking the tree for each row of a list; composing
+     * it here, once per message, leaves a plain value to read. Its transitions
+     * are logged like any other node's, which is what makes them eventable
+     * later.
+     */
+    public function refresh(AccessPoint $ap): array
+    {
+        $tree = $this->ap($ap);
+        $this->writeComposed(NodeState::TYPE_AP, $ap->getId(), $tree['state'], $ap->getName());
+        foreach ($tree['children'] as $radio) {
+            $this->writeComposed(NodeState::TYPE_RADIO, $radio['id'], $radio['state'], $radio['name']);
+        }
+        // a bss has no children, so its own state is already the composed one
+        foreach ($tree['children'] as $radio) {
+            foreach ($radio['children'] as $bss) {
+                $this->writeComposed(NodeState::TYPE_BSS, $bss['id'], $bss['state'], $bss['name']);
+            }
+        }
+
+        return $tree;
+    }
+
+    /** the composed state of one node, for anything that only wants to read */
+    public function composedState(string $type, $id): ?int
+    {
+        $v = $this->cacheFactory->getCacheItemValue($this->composedKey($type, $id));
+
+        return is_array($v) ? ($v['state'] ?? null) : null;
+    }
+
+    public function composedKey(string $type, $id): string
+    {
+        return 'state.'.$type.'.composed['.$id.']';
+    }
+
+    private function writeComposed(string $type, $id, int $state, ?string $label): void
+    {
+        $key = $this->composedKey($type, $id);
+        $old = $this->cacheFactory->getCacheItemValue($key);
+        $before = is_array($old) ? ($old['state'] ?? null) : null;
+        $now = time();
+        if ($state !== $before) {
+            $this->logger->notice(sprintf('stateTree: composed %s %s %s -> %s',
+                $type, $label ?: $id,
+                NodeState::name($type, $before), NodeState::name($type, $state)));
+        }
+        $this->cacheFactory->addCacheItem($key, [
+            'state' => $state,
+            'since' => ($state === $before) ? ($old['since'] ?? $now) : $now,
+        ], self::TTL);
     }
 
     // ---------------------------------------------------------------- deriving
