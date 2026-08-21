@@ -83,6 +83,45 @@ when they do neither is obviously right.
   appear as drift.
 - **`StatusService.php:226`** — the same `received` arithmetic, one layer down.
 
+## 3a. A state the flat model could not see: BSS_KEYS_FAILED
+
+Found on ap-av-attic in the night of 2026-08-22, and worth its own node state
+because everything else looked healthy while one bss admitted nobody.
+
+The chain, from the hostapd source: `wpa_auth_set_key()` fails →
+`wpa_group_config_group_keys()` returns −1 → `wpa_group_fatal_failure()` sets
+`WPA_GROUP_FATAL_FAILURE` on the bss's group. From then on
+`wpa_auth_sta_init()` returns NULL for *every* station, and each association
+dies with `Failed to initialize RSN state machine`. Stations reach
+"authenticated" and never get further.
+
+Trigger here: a `RELOAD_CONFIG` sent by hand at 00:43:33, with four
+`nl80211: kernel reports: key setting validation failed` in the same second.
+38 errors between 00:43:36 and 00:47:58, and none at all in the seven rotated
+logs before it. Entropy is ruled out — a failing RNG logs
+`WPA: GMK/GTK setup failed`, which never appeared.
+
+**The state is sticky.** `wpa_group_sm_step()` blocks every group operation
+once the group is in FATAL_FAILURE and there is no way back. A hostapd restart
+clears it; a bss reload does not. That is the part a state machine has to know:
+its own repair action must not be counted as recovery.
+
+| | |
+|---|---|
+| Leading signal | `nl80211: kernel reports: key setting validation failed`, right after a reload |
+| Follow-on | `Failed to initialize RSN state machine` |
+| Without log access | stations reach `authenticated` repeatedly and never `AP-STA-CONNECTED`; the association count stays at zero while auth events keep ticking |
+| Level | **bss** — `struct wpa_group` hangs off the bss's `wpa_authenticator`, not off the radio |
+| Recovery | hostapd restart, nothing less |
+
+The controller already sees the observable half: `ctrlEvent()` receives the auth
+events. What it does not do is notice that they never turn into an association.
+
+And a rule for ourselves out of the same night: **RELOAD_CONFIG is not a tool we
+use.** The comment above `keyDelivery()` has said so for a while — it throws
+every client of the radio off, measured — and this is what happens when it is
+tried anyway.
+
 ## 4. The stages that were planned
 
 - **Activation on the event.** `bss: * → READY` enables management for that one
