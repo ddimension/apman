@@ -28,6 +28,7 @@ class PpskAdmin extends AbstractAdmin
         $datagridMapper->add('name');
         $datagridMapper->add('source');
         $datagridMapper->add('enabled');
+        $datagridMapper->add('lastSeen');
     }
 
     protected function configureListFields(ListMapper $listMapper): void
@@ -39,6 +40,12 @@ class PpskAdmin extends AbstractAdmin
         $listMapper->add('source');
         $listMapper->add('enabled', 'boolean');
         $listMapper->add('created', 'datetime');
+        // stamped by PpskService::recordUsed(), which both sources feed: the
+        // keyid reports the agents send on the control channel, and the accept
+        // events of their own RADIUS servers. On an SAE network the latter is
+        // the only trace a use leaves, so neither source alone is complete.
+        $listMapper->add('lastSeen', 'datetime', ['label' => 'Last used']);
+        $listMapper->add('lastMac', null, ['label' => 'Last device']);
         $listMapper->add(ListMapper::NAME_ACTIONS, null, [
             'actions' => [
                 'show' => [],
@@ -59,6 +66,9 @@ class PpskAdmin extends AbstractAdmin
             ->add('enabled', 'boolean')
             ->add('source')
             ->add('created', 'datetime')
+            ->add('firstSeen', 'datetime', ['label' => 'First used'])
+            ->add('lastSeen', 'datetime', ['label' => 'Last used'])
+            ->add('lastMac', null, ['label' => 'Last device'])
             ->add('comment');
     }
 }

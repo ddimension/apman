@@ -44,7 +44,7 @@
 
 	{% if row.keys|length %}
 	<table class="aps">
-		<tr><th>Name</th><th>MAC</th><th>VLAN</th><th>Source</th><th>Key</th><th>Created</th></tr>
+		<tr><th>Name</th><th>MAC</th><th>VLAN</th><th>Source</th><th>Key</th><th>Created</th><th>Last used</th></tr>
 		{% for k in row.keys %}
 			<tr>
 				<td>{{ k.name }}</td>
@@ -54,6 +54,22 @@
 				<td class="small">{{ k.isRawPsk ? 'raw psk' : 'passphrase' }},
 					{{ k.psk|slice(0, 4) }}…{{ k.isValid ? '' : ' <span class="warn">invalid</span>'|raw }}</td>
 				<td class="small">{{ k.created|date('Y-m-d') }}</td>
+				{# both sources stamp this: the keyid reports the agents send on the
+				   control channel, and the accept events of their own RADIUS servers.
+				   On an SAE network only the second one ever fires. #}
+				<td class="small">
+					{%- if k.lastSeen -%}
+						{{ k.lastSeen|date('Y-m-d H:i') }}
+						{#- an unbound key names the device it was answered for; a bound one
+						    only ever should be answered for its own, so a mismatch is a finding -#}
+						{%- if k.lastMac and k.lastMac != k.mac -%}
+							{%- if k.mac == '00:00:00:00:00:00' %} <span class="small">{{ k.lastMac }}</span>
+							{%- else %} <span class="warn" title="answered for an address this key is not bound to">{{ k.lastMac }}</span>{% endif -%}
+						{%- endif -%}
+					{%- else -%}
+						never
+					{%- endif -%}
+				</td>
 			</tr>
 		{% endfor %}
 	</table>
