@@ -31,9 +31,20 @@ class IpskFeatureService extends DefaultFeatureService
         if ($this->device && $this->device->getRadio() && $this->device->getRadio()->getAccessPoint()) {
             $config['auth_secret'] = $this->device->getRadio()->getAccessPoint()->getRadiusSecret() ?: '';
         }
-        // ppsk is the OpenWrt-native switch (ap.uc turns it into
-        // wpa_psk_radius=2 + macaddr_acl=2); the raw lines repeat both so the
-        // generated conf carries them even if the uci rendering ever changes
+        // ppsk is the OpenWrt-native switch: ap.uc turns it into
+        // wpa_psk_radius=2 + macaddr_acl=2 and, in the same branch, skips the
+        // one that would render the network passphrase. Setting it makes an
+        // iPSK network say the same thing whether the reader is ap.uc or
+        // hostapd, and it is what kalclients has carried all along.
+        //
+        // The old worry that ppsk brings the psk file back does not hold:
+        // ap.uc creates wpa_psk_file for every psk network, outside this
+        // branch (ap.uc:157). What it holds is nothing — there are no
+        // wifi-station sections for an iPSK network to render from.
+        $config['ppsk'] = '1';
+
+        // …and the raw lines repeat both, so the generated conf carries them
+        // even if the uci rendering ever changes
         foreach (['wpa_psk_radius=2', 'macaddr_acl=2'] as $raw) {
             $config['hostapd_bss_options'][] = $raw;
         }
