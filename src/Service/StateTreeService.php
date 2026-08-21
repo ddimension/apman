@@ -284,12 +284,27 @@ class StateTreeService
         if (in_array(NodeState::RADIO_CAC, $states, true)) {
             return NodeState::AP_CAC;
         }
-        $active = count(array_filter($states, static fn ($s) => NodeState::RADIO_ACTIVE === $s));
+        // Something is wrong with one radio while the others are fine. Kept
+        // apart from the activation being half done, which is not a fault.
+        if (in_array(NodeState::RADIO_DEGRADED, $states, true)
+            || in_array(NodeState::RADIO_UNKNOWN, $states, true)) {
+            return NodeState::AP_DEGRADED;
+        }
+        $good = 0;
+        $active = 0;
+        foreach ($states as $s) {
+            if (NodeState::RADIO_ACTIVE === $s) {
+                ++$active;
+                ++$good;
+            } elseif (NodeState::RADIO_READY === $s) {
+                ++$good;
+            }
+        }
         if ($active === count($states)) {
             return NodeState::AP_ACTIVE;
         }
-        if (in_array(NodeState::RADIO_DEGRADED, $states, true) || $active) {
-            return NodeState::AP_DEGRADED;
+        if ($good === count($states)) {
+            return NodeState::AP_READY;
         }
 
         return NodeState::AP_ONLINE;

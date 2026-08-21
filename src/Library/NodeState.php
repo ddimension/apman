@@ -55,6 +55,8 @@ class NodeState
     public const AP_CONFIGURING = 4;
     public const AP_CAC = 5;
     public const AP_DEGRADED = 6;
+    /** radios up and their bsses ready, management not switched on yet */
+    public const AP_READY = 8;
     public const AP_ACTIVE = 7;
 
     private const NAMES = [
@@ -84,6 +86,7 @@ class NodeState
             self::AP_CONFIGURING => 'CONFIGURING',
             self::AP_CAC => 'CAC',
             self::AP_DEGRADED => 'DEGRADED',
+            self::AP_READY => 'READY',
             self::AP_ACTIVE => 'ACTIVE',
         ],
     ];

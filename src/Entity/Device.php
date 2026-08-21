@@ -257,18 +257,20 @@ class Device extends \ApManBundle\DynamicEntity\Device
      */
     public function getIsEnabled()
     {
-        if (!$this->getSSID()->getIsEnabled()) {
-            return false;
-        }
+        // Same precedence the provisioning uses: AccessPointService::
+        // getDeviceConfig() starts from the ssid config and lets the device's
+        // own config write over it, so a device that says disabled=0 runs even
+        // though its ssid is switched off. This used to ask the ssid first and
+        // return on the spot, which made it disagree with what actually gets
+        // provisioned — kalinfra is disabled as an ssid and re-enabled on three
+        // access points, and those three bsses are up while this said they were
+        // not.
         $config = $this->getConfig();
-        if (!isset($config['disabled'])) {
-            return true;
-        }
-        if (intval($config['disabled'])) {
-            return false;
+        if (isset($config['disabled'])) {
+            return !intval($config['disabled']);
         }
 
-        return true;
+        return (bool) $this->getSSID()->getIsEnabled();
     }
 
     public function getStatus(): ?array

@@ -1384,6 +1384,9 @@ class AccessPointService
                 foreach ($dev5G as $device) {
                     $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
                     $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
+                    // stage one: this is the only place management is switched
+                    // on today, so it is the only place the tree can learn it
+                    $this->stateTree->observeBss($device, ['managed' => true]);
                 }
                 if (count($commands['list'])) {
                     $eopts = new \stdclass();
@@ -1394,6 +1397,7 @@ class AccessPointService
                 foreach ($dev2G as $device) {
                     $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
                     $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
+                    $this->stateTree->observeBss($device, ['managed' => true]);
                 }
                 if (count($commands['list'])) {
                     $client->publish($topic, json_encode($commands));
