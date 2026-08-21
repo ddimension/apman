@@ -35,6 +35,7 @@ class PpskService
     private $rpcService;
     private $mqttFactory;
     private $cacheFactory;
+    private $stateTree;
     /** ssid id => ['at' => …, 'auto' => bool, 'moving' => bool]; see managesOwnKeys() */
     private $flagCache = [];
 
@@ -43,13 +44,15 @@ class PpskService
         \Doctrine\Persistence\ManagerRegistry $doctrine,
         wrtJsonRpc $rpcService,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
-        \ApManBundle\Factory\CacheFactory $cacheFactory
+        \ApManBundle\Factory\CacheFactory $cacheFactory,
+        StateTreeService $stateTree
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
+        $this->stateTree = $stateTree;
     }
 
     /**
@@ -506,6 +509,28 @@ class PpskService
     }
 
     /**
+     * Whether it is worth waiting for an answer from this access point.
+     *
+     * The key set still goes out to it — the broker may yet deliver it, and an
+     * access point that is merely slow must not be skipped. What changes is the
+     * waiting: an access point the state tree has not heard from will not
+     * answer, and until now every distribution sat out its full deadline for
+     * it. Measured 2026-08-21: one offline access point cost every single
+     * distribution its whole eight seconds, and the file path ten more.
+     */
+    private function worthWaitingFor(\ApManBundle\Entity\AccessPoint $ap): bool
+    {
+        $state = $this->stateTree->composedState(
+            \ApManBundle\Library\NodeState::TYPE_AP, $ap->getId());
+        if (null === $state) {
+            return true;    // nothing known yet is not a reason to give up on it
+        }
+
+        return \ApManBundle\Library\NodeState::AP_OFFLINE !== $state
+            && \ApManBundle\Library\NodeState::AP_UNKNOWN !== $state;
+    }
+
+    /**
      * Whether the access points ask a RADIUS server about every station of this
      * SSID instead of deciding on their own.
      *
@@ -957,7 +982,7 @@ class PpskService
      *
      * @return array apName => (sectionName => values), null when it did not answer
      */
-    private function readState($client, array $ifnamesByAp, $timeout = 8)
+    private function readState($client, array $ifnamesByAp, $timeout = 8, array $noWait = [])
     {
         $wait = [];
         $run = bin2hex(random_bytes(3));
@@ -968,7 +993,11 @@ class PpskService
             $opts->type = 'wifi-station';
             $id = 'ppsk-read-'.$apName.'-'.$run;
             $commands['list'][] = $this->rpcService->createRpcRequest($id, 'call', null, 'uci', 'get', $opts);
-            $wait[$id] = ['ap' => $apName, 'what' => 'sections'];
+            // ask it anyway, but do not hold everyone else up for an answer
+            // that is not coming
+            if (!isset($noWait[$apName])) {
+                $wait[$id] = ['ap' => $apName, 'what' => 'sections'];
+            }
 
             // the runtime file as it really is, not as we remember writing it:
             // a wifi reload regenerates it from uci and drops the keyids
@@ -1314,7 +1343,23 @@ class PpskService
                 }
             }
         }
-        $state = $this->readState($client, $ifnamesByAp);
+        // Work out once which access points will not answer. They still get
+        // everything published; they are simply not waited for. One unreachable
+        // access point used to cost every distribution the full deadline of
+        // every phase — measured 2026-08-21 with ap-hv-klwz down all day.
+        $noWait = [];
+        foreach ($byAp as $apName => $apDevices) {
+            $waitAp = $apDevices[0]->getRadio()->getAccessPoint();
+            if ($waitAp && !$this->worthWaitingFor($waitAp)) {
+                $noWait[$apName] = true;
+            }
+        }
+        if ($noWait) {
+            $this->logger->notice('PpskService: not waiting for '.implode(', ', array_keys($noWait)).
+                ' — the state tree says they are not reachable');
+        }
+
+        $state = $this->readState($client, $ifnamesByAp, 8, $noWait);
         $current = $state['sections'];
         $committed = [];
         $fileBatches = [];
@@ -1429,7 +1474,10 @@ class PpskService
             );
             if (!$uciMatches) {
                 $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($uciCommands), 1);
-                $committed['ppsk-commit-'.$apName.'-'.$run] = $apName;
+                // same as the key store path: publish to it, do not wait on it
+                if (!isset($noWait[$apName])) {
+                    $committed['ppsk-commit-'.$apName.'-'.$run] = $apName;
+                }
             }
 
             // 2. the runtime file, written aside and moved into place
@@ -1522,7 +1570,7 @@ class PpskService
         }
 
         if ($verify) {
-            $results = $this->verifyAndReload($client, $verify, $content, $hash, $run, $results);
+            $results = $this->verifyAndReload($client, $verify, $content, $hash, $run, $results, $noWait);
         }
         $client->disconnect();
 
@@ -1576,6 +1624,7 @@ class PpskService
         }
         $run = bin2hex(random_bytes(3));
         $wait = [];
+        $skipped = [];
         $results = [];
         foreach ($byAp as $apName => $devices) {
             $payload = new \stdClass();
@@ -1590,6 +1639,16 @@ class PpskService
                 $this->rpcService->createRpcRequest($id, 'call', null, 'apman', 'keys', $payload),
             ], 'options' => ['cancel_on_error' => false]];
             $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);
+            // It still gets the key set — the broker may yet deliver it, and a
+            // slow access point must not be skipped. What we do not do is sit
+            // out the deadline for one the tree knows is not there.
+            $ap = $devices[0]->getRadio()->getAccessPoint();
+            if ($ap && !$this->worthWaitingFor($ap)) {
+                $results[$apName] = ['version' => $version, 'keys' => count($keys),
+                    'ack' => 'not waited for, the access point is not reachable'];
+                $skipped[] = $apName;
+                continue;
+            }
             $wait[$id] = $apName;
             $results[$apName] = ['version' => $version, 'keys' => count($keys), 'ack' => 'no answer'];
         }
@@ -1616,8 +1675,14 @@ class PpskService
         foreach ($wait as $apName) {
             $this->logger->error('PpskService: '.$apName.' did not acknowledge the key set');
         }
+        // Count what was actually confirmed. The ones we did not wait for were
+        // published to all the same, but nobody said they arrived — calling
+        // that "acknowledged" would be the kind of green light that cost a
+        // night of debugging once already.
+        $answered = count($byAp) - count($wait) - count($skipped);
         $this->logger->notice('PpskService: '.$ssid->getName().' key set '.$version.' ('.count($keys).
-            ' keys) sent to '.count($byAp).' access point(s), '.(count($byAp) - count($wait)).' acknowledged');
+            ' keys) sent to '.count($byAp).' access point(s), '.$answered.' acknowledged'.
+            ($skipped ? ', '.count($skipped).' not waited for ('.implode(', ', $skipped).')' : ''));
 
         // A changed key set needs more than a new answer. Three properties of
         // hostapd get in the way, all measured on the fleet 2026-08-21, and
@@ -1746,10 +1811,13 @@ class PpskService
      * that was used before restarts the bss and drops every client on it, which
      * made distributing a key an outage.
      */
-    private function verifyAndReload($client, array $verify, $content, $hash, $run, array $results)
+    private function verifyAndReload($client, array $verify, $content, $hash, $run, array $results, array $noWait = [])
     {
         $wait = [];
         foreach ($verify as $apName => $what) {
+            if (isset($noWait[$apName])) {
+                continue;
+            }
             $wait['ppsk-uci-'.$apName.'-'.$run] = $apName;
             foreach ($what['targets'] as $ifname => $device) {
                 $wait['ppsk-file-'.$ifname.'-'.$run] = $apName;
