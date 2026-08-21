@@ -20,6 +20,7 @@ class SubscriptionService
     private $cacheRefreshed = 0;
     private $ppskService;
     private $radiusAuthService;
+    private $stateTree;
     /** the AP the message currently being handled came from */
     private $apContext;
     /** ssid ids whose keys changed and have to go out again */
@@ -41,12 +42,14 @@ class SubscriptionService
         PpskService $ppskService,
         RadiusAuthService $radiusAuthService,
         ApContextService $apContext,
+        StateTreeService $stateTree,
         ?RadiusServerService $radius = null
     ) {
         $this->radius = $radius;
         $this->ppskService = $ppskService;
         $this->radiusAuthService = $radiusAuthService;
         $this->apContext = $apContext;
+        $this->stateTree = $stateTree;
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
@@ -914,6 +917,16 @@ class SubscriptionService
         // from 1970, which made every age reading nonsense right after a boot.
         $data['received'] = time();
         $this->cacheFactory->addCacheItem($key, $data);
+        // State tree, stage one. hostapd reports the channel availability check
+        // per bss even though the channel belongs to the radio — the tree rolls
+        // it up there rather than to the access point, which is where the old
+        // machine put it and why "no data" and "CAC running" became the same
+        // thing.
+        $this->stateTree->observeBss($device, [
+            'status' => $data['ap_status']['status'] ?? null,
+            'cac' => isset($data['ap_status']['dfs']['cac_active'])
+                ? (bool) $data['ap_status']['dfs']['cac_active'] : null,
+        ]);
         $this->recordIpskUse($data, $ap->getName());
         $updated[] = $ap->getName().' '.$device->getIfname();
         $this->logger->info('Updated status.', ['status' => 0, 'devices_updated' => $updated]);

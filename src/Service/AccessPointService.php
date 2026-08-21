@@ -12,6 +12,7 @@ class AccessPointService
 
     private $ppskService;
     private $steering;
+    private $stateTree;
     private $logger;
     private $doctrine;
     private $rpcService;
@@ -32,7 +33,8 @@ class AccessPointService
         \ApManBundle\Factory\CacheFactory $cacheFactory,
         WifiIeParser $ieparser,
         PpskService $ppskService,
-        SteeringService $steering
+        SteeringService $steering,
+        StateTreeService $stateTree
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -43,6 +45,7 @@ class AccessPointService
         $this->ieparser = $ieparser;
         $this->ppskService = $ppskService;
         $this->steering = $steering;
+        $this->stateTree = $stateTree;
     }
 
     public function getSteering()
@@ -1176,6 +1179,8 @@ class AccessPointService
 
             $this->cacheFactory->addCacheItem('status.online['.$ap->getId().']', $msg);
             $this->logger->info('ApLifetimeHandler(): save online status from '.$ap->getName(), $msg);
+            // stage one of the state tree: observe the same facts, decide nothing
+            $this->stateTree->observeAp($ap, ['online' => 'online' == $msg['status']]);
             if ('online' == $msg['status']) {
                 if ($unknown || \ApManBundle\Library\AccessPointState::STATE_OFFLINE == $state) {
                     $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ONLINE);
@@ -1211,10 +1216,43 @@ class AccessPointService
             $radios = 0;
             $radiosUp = 0;
 
+            // the tree wants the radios by their uci name, the same key the
+            // status message is indexed by
+            $radiosByName = [];
+            foreach ($ap->getRadios() as $r) {
+                $radiosByName[$r->getName()] = $r;
+            }
+
             foreach ($msg as $name => $rstate) {
                 //var_dump($rstate);
                 if ('timestamp' == $name or !is_array($rstate)) {
                     continue;
+                }
+
+                // State tree, stage one. Deliberately before the "skip disabled
+                // radios" jump below: a radio that is switched off is a fact
+                // about it, not a reason to know nothing.
+                if (isset($radiosByName[$name])) {
+                    $radio = $radiosByName[$name];
+                    $sections = [];
+                    if (isset($rstate['interfaces']) && is_array($rstate['interfaces'])) {
+                        foreach ($rstate['interfaces'] as $iface) {
+                            if (isset($iface['section'])) {
+                                $sections[$iface['section']] = true;
+                            }
+                        }
+                    }
+                    $this->stateTree->observeRadio($radio, [
+                        'disabled' => (bool) ($rstate['config']['disabled'] ?? false),
+                        'up' => (bool) ($rstate['up'] ?? false),
+                        'pending' => (bool) ($rstate['pending'] ?? false),
+                        'failed' => (bool) ($rstate['retry_setup_failed'] ?? false),
+                    ]);
+                    foreach ($radio->getDevices() as $rdev) {
+                        $this->stateTree->observeBss($rdev, [
+                            'present' => isset($sections[$rdev->getName()]),
+                        ]);
+                    }
                 }
 
                 if (isset($rstate['config']) && is_array($rstate['config']) && isset($rstate['config']['disabled']) && $rstate['config']['disabled']) {
@@ -1370,6 +1408,13 @@ class AccessPointService
 
         // Cache update
         $state = $this->changeLifetimeState($ap, $state);
+
+        // Stage one of the state tree: say what it would have concluded, so the
+        // two can be compared before anything is moved over to it.
+        $tree = $this->stateTree->ap($ap);
+        $this->logger->info(sprintf('stateTree: ap %s composes to %s (flat machine says %s)',
+            $ap->getName(), $tree['state_name'],
+            \ApManBundle\Library\AccessPointState::getStateName($state)));
         $this->logger->debug("ApLifetimeHandler(): state '".\ApManBundle\Library\AccessPointState::getStateName($state)."' of ap ".$ap->getName());
 
         return true;
