@@ -136,7 +136,8 @@ lldpd \
 tcpdump \
 ethtool iw-full iwinfo \
 mosquitto-client-ssl openssl-util \
-lsof htop strace socat curl ss"
+lsof htop strace socat curl ss \
+bash lldpd screen picocom kmod-usb-serial-pl2303"
 
 # Wenn der Controller weg ist, ist LuCI der einzige Weg auf die Kiste ausser
 # ssh — deshalb standardmaessig drin. --no-luci wirft es raus.
