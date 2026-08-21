@@ -2021,7 +2021,7 @@ class DefaultController extends AbstractController
      * channel survey.
      */
     #[Route(path: '/aps', name: 'aps')]
-    public function apsAction()
+    public function apsAction(\ApManBundle\Service\StateTreeService $stateTree)
     {
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
@@ -2037,6 +2037,11 @@ class DefaultController extends AbstractController
                 'name' => $ap->getName(),
                 'productive' => $ap->getIsProductive(),
                 'state' => \ApManBundle\Library\AccessPointState::getStateName($state),
+                // this page builds plain rows rather than handing the entity to
+                // the template, so the tree's verdict has to be fetched here
+                'tree_state' => \ApManBundle\Library\NodeState::name(
+                    \ApManBundle\Library\NodeState::TYPE_AP,
+                    $stateTree->composedState(\ApManBundle\Library\NodeState::TYPE_AP, $ap->getId())),
                 'online' => is_array($online) && isset($online['status']) ? $online['status'] : null,
                 'agent' => is_array($agent) ? $agent : null,
                 'devices' => [],

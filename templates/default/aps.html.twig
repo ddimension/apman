@@ -12,7 +12,7 @@
 			<td>{{ ap.state }}{% if ap.online %} / {{ ap.online }}{% endif %}</td>
 			{# composed from the radios and their bsses, next to the flat state
 			   while the two are being compared #}
-			<td>{{ ap.treeState }}</td>
+			<td>{{ ap.tree_state }}</td>
 			<td>
 				{% if ap.agent %}
 					{{ ap.agent.agent|default('apman') }} {{ ap.agent.version|default('?') }}
