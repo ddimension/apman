@@ -38,6 +38,25 @@ class IpskFeatureService extends DefaultFeatureService
             $config['hostapd_bss_options'][] = $raw;
         }
 
+        // The network passphrase has no business on the access point. Every key
+        // of an iPSK network comes from the Access-Accept, including the one an
+        // unknown station gets — the agent answers that from `network_key` in
+        // its key store, which the controller fills from this same ssid option.
+        // Sending it on as `key` only means ap.uc renders it as
+        // wpa_passphrase, in a file that is 0644 while the key store holding
+        // the same secret is 0600.
+        //
+        // For SAE it would be worse than untidy: sae_get_password() prefers
+        // wpa_passphrase over anything RADIUS delivered, so the passphrase
+        // would shadow every per device key. Measured on the test bed
+        // 2026-08-22 — the station with its own key was refused, the one with
+        // the passphrase got in.
+        //
+        // kalclients never showed this because it carries ppsk=1 from another
+        // feature, and ap.uc's first branch skips the passphrase. Dropping the
+        // key here gets the same result without depending on that.
+        unset($config['key']);
+
         // Do NOT set sae_pwe here. ap.uc skips its own default as soon as
         // `ppsk` is set, and that is deliberate: a password delivered over
         // RADIUS has no SAE PT (`use_sta_psk` is only set from the ucode
