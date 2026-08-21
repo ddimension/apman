@@ -883,6 +883,31 @@ class PpskService
     public function createIpsk($ssid, $name, $vid = null, $pinMac = true)
     {
         $em = $this->doctrine->getManager();
+
+        // A network can hold only one unbound key. The index enforces it, and
+        // it could not be otherwise: the access point answers a station with
+        // exactly one key, so a second unbound one would sit behind the first
+        // where nothing can ever reach it — an invitation that silently does
+        // not work. An unbound key nobody has redeemed is a draft, so replace
+        // it instead of refusing the new one.
+        foreach ($em->getRepository('ApManBundle\Entity\Ppsk')->findBy([
+            'ssid' => $ssid, 'mac' => \ApManBundle\Entity\Ppsk::ANY_MAC,
+        ]) as $old) {
+            if ($old->getFirstSeen() || $old->getLastSeen()) {
+                // it has been redeemed and simply has not bound yet; throwing
+                // it away would cut off whoever is holding it
+                throw new \RuntimeException(sprintf(
+                    'the unbound key "%s" on %s has already been used and is waiting to bind — '
+                    .'bind or delete it before issuing another one',
+                    (string) $old->getName(), $ssid->getName()
+                ));
+            }
+            $this->logger->notice('PpskService: replacing the unused unbound key '.
+                $old->getKeyid().' on '.$ssid->getName().' — a network can hold only one');
+            $em->remove($old);
+        }
+        $em->flush();
+
         $ppsk = new \ApManBundle\Entity\Ppsk();
         $ppsk->setSsid($ssid);
         $ppsk->setName($name);

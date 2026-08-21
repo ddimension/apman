@@ -13,6 +13,11 @@
 	which key it answered with, the controller binds the key to that address, and
 	from then on a copy on a second device is refused. That is also how the list
 	below can tell a key that was handed out from one that was actually used.
+	A network holds <b>one</b> unhanded key at a time — the access point answers a
+	station with exactly one key, so a second one would sit where nothing can reach
+	it. Issuing a new key therefore replaces an unhanded one that nobody has
+	redeemed yet. One that <i>has</i> been used and is only waiting to bind is left
+	alone, and the new key is refused until it is bound or deleted.
 </p>
 
 <form id="new" class="card">
