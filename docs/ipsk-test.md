@@ -292,10 +292,12 @@ the FT key from `md5(mobility_domain + '/' + auth_secret)`, and `auth_secret` is
 the per access point RADIUS secret — the two access points would never agree.
 And the station needs `ieee80211r=1` too, or it negotiates plain SAE/WPA-PSK.
 
-**Then roam twice.** The first roam to a given access point fails: with
-`macaddr_acl=2` the target does not answer the authentication frame until its
-RADIUS query returns, and the station gives up after three tries in ~330 ms.
-That failure warms the ACL cache, and the second roam is a real transition:
+**Roam twice if the first one falls back.** With `macaddr_acl=2` the target does
+not answer the authentication frame until its RADIUS query returns, and the
+station gives up after three tries in ~330 ms. Whether that costs the roam is a
+race against the agent's answer, not a certainty — measured at 40–60 ms on the
+production network, which wins it. When it does not, the failed attempt warms
+the ACL cache and the second roam is a real transition:
 
 ```sh
 C() { hostapd_cli -p /var/run/wpa_supplicant -i sta-test raw "$@"; }

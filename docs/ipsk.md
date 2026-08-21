@@ -270,7 +270,7 @@ and are now fixed by the provisioning:
 3. The **station** must offer FT (`ieee80211r`), or it negotiates plain
    SAE/WPA-PSK whatever the access points advertise.
 
-### The first roam to an access point always fails
+### A cold ACL cache can cost the first roam — it is a race, not a rule
 
 This is the part that hid the whole feature, and it is worth knowing before
 blaming FT for anything.
@@ -278,7 +278,9 @@ blaming FT for anything.
 `macaddr_acl=2` puts a RADIUS query in front of the authentication frame. When
 the target access point has no cached ACL entry for that station, hostapd does
 not answer the frame — it starts the RADIUS query and replies only once the
-answer is in. The station retransmits three times in about 330 ms and gives up:
+answer is in. Note that it does not *reject*: nothing is sent, so the station
+runs into a timeout, never a status code. It retransmits three times in about
+330 ms and gives up:
 
 ```
 sta-test: send auth to 2a:d1:27:4d:85:3b (try 1/3 … 3/3)
@@ -296,6 +298,25 @@ seconds in `src/ap/ieee802_11_auth.c`; it cannot be tuned from the
 configuration. In practice this means the first association of a device at each
 access point is slow and non-FT, and everything after it within the window is
 fast. If that matters, the fix is a hostapd patch shipped in the image.
+
+**But a cold cache does not have to cost the roam.** Whether the station
+survives depends only on whether the agent answers inside that ~330 ms budget,
+and the query goes to 127.0.0.1. On 2026-08-21 every round trip on the
+production network measured 40–60 ms (`RADIUS: Received RADIUS packet matched
+with a pending request, round trip time 0.05`), so the answer was in before the
+second retransmission and the transition was a fast one on the first try, cold
+cache and all:
+
+```
+17:56:42  wap-kc2: STA 8c:fd:… RADIUS: … round trip time 0.05
+17:56:42  radius accept 8c:fd:f0:19:ba:a2 key=ppsk_140_585
+17:56:42  wap-kc2: STA 8c:fd:… IEEE 802.11: authentication OK (FT)
+17:56:42  wap-kc2: AP-STA-CONNECTED 8c:fd:f0:19:ba:a2 auth_alg=ft
+```
+
+So the thing to watch is not the cache but the agent's latency. If it ever has
+to reach the controller, hit a cold key store or wait on a lock, it drops out
+of the budget and the first roam degrades to a full authentication again.
 
 Note also that **every `FT:` log line in hostapd is `MSG_DEBUG`**, so their
 absence proves nothing about whether FT was attempted. The only trustworthy
