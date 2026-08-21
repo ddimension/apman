@@ -19,6 +19,7 @@ class SubscriptionService
     private $cacheLocal = ['ap-by-name' => [], 'dev-by-ap-ifname' => []];
     private $cacheRefreshed = 0;
     private $ppskService;
+    private $radiusAuthService;
     /** the AP the message currently being handled came from */
     private $apContext;
     /** ssid ids whose keys changed and have to go out again */
@@ -38,11 +39,13 @@ class SubscriptionService
         MqttFactory $mqttFactory,
         CacheFactory $cacheFactory,
         PpskService $ppskService,
+        RadiusAuthService $radiusAuthService,
         ApContextService $apContext,
         ?RadiusServerService $radius = null
     ) {
         $this->radius = $radius;
         $this->ppskService = $ppskService;
+        $this->radiusAuthService = $radiusAuthService;
         $this->apContext = $apContext;
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -65,7 +68,9 @@ class SubscriptionService
         'apman/+/+/properties/#' => 1,
         'apman/+/+/online' => 1,
         'apman/+/+/booted' => 1,
-        'radius/#' => 0,
+        // the agent publishes its radius decisions at QoS 1; the apman/# QoS 0
+        // filter would downgrade them (the broker takes the highest match)
+        'apman/ap/+/radius/auth/#' => 1,
     ];
 
     /**
@@ -244,10 +249,7 @@ class SubscriptionService
         $tp = explode('/', $message->topic);
         $length = count($tp);
         $device = '';
-        if ('radius' == $tp[0]) {
-            $this->handleRadiusMessage($message);
-            return true;
-        } elseif ('ap' == $tp[1]) {
+        if ('ap' == $tp[1]) {
             $hostname = $tp[2];
             if ('device' == $tp[3]) {
                 if ('hostapd' == $tp[4]) {
@@ -275,6 +277,8 @@ class SubscriptionService
             } elseif ('wireless' == $tp[3]) {
                 // go on
             } elseif ('online' == $tp[3]) {
+                // go on
+            } elseif ('radius' == $tp[3] && 'auth' == ($tp[4] ?? null)) {
                 // go on
             } else {
                 return false;
@@ -393,6 +397,8 @@ class SubscriptionService
                 $this->cacheLocal['dev-by-ap-ifname'][$hostname],
                 $this->client
             );
+        } elseif ('radius' == $tp[3] && 'auth' == $tp[4]) {
+            return $this->handleRadiusAuthEvent($ap, $message);
             /*
             } elseif ($tp[3] == 'properties') {
             $this->logger->info('handleMessage(): implement properties handler for message from '.$hostname,(array)$message);
@@ -696,58 +702,18 @@ class SubscriptionService
     /** mark an issued key as used, from whichever source reported it */
     private function stampIpsk($keyid, $mac, $apName = null)
     {
-        $from = $apName ? '['.$apName.'] ' : '';
-        $em = $this->doctrine->getManager();
-        $ppsk = $em->getRepository('ApManBundle\Entity\Ppsk')->findOneBy(['keyid' => $keyid]);
+        $ppsk = $this->doctrine->getManager()
+            ->getRepository('ApManBundle\Entity\Ppsk')->findOneBy(['keyid' => $keyid]);
         if (!$ppsk) {
-            $this->logger->warning('stampIpsk(): '.$from.'unknown keyid '.$keyid.' used by '.$mac);
+            $this->logger->warning('stampIpsk(): '.($apName ? '['.$apName.'] ' : '').
+                'unknown keyid '.$keyid.' used by '.$mac);
 
             return;
         }
-        $now = new \DateTime();
-        $mac = strtolower($mac);
-        if (!$ppsk->getFirstSeen()) {
-            $ppsk->setFirstSeen($now);
-            $this->logger->notice('stampIpsk(): '.$from.'ipsk '.$keyid.' used for the first time by '.$mac);
+        $pending = $this->ppskService->recordUsed($ppsk, $mac, $apName);
+        if ($pending) {
+            $this->ppskPending[$pending] = true;
         }
-        $ppsk->setLastSeen($now);
-        $ppsk->setLastMac($mac);
-
-        // Bind the key to the device that just claimed it. From here on the
-        // key only works for this address: a copy of the code on a second
-        // phone is refused, and the refusal is visible as
-        // AP-STA-POSSIBLE-PSK-MISMATCH. The station itself keeps its
-        // connection — RELOAD_WPA_PSK only drops stations whose key stopped
-        // matching, and for this one it still does.
-        $wasRegistration = $ppsk->isRegistration();
-        if ($ppsk->isPinPending()) {
-            $ppsk->setMac($mac);
-            $this->logger->notice('stampIpsk(): '.$from.'ipsk '.$keyid.' pinned to '.$mac.
-                ', redistributing');
-            if ($ppsk->getSsid()) {
-                $this->ppskPending[$ppsk->getSsid()->getId()] = true;
-            }
-
-            // An enrolment ends the moment its key finds a device: what stepped
-            // aside for it goes back into service, and the network is shared
-            // again.
-            if ($wasRegistration) {
-                $back = $this->ppskService->finishRegistration($ppsk);
-                if ($back) {
-                    $this->logger->notice('stampIpsk(): '.$from.'registration on '.
-                        $ppsk->getSsid()->getName().' finished, back in service: '.implode(', ', $back));
-                }
-            }
-        } elseif (\ApManBundle\Entity\Ppsk::ANY_MAC === $ppsk->getMac()) {
-            // A station on a key bound to no address, on a network that manages
-            // its own keys: give it one of its own, same passphrase, so it
-            // becomes an identity without noticing anything.
-            $learned = $this->ppskService->learnFromShared($ppsk, $mac);
-            if ($learned && $ppsk->getSsid()) {
-                $this->ppskPending[$ppsk->getSsid()->getId()] = true;
-            }
-        }
-        $em->flush();
     }
 
     /**
@@ -957,70 +923,54 @@ class SubscriptionService
         return true;
     }
 
-    private function handleRadiusMessage($message)
+    /**
+     * One accept/reject from the agent's on-AP RADIUS server.
+     *
+     * The agent answers hostapd's per-station PSK queries from the uci
+     * wifi-station sections this controller wrote, and reports every decision
+     * on apman/ap/<host>/radius/auth[/<bssid>]. This is the authoritative
+     * identity trace for RADIUS networks: the control channel reports no
+     * keyid there, and for SAE it reports nothing at all.
+     */
+    private function handleRadiusAuthEvent($ap, $message)
     {
-        $data = json_decode($message->payload);
-        // The radius export carries its AP as NAS-Identifier (fallback: the
-        // NAS IP). Stamp the log lines below with it; dispatch() clears the
-        // holder when this message is done.
-        $nas = null;
-        if (isset($data->request) && is_array($data->request)) {
-            foreach ($data->request as $value) {
-                if ('NAS-Identifier' === ($value[0] ?? null)) {
-                    $nas = $value[1] ?? null;
-                    break;
-                }
-                if ('NAS-IP-Address' === ($value[0] ?? null)) {
-                    $nas = $value[1] ?? null;
-                }
-            }
-        }
-        $this->apContext->setAp($nas);
-        $this->logger->info('handleRadiusMessage(): radius', [
-                'topic' => $message->topic,
-                'payload' => $message->payload,
-        ]);
-        $attribs = new \stdclass();
-        if (isset($data->request)) {
-            $attribs->request = new \stdclass();
-            foreach ($data->request as $value) {
-                $attribs->request->{$value[0]} = $value[1];
-            }
-        }
-        if (isset($data->reply)) {
-            $attribs->reply = new \stdclass();
-            foreach ($data->reply as $key => $value) {
-                $attribs->reply->{$value[0]} = $value[1];
-            }
-        }
-        $expires = 7*86400;
+        $data = json_decode($message->payload, true);
+        if (!is_array($data) || !in_array($data['decision'] ?? null, ['accept', 'reject'], true)) {
+            $this->logger->warning('handleRadiusAuthEvent(): unusable radius event from '.
+                $ap->getName());
 
-        $mac = null;
-        $username = null;
-        $ssid = null;
-        if (property_exists($attribs, 'request')) {
-            if (property_exists($attribs->request, 'Calling-Station-Id')) {
-                $mac = $attribs->request->{'Calling-Station-Id'};
-                $mac = strtolower($mac);
-                $mac = str_replace('-', ':', $mac);
-            }
-            if (property_exists($attribs->request, 'Called-Station-SSID')) {
-                $ssid = $attribs->request->{'Called-Station-SSID'};
-            }
-            if (property_exists($attribs->request, 'User-Name')) {
-                $username = $attribs->request->{'User-Name'};
-            }
-
-            $data = [
-            'mac' => $mac,
-            'ssid' => $ssid,
-            'username' => $username,
-            'auth' => [ 'reply' => $attribs->reply, 'post_auth' => $attribs->request ],
-            'timestamp' => time()
-            ];
-            $key = "client.authtablev2.".$ssid.$mac;
-            $this->cacheFactory->addCacheItem($key, json_encode($data), $expires);
-            $this->logger->info('handleRadiusMessage(): sending radius message to '.$key, $data);
+            return false;
         }
+        // the agent sends the mac as 12 bare hex chars — normalise before
+        // the strict check, which rejects anything that is not a mac
+        $mac = $this->radiusAuthService->normaliseMac((string) ($data['mac'] ?? ''));
+        if (!preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/', $mac)) {
+            $this->logger->warning('handleRadiusAuthEvent(): bad mac in radius event from '.
+                $ap->getName());
+
+            return false;
+        }
+        $ssid = isset($data['ssid']) ? mb_substr((string) $data['ssid'], 0, 64) : null;
+
+        // The key field names the uci section the answer came from,
+        // ppsk_<device>_<id> — resolveBySectionName() knows the naming.
+        $ppsk = null;
+        if (!empty($data['key'])) {
+            $ppsk = $this->ppskService->resolveBySectionName((string) $data['key'], $ssid);
+        }
+
+        // Rejections are recorded for the history and the flaky picture, but
+        // nothing is stamped: no key was used. Accepts carry the identity.
+        $this->radiusAuthService->recordAgentAuth(
+            $mac, $ssid, $ap->getName(), $data['decision'], $data['reason'] ?? null, $ppsk, $data
+        );
+        if ('accept' === $data['decision'] && $ppsk) {
+            $pending = $this->ppskService->recordUsed($ppsk, $mac, $ap->getName());
+            if ($pending) {
+                $this->ppskPending[$pending] = true;
+            }
+        }
+
+        return true;
     }
 }
