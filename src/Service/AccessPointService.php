@@ -1434,6 +1434,14 @@ class AccessPointService
         $productive = 0;
         $total = 0;
         foreach ($aps as $ap) {
+            // Re-compose the tree even when nothing arrived. The composed values
+            // are written when a message comes in, and a page or a Sonata column
+            // reads what was written — so an access point that falls silent
+            // would keep showing whatever it was last, for as long as the entry
+            // lives. Composing it here lets it decay: the nodes read as unknown
+            // once their facts are stale, and that is what gets stored.
+            $this->stateTree->refresh($ap);
+
             if (!$ap->getIsProductive()) {
                 // ignore others;
                 continue;
