@@ -344,11 +344,40 @@ document.getElementById('new').addEventListener('submit', async (ev) => {
 		const d = await res.json();
 		if (!d.ok) {
 			busy.className = 'small warn';
-			busy.textContent = d.error || 'failed';
+			// A key already handed out and used but not yet bound is the one case
+			// worth asking about: somebody may still be carrying it around.
+			if (d.blocked) {
+				const b = d.blocked;
+				const age = (b.age_days === 0) ? 'since today'
+					: (b.age_days === 1) ? 'since yesterday' : 'for ' + b.age_days + ' days';
+				busy.textContent = 'This network already has an unhanded key: \u201c' + b.name +
+					'\u201d, issued ' + (b.created || '?') + ', in use ' + age +
+					(b.last_seen ? ', last seen ' + b.last_seen : '') +
+					'. It is still waiting for a device to claim it, and a network can hold only one. ';
+				const del = document.createElement('button');
+				del.type = 'button';
+				del.textContent = 'Delete \u201c' + b.name + '\u201d and continue';
+				del.addEventListener('click', () => {
+					let flag = ev.target.querySelector('input[name=replace]');
+					if (!flag) {
+						flag = document.createElement('input');
+						flag.type = 'hidden'; flag.name = 'replace';
+						ev.target.appendChild(flag);
+					}
+					flag.value = '1';
+					ev.target.requestSubmit();
+				});
+				busy.appendChild(del);
+			} else {
+				busy.textContent = d.error || 'failed';
+			}
 			btn.disabled = false;
 			return;
 		}
 		busy.textContent = '';
+		// one shot: the next key has to ask again
+		const flag = ev.target.querySelector('input[name=replace]');
+		if (flag) { flag.remove(); }
 		document.getElementById('i-name').textContent = d.name;
 		document.getElementById('i-ssid').textContent = d.ssid;
 		document.getElementById('i-psk').textContent = d.psk;

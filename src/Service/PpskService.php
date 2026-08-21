@@ -880,7 +880,27 @@ class PpskService
      * Create an iPSK: a generated key that is an identity of its own, bound to
      * no MAC address. The caller distributes it afterwards.
      */
-    public function createIpsk($ssid, $name, $vid = null, $pinMac = true)
+    /**
+     * The unbound key that would stop a new one from being issued: one that has
+     * already been handed out and used, but has not bound itself to a device
+     * yet. An unbound key nobody has touched is replaced silently instead.
+     *
+     * @return \ApManBundle\Entity\Ppsk|null
+     */
+    public function blockingUnboundKey($ssid)
+    {
+        foreach ($this->doctrine->getManager()->getRepository('ApManBundle\Entity\Ppsk')->findBy([
+            'ssid' => $ssid, 'mac' => \ApManBundle\Entity\Ppsk::ANY_MAC,
+        ]) as $old) {
+            if ($old->getFirstSeen() || $old->getLastSeen()) {
+                return $old;
+            }
+        }
+
+        return null;
+    }
+
+    public function createIpsk($ssid, $name, $vid = null, $pinMac = true, $replaceUsed = false)
     {
         $em = $this->doctrine->getManager();
 
@@ -893,17 +913,20 @@ class PpskService
         foreach ($em->getRepository('ApManBundle\Entity\Ppsk')->findBy([
             'ssid' => $ssid, 'mac' => \ApManBundle\Entity\Ppsk::ANY_MAC,
         ]) as $old) {
-            if ($old->getFirstSeen() || $old->getLastSeen()) {
-                // it has been redeemed and simply has not bound yet; throwing
-                // it away would cut off whoever is holding it
+            $used = $old->getFirstSeen() || $old->getLastSeen();
+            if ($used && !$replaceUsed) {
+                // Somebody is holding this one — it has been redeemed and is
+                // only waiting for the device that will bind it. The caller
+                // decides whether that still matters; blockingUnboundKey()
+                // gives it what it needs to ask.
                 throw new \RuntimeException(sprintf(
-                    'the unbound key "%s" on %s has already been used and is waiting to bind — '
-                    .'bind or delete it before issuing another one',
+                    'the unbound key "%s" on %s has already been used and is waiting to bind',
                     (string) $old->getName(), $ssid->getName()
                 ));
             }
-            $this->logger->notice('PpskService: replacing the unused unbound key '.
-                $old->getKeyid().' on '.$ssid->getName().' — a network can hold only one');
+            $this->logger->notice('PpskService: replacing the '.($used ? 'used' : 'unused').
+                ' unbound key '.$old->getKeyid().' on '.$ssid->getName().
+                ' — a network can hold only one');
             $em->remove($old);
         }
         $em->flush();

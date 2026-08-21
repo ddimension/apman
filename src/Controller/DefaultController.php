@@ -1633,9 +1633,30 @@ class DefaultController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'unknown ssid']);
         }
 
+        // A network holds one unbound key. An untouched one is replaced without
+        // asking; one that has already been handed out and used is somebody's,
+        // so say whose and how old it is and let the operator decide.
+        $replace = (bool) $request->get('replace', false);
+        $blocking = $ppsk->blockingUnboundKey($ssid);
+        if ($blocking && !$replace) {
+            $since = $blocking->getFirstSeen() ?: $blocking->getCreated();
+            return $this->json([
+                'ok' => false,
+                'blocked' => [
+                    'id' => $blocking->getId(),
+                    'name' => $blocking->getName(),
+                    'created' => $blocking->getCreated() ? $blocking->getCreated()->format('Y-m-d H:i') : null,
+                    'first_seen' => $blocking->getFirstSeen() ? $blocking->getFirstSeen()->format('Y-m-d H:i') : null,
+                    'last_seen' => $blocking->getLastSeen() ? $blocking->getLastSeen()->format('Y-m-d H:i') : null,
+                    'age_days' => $since ? (int) $since->diff(new \DateTime())->days : null,
+                ],
+                'error' => sprintf('"%s" is still waiting for a device to claim it', $blocking->getName()),
+            ]);
+        }
+
         try {
             $key = $ppsk->createIpsk($ssid, $name, $request->get('vid'),
-                (bool) $request->get('pin', false));
+                (bool) $request->get('pin', false), $replace);
             $result = $ppsk->distribute($ssid);
         } catch (\Throwable $e) {
             return $this->json(['ok' => false, 'error' => get_class($e).': '.$e->getMessage()]);
