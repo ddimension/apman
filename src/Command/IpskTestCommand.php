@@ -162,7 +162,7 @@ class IpskTestCommand extends \Symfony\Component\Console\Command\Command
                 }
                 if (is_array($values)) {
                     foreach (['ssid', 'encryption', 'ppsk', 'auth_server', 'ifname', 'key', 'mac', 'iface',
-                        'nasid', 'mobility_domain', 'ieee80211r'] as $k) {
+                        'nasid', 'mobility_domain', 'ieee80211r', 'hostapd_bss_options'] as $k) {
                         if (isset($values[$k])) {
                             $v = $values[$k];
                             $line .= ' '.$k.'='.(is_array($v) ? implode(',', $v) : $v);
