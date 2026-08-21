@@ -509,6 +509,31 @@ class PpskService
     }
 
     /**
+     * Whether a station section on the access point already says what we want.
+     *
+     * uci hands single values back as one-element lists for the options it
+     * knows as lists, so compare the flattened shapes rather than the literal
+     * structures.
+     */
+    private function sectionMatches($onAp, $wanted): bool
+    {
+        $flat = static function ($v) {
+            if (is_array($v)) {
+                return implode(',', array_map('strval', $v));
+            }
+
+            return null === $v ? '' : (string) $v;
+        };
+        foreach (['iface', 'mac', 'key', 'vid'] as $k) {
+            if ($flat($onAp[$k] ?? null) !== $flat($wanted[$k] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Whether it is worth waiting for an answer from this access point.
      *
      * The key set still goes out to it — the broker may yet deliver it, and an
@@ -1438,8 +1463,14 @@ class PpskService
             // uci — without the keyids, which uci cannot store. Writing the
             // runtime file in the same batch means that regeneration lands on
             // top of it and silently strips the identities.
+            // Only the difference. Every uci call is a full round trip through
+            // the config: measured on an ipq60xx, `add` costs 19 ms and
+            // `delete` 6 ms. With ninety station sections per access point,
+            // deleting them all and writing them all back was 2.3 seconds of
+            // work for what is usually one changed key.
             $uciCommands = ['list' => [], 'options' => ['cancel_on_error' => false]];
             $dropped = 0;
+            $added = 0;
             foreach ($current[$apName] as $name => $values) {
                 $iface = $values['iface'] ?? null;
                 if (is_array($iface)) {
@@ -1447,6 +1478,15 @@ class PpskService
                 }
                 if (null === $iface || !isset($ifaces[$iface])) {
                     continue;   // belongs to another ssid, not ours to touch
+                }
+                // Still wanted and unchanged: leave it alone. Changed sections
+                // are dropped and written again rather than patched — uci add
+                // merges onto an existing name, so an option that went away
+                // would otherwise stay behind.
+                if (isset($expected[$name])
+                    && $this->sectionMatches($values, $expected[$name]->values)) {
+                    unset($expected[$name]);
+                    continue;
                 }
                 $opts = new \stdClass();
                 $opts->config = 'wireless';
@@ -1456,9 +1496,14 @@ class PpskService
                 );
             }
             foreach ($expected as $section) {
+                ++$added;
                 $uciCommands['list'][] = $this->rpcService->createRpcRequest(
                     'ppsk-add-'.$section->name.'-'.$run, 'call', null, 'uci', 'add', $section
                 );
+            }
+            if ($dropped || $added) {
+                $this->logger->info('PpskService: '.$apName.': '.$dropped.' station section(s) to drop, '.
+                    $added.' to write, '.count($current[$apName]).' on the access point');
             }
             // Committing through the ubus uci plugin raises a config change
             // event, netifd reloads the wireless config and that restarts the
