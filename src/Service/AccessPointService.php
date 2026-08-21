@@ -409,26 +409,45 @@ class AccessPointService
             $logger->notice($ap->getName().': generated a RADIUS secret for the on-AP server');
         }
 
-        // total clean up
-        $opts = new \stdClass();
-        $opts->config = 'wireless';
-        $opts->type = 'wifi-iface';
-        $commands['list'][] = $this->uciRequest('delete-wifi-iface', 'delete', $opts, $session);
-
-        $opts = new \stdClass();
-        $opts->config = 'wireless';
-        $opts->type = 'wifi-device';
-        $commands['list'][] = $this->uciRequest('delete-wifi-device', 'delete', $opts, $session);
-
-        $opts = new \stdClass();
-        $opts->config = 'wireless';
-        $opts->type = 'wifi-vlan';
-        $commands['list'][] = $this->uciRequest('delete-wifi-vlan', 'delete', $opts, $session);
-
-        $opts = new \stdClass();
-        $opts->config = 'wireless';
-        $opts->type = 'wifi-station';
-        $commands['list'][] = $this->uciRequest('delete-wifi-station', 'delete', $opts, $session);
+        // Total clean up — but only for the section types the access point
+        // actually has. A delete for a type it has none of answers
+        // "not found (4)", and even with cancel_on_error the staged session
+        // does not come out of that intact: a section re-added under its own
+        // name afterwards keeps the options the new values do not mention.
+        //
+        // That is not cosmetic. kalnet carried a wpa_psk_radius=2 that existed
+        // nowhere in the controller any more and survived provisioning after
+        // provisioning; the day its macaddr_acl finally went away with the
+        // auth_server, hostapd refused the entire phy — "WPA-PSK using RADIUS
+        // enabled, but no RADIUS checking (macaddr_acl=2) enabled" — and took
+        // every other network on that radio down with it. Measured 2026-08-21.
+        $types = ['wifi-iface', 'wifi-device', 'wifi-vlan', 'wifi-station'];
+        $probe = $this->rpcService->getSession($ap);
+        foreach ($types as $type) {
+            if (false !== $probe) {
+                $count = 0;
+                try {
+                    $probeOpts = new \stdClass();
+                    $probeOpts->config = 'wireless';
+                    $probeOpts->type = $type;
+                    $found = $probe->call('uci', 'get', $probeOpts);
+                    $values = $found->values ?? null;
+                    $count = is_array($values) ? count($values)
+                        : (is_object($values) ? count(get_object_vars($values)) : 0);
+                } catch (\Exception $e) {
+                    // unreachable mid-probe: fall back to asking for the delete
+                    $count = 1;
+                }
+                if (!$count) {
+                    $logger->debug($ap->getName().': no '.$type.' sections, skipping their delete');
+                    continue;
+                }
+            }
+            $opts = new \stdClass();
+            $opts->config = 'wireless';
+            $opts->type = $type;
+            $commands['list'][] = $this->uciRequest('delete-'.$type, 'delete', $opts, $session);
+        }
 
         // No commit here on purpose: delete and add belong to one staged
         // transaction. Committing the deletions on their own leaves the access
