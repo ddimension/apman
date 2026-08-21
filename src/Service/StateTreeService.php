@@ -66,7 +66,7 @@ class StateTreeService
         // point's — a bss switched off on purpose is not a bss gone missing
         $facts = ['enabled' => $device->getIsEnabled()] + $facts + ($node['facts'] ?? []);
         $this->write(NodeState::TYPE_BSS, $device->getId(), $facts,
-            $this->deriveBss($facts, true), $device->getName());
+            $this->deriveBss($facts, true, $this->radioOwnStateOf($device)), $device->getName());
     }
 
     /**
@@ -96,14 +96,36 @@ class StateTreeService
         $this->write(NodeState::TYPE_AP, $ap->getId(), $facts, $own, $ap->getName());
     }
 
-    public function bss(Device $device): array
+    /**
+     * @param int|null $radioOwnState what the radio makes of itself, handed in
+     *                                by radio() so it is not looked up twice
+     */
+    public function bss(Device $device, ?int $radioOwnState = null): array
     {
         $node = $this->read(NodeState::TYPE_BSS, $device->getId());
         $facts = ['enabled' => $device->getIsEnabled()] + ($node['facts'] ?? []);
         $node['facts'] = $facts;
-        $state = $this->deriveBss($facts, $this->isFresh($node));
+        if (null === $radioOwnState) {
+            $radioOwnState = $this->radioOwnStateOf($device);
+        }
+        $state = $this->deriveBss($facts, $this->isFresh($node), $radioOwnState);
 
         return $this->present(NodeState::TYPE_BSS, $device->getId(), $device->getName(), $state, $node);
+    }
+
+    /** what the radio a bss hangs on makes of itself, or null if unknowable */
+    private function radioOwnStateOf(Device $device): ?int
+    {
+        $radio = $device->getRadio();
+        if (!$radio) {
+            return null;
+        }
+        $node = $this->read(NodeState::TYPE_RADIO, $radio->getId());
+        if (!$node) {
+            return null;
+        }
+
+        return $this->deriveRadioOwn($node['facts'] ?? [], $this->isFresh($node));
     }
 
     public function radio(Radio $radio): array
@@ -115,7 +137,7 @@ class StateTreeService
 
         $children = [];
         foreach ($radio->getDevices() as $device) {
-            $children[] = $this->bss($device);
+            $children[] = $this->bss($device, $own);
         }
 
         $out = $this->present(NodeState::TYPE_RADIO, $radio->getId(), $radio->getName(),
@@ -162,9 +184,15 @@ class StateTreeService
 
     // ---------------------------------------------------------------- deriving
 
-    private function deriveBss(array $facts, bool $fresh): int
+    private function deriveBss(array $facts, bool $fresh, ?int $radioOwnState = null): int
     {
         if (false === ($facts['enabled'] ?? null)) {
+            return NodeState::BSS_DISABLED;
+        }
+        // Its radio is switched off, so the bss is not there — and saying it is
+        // missing would blame the bss for a decision made one level up. Nothing
+        // below a disabled radio is worth judging.
+        if (NodeState::RADIO_DISABLED === $radioOwnState) {
             return NodeState::BSS_DISABLED;
         }
         if (!$fresh) {
