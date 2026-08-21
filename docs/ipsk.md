@@ -201,6 +201,40 @@ A VLAN belongs to the key and only the first key can carry one (`Tunnel-Type` /
 `Tunnel-Medium-Type` / `Tunnel-Private-Group-Id`, tag 0). The agent suppresses
 it when the id equals the VLAN the bss already lives on.
 
+## One key per answer
+
+The Access-Accept carries exactly **one** Tunnel-Password, chosen by priority:
+the station's own key, else an unbound key, else the network passphrase.
+
+Not a simplification — a requirement. hostapd's `sae_get_password()` walks
+`sta->psk` but stops at the first passphrase, because `use_sta_psk` is only set
+from the ucode `sta_auth` hook and the RADIUS ACL path never reaches it:
+
+```c
+for (psk = sta->psk; psk; psk = psk->next) {
+        if (!psk->is_passphrase) continue;
+        password = psk->passphrase;
+        if (!sta->use_sta_psk) break;
+```
+
+Anything behind the first key is invisible to SAE. Measured 2026-08-21 on
+kalclients: a station was sent its own key and the network key, hostapd tried
+only the first, the confirm failed, and the station left — which the access
+point reports as `did not acknowledge authentication response` and nothing
+else. There is no "wrong password" line to find, because from hostapd's side
+the exchange simply stops. WPA2 would have iterated the list and forgiven it;
+that difference is exactly what makes the bug hard to see.
+
+Two consequences worth knowing:
+
+- **A station that already has a key of its own can never pick up an unbound
+  one.** Its own key is the only thing it is offered. Handing such a device a
+  fresh QR code does nothing until the old key is deleted.
+- **Several unbound keys on one network cannot all be enrolled at once.** Only
+  the first is ever offered; the rest wait until it binds. The agent cannot
+  decide that, so it logs `radius-error <n> unbound keys on ssid=…` with the
+  names and puts `unbound_keys` on the auth event for the controller.
+
 ## The life of a key
 
 **Created** as an identity with no owner: wildcard MAC, `pin_mac` set
