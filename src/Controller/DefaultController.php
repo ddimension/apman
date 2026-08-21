@@ -1354,8 +1354,7 @@ class DefaultController extends AbstractController
             'keyid' => $key->getKeyid(),
             'name' => $key->getName(),
             'ssid' => $ssid->getName(),
-            'qr' => $this->wifiQrPayload($ssid->getName(), $key->getPsk(), false,
-                $ssid->exportConfig()->encryption ?? null),
+            'qr' => $this->wifiQrPayload($ssid, $key->getPsk()),
             'converted' => $converted,
             'suspended' => $suspended,
             'moving' => (bool) ($res['moving'] ?? false),
@@ -1678,8 +1677,7 @@ class DefaultController extends AbstractController
             'radius' => $ppsk->usesOnApRadius($ssid),
             'ssid' => $ssid->getName(),
             'psk' => $key->getPsk(),
-            'qr' => $this->wifiQrPayload($ssid->getName(), $key->getPsk(), false,
-                $ssid->exportConfig()->encryption ?? null),
+            'qr' => $this->wifiQrPayload($ssid, $key->getPsk()),
             'distributed' => $summary['ok'],
             'confirmed' => $summary['confirmed'],
             'pending' => $summary['pending'],
@@ -1820,7 +1818,7 @@ class DefaultController extends AbstractController
             'psk' => $key->getPsk(),
             'keyid' => $key->getKeyid(),
             'qr' => $key->getSsid()
-                ? $this->wifiQrPayload($key->getSsid()->getName(), $key->getPsk()) : null,
+                ? $this->wifiQrPayload($key->getSsid(), $key->getPsk()) : null,
             'used' => $key->isUsed(),
             'first_seen' => $key->getFirstSeen() ? $key->getFirstSeen()->format('Y-m-d H:i:s') : null,
             'last_seen' => $key->getLastSeen() ? $key->getLastSeen()->format('Y-m-d H:i:s') : null,
@@ -1904,11 +1902,16 @@ class DefaultController extends AbstractController
      * understands it. The separators have to be escaped or a key containing
      * one would truncate the code.
      */
-    private function wifiQrPayload($ssid, $psk, $hidden = false, $encryption = null)
+    private function wifiQrPayload($ssid, $psk, $hidden = false)
     {
         $escape = function ($value) {
             return preg_replace('/([\\\\;,:"])/', '\\\\$1', (string) $value);
         };
+
+        // the ssid entity, not its name: the encryption decides the T field and
+        // a caller that only had the name used to silently produce T:WPA
+        $encryption = $ssid->exportConfig()->encryption ?? null;
+        $ssid = $ssid->getName();
 
         // WPA3-only networks must advertise SAE: a T:WPA code makes clients
         // try WPA2, which a pure SAE network cannot answer. Mixed networks
