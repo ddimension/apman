@@ -62,7 +62,9 @@ class StateTreeService
     public function observeBss(Device $device, array $facts): void
     {
         $node = $this->read(NodeState::TYPE_BSS, $device->getId());
-        $facts = $facts + ($node['facts'] ?? []);
+        // whether it is meant to run at all is ours to know, not the access
+        // point's — a bss switched off on purpose is not a bss gone missing
+        $facts = ['enabled' => $device->getIsEnabled()] + $facts + ($node['facts'] ?? []);
         $this->write(NodeState::TYPE_BSS, $device->getId(), $facts,
             $this->deriveBss($facts, true), $device->getName());
     }
@@ -97,7 +99,9 @@ class StateTreeService
     public function bss(Device $device): array
     {
         $node = $this->read(NodeState::TYPE_BSS, $device->getId());
-        $state = $this->deriveBss($node['facts'] ?? [], $this->isFresh($node));
+        $facts = ['enabled' => $device->getIsEnabled()] + ($node['facts'] ?? []);
+        $node['facts'] = $facts;
+        $state = $this->deriveBss($facts, $this->isFresh($node));
 
         return $this->present(NodeState::TYPE_BSS, $device->getId(), $device->getName(), $state, $node);
     }
@@ -137,10 +141,32 @@ class StateTreeService
         return $out;
     }
 
+    /**
+     * Stage one only: say what the tree makes of an access point next to what
+     * the flat machine concluded, but only when that pairing changes. Logged at
+     * notice because info does not reach the journal here, and a line per status
+     * message would be seven a second.
+     */
+    public function compareWithFlat(AccessPoint $ap, string $flatName): void
+    {
+        $tree = $this->ap($ap);
+        $pair = $tree['state_name'].'|'.$flatName;
+        $key = 'state.compare['.$ap->getId().']';
+        if ($this->cacheFactory->getCacheItemValue($key) === $pair) {
+            return;
+        }
+        $this->cacheFactory->addCacheItem($key, $pair, self::TTL);
+        $this->logger->notice(sprintf('stateTree: %s composes to %s, flat machine says %s',
+            $ap->getName(), $tree['state_name'], $flatName));
+    }
+
     // ---------------------------------------------------------------- deriving
 
     private function deriveBss(array $facts, bool $fresh): int
     {
+        if (false === ($facts['enabled'] ?? null)) {
+            return NodeState::BSS_DISABLED;
+        }
         if (!$fresh) {
             return NodeState::BSS_UNKNOWN;
         }
@@ -198,7 +224,7 @@ class StateTreeService
         $active = 0;
         $short = 0;
         foreach ($children as $c) {
-            if (NodeState::BSS_UNKNOWN === $c['state']) {
+            if (NodeState::BSS_UNKNOWN === $c['state'] || NodeState::BSS_DISABLED === $c['state']) {
                 continue;
             }
             ++$known;

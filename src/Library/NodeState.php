@@ -25,6 +25,8 @@ class NodeState
     public const BSS_UNKNOWN = 0;
     /** configured here, but the radio does not list the interface */
     public const BSS_ABSENT = 1;
+    /** switched off on purpose — not a fault, and not the same as missing */
+    public const BSS_DISABLED = 5;
     /** the interface exists, hostapd has not enabled it yet */
     public const BSS_STARTING = 2;
     /** hostapd reports ENABLED */
@@ -59,6 +61,7 @@ class NodeState
         self::TYPE_BSS => [
             self::BSS_UNKNOWN => 'UNKNOWN',
             self::BSS_ABSENT => 'ABSENT',
+            self::BSS_DISABLED => 'DISABLED',
             self::BSS_STARTING => 'STARTING',
             self::BSS_READY => 'READY',
             self::BSS_ACTIVE => 'ACTIVE',

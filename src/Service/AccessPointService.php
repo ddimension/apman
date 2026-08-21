@@ -1411,10 +1411,8 @@ class AccessPointService
 
         // Stage one of the state tree: say what it would have concluded, so the
         // two can be compared before anything is moved over to it.
-        $tree = $this->stateTree->ap($ap);
-        $this->logger->info(sprintf('stateTree: ap %s composes to %s (flat machine says %s)',
-            $ap->getName(), $tree['state_name'],
-            \ApManBundle\Library\AccessPointState::getStateName($state)));
+        $this->stateTree->compareWithFlat($ap,
+            \ApManBundle\Library\AccessPointState::getStateName($state));
         $this->logger->debug("ApLifetimeHandler(): state '".\ApManBundle\Library\AccessPointState::getStateName($state)."' of ap ".$ap->getName());
 
         return true;
