@@ -424,6 +424,51 @@ Provisioning restarts the bss of every flipped SSID once — that is unavoidable
 the security configuration changes. Afterwards key changes never restart
 anything again.
 
+## What migration makes visible: a row is not a key
+
+Measured on kalnet the night of 2026-08-22, right after the passphrase left the
+configuration. Every device that connects has a row — no station falls through
+to `network_key` — and the rows still do not separate anybody:
+
+| what the row holds | rows |
+|---|---|
+| `network_key`, verbatim | 23 |
+| a wildcard that was in use for a while | 5 |
+| another value shared by two | 2 |
+| a key of its own | 15 |
+
+The 23 are the ones to understand. They work, and they work for the wrong
+reason: the key the access point answers with happens to equal the passphrase
+the device was given. Nothing about them is per device. Rotating the network
+passphrase locks none of them out, because each keeps the old value in its own
+row; revoking one of them locks out none, because twenty-two others carry the
+same secret. A network in that state has the shape of iPSK and none of its
+properties, and no log line says so — that is what makes it worth counting.
+
+Getting out of it costs one re-enrolment per device and cannot be batched, so
+it is staged work, not a migration step.
+
+**And the failure mode of the migration itself is the mirror of this.** While
+the passphrase was still configured, a row whose value disagreed with what the
+device actually had was harmless — hostapd offered the passphrase too and the
+device came in on that. Take the passphrase away and the row becomes the only
+answer, so every disagreement turns into a device that cannot associate at all:
+
+```
+hostapd: wap-knet0: AP-STA-POSSIBLE-PSK-MISMATCH dc:ec:4f:65:82:77
+```
+
+Two devices here, both holding the old wildcard in their row, both locked out
+from the minute of the switch. A single such line is not the signal — hostapd
+also emits it on a 4-way timeout that had nothing to do with keys. What
+identifies it is the repetition together with the device being associated
+nowhere on the fleet.
+
+So the check that belongs *before* flipping a network, not after: every row
+whose value is the network passphrase or a former wildcard is a device whose
+real key nobody knows. They are exactly the ones that will stop working, and
+the only cheap repair is to put back the value they evidently still use.
+
 ## When something is wrong
 
 Ask the access point what it would answer *right now* — that is the question
