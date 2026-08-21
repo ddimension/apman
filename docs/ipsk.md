@@ -314,9 +314,26 @@ cache and all:
 17:56:42  wap-kc2: AP-STA-CONNECTED 8c:fd:f0:19:ba:a2 auth_alg=ft
 ```
 
-So the thing to watch is not the cache but the agent's latency. If it ever has
-to reach the controller, hit a cold key store or wait on a lock, it drops out
-of the budget and the first roam degrades to a full authentication again.
+So the thing to watch is not the cache but the agent's latency — and that turned
+out to be worth fixing. Those 40-60 ms were **not** I/O, they were the agent
+hashing in pure lua: the lua on these access points is 5.1 with no bit library,
+so every and/or/xor runs through nibble tables, and one Access-Accept needs
+three to five MD5 or HMAC-MD5 passes.
+
+```
+md5(256 B)    9.0 ms   ->  0.004 ms      (lua-md5, official packages feed)
+hmac(256 B)  16.0 ms   ->  0.015 ms
+round trip   39.1 ms   ->  0.76 ms       (udp against the agent, ap-av-attic)
+```
+
+`apman-radius.lua` now rebinds its `md5` and `xor_str` locals to the native ones
+when the `lua-md5` package is present, and keeps the pure lua code as a fallback
+so an access point that has not been updated still answers. With ~0.8 ms the
+station's ~330 ms budget is met with a factor of 400 in hand, and a cold ACL
+cache stops being a risk to the first roam at all.
+
+What remains worth watching is anything that would put real waiting back into
+that path: reaching the controller, a cold key store, a lock.
 
 Note also that **every `FT:` log line in hostapd is `MSG_DEBUG`**, so their
 absence proves nothing about whether FT was attempted. The only trustworthy
