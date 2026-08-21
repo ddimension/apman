@@ -4,12 +4,18 @@
 {% block body %}
 <h2>Per device PSK</h2>
 <p class="small">
-	The controller owns these keys. They are written into the wireless config as
-	<i>wifi-station</i> sections (persistent, survives a reboot) and pushed into the
-	running <i>wpa_psk_file</i> of every access point carrying the SSID, followed by
-	<i>reload_wpa_psk</i> — which only disconnects stations whose key stopped matching.
-	That is why a device enrolled on one AP can roam to any other one seconds later.
-	Editing happens in <a href="{{ path('admin_apman_ppsk_list') }}">Admin → Per device PSK</a>.
+	The controller owns these keys, and how they reach the access points depends
+	on the network. On an <b>iPSK</b> network they travel as one complete, versioned
+	key set into the access point's own key store; the access point answers every
+	station from it through its own RADIUS server — no <i>wifi-station</i> sections,
+	no <i>wpa_psk_file</i>, and it works for WPA2 and WPA3/SAE alike, effective at the
+	station's next association. On every other network the keys are written as
+	<i>wifi-station</i> sections (persistent, survives a reboot) and mirrored into the
+	running <i>wpa_psk_file</i>, followed by <i>reload_wpa_psk</i> — which only
+	disconnects stations whose key stopped matching. Either way a device enrolled on
+	one access point can roam to any other one.
+	Editing happens in <a href="{{ path('admin_apman_ppsk_list') }}">Admin → Per device PSK</a>;
+	a key changed there reaches the access points at the next distribution.
 </p>
 
 <div id="result" class="small"></div>
@@ -20,6 +26,7 @@
 		Access points already carrying <i>wifi-station</i> sections keep them only
 		until the next full provisioning, which deletes all of them before writing
 		the config. Import them once per AP, then the controller owns them.
+		iPSK networks have no such sections — there is nothing to import there.
 	</p>
 	<p>
 		{% for ap in aps %}
@@ -31,6 +38,7 @@
 {% for row in rows %}
 	<h3>{{ row.ssid.name }}
 		<span class="small">{{ row.keys|length }} key(s), {{ row.bss|length }} BSS</span>
+		{% if row.ipsk %}<span class="ok small" title="the access points answer this network from their own key store">iPSK</span>{% endif %}
 		<button type="button" class="dist" data-ssid="{{ row.ssid.id }}">Distribute now</button>
 	</h3>
 
@@ -53,6 +61,14 @@
 		<p class="small">no keys yet</p>
 	{% endif %}
 
+	{% if row.ipsk %}
+	<p class="small">
+		WPS is not available on this network: hostapd writes an enrolled key into
+		<i>wpa_psk_file</i>, which an iPSK network does not have. Issue a key on the
+		<a href="{{ path('ipsk') }}">iPSK page</a> instead — it works the same way for
+		WPA2 and WPA3/SAE.
+	</p>
+	{% else %}
 	<details>
 		<summary class="small">Enrol a device via WPS</summary>
 		<p class="small">
@@ -80,6 +96,7 @@
 			{% for b in row.bss %}{{ b.ap }}/{{ b.ifname }}{% if not loop.last %} · {% endif %}{% endfor %}
 		</p>
 	</details>
+	{% endif %}
 {% endfor %}
 
 <script>
@@ -108,8 +125,16 @@ document.querySelectorAll('button.dist').forEach((b) => {
 		show('distributing...', true);
 		try {
 			const d = await post('{{ path('ppsk') }}/' + b.dataset.ssid + '/distribute', {});
-			show(d.ok ? 'distributed to ' + Object.keys(d.result || {}).length + ' AP(s)'
-			          : 'failed: ' + (d.result.error || '?'), d.ok);
+			// what the access points confirmed, not how many were asked: an AP
+			// that did not answer, or answered with another version, used to be
+			// counted as a success
+			let msg = 'confirmed by ' + (d.confirmed || 0) + ' access point(s)';
+			if (d.version) { msg += ', key set ' + d.version; }
+			if (d.pending) {
+				msg += ' — ' + d.pending + ' did not confirm: ' +
+					Object.entries(d.detail || {}).map(([k, v]) => k + ' (' + v + ')').join(', ');
+			}
+			show(d.ok ? msg : 'failed: ' + (d.error || msg || '?'), d.ok);
 		} catch (e) { show('failed: ' + e, false); }
 	});
 });

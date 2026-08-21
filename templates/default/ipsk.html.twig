@@ -6,11 +6,13 @@
 <p class="small">
 	Pick the network, give the key a name, press <b>Go</b>. The controller generates a
 	random passphrase, stores it, and pushes it to every access point carrying that
-	SSID — the key works fleet wide within seconds and no client is disconnected.
+	SSID; no client is disconnected, and the key works from the next association of
+	whoever uses it — on every access point of the network at once.
 	The key is bound to no MAC address, so it can be handed to a person rather than
-	to a device; what identifies it is the <i>keyid</i> that travels with it, which
-	the access points report back for every station that uses it. That is how the
-	list below can tell a key that was handed out from one that was actually used.
+	to a device. The first device that uses it claims it: the access point reports
+	which key it answered with, the controller binds the key to that address, and
+	from then on a copy on a second device is refused. That is also how the list
+	below can tell a key that was handed out from one that was actually used.
 </p>
 
 <form id="new" class="card">
@@ -48,6 +50,7 @@
 			<div class="psk" id="i-psk"></div>
 			<p class="small">
 				<button type="button" id="copy">Copy</button>
+				<a id="share" href="#" title="send the key as text — on Android this opens the app list">Share</a>
 				<span id="copied" class="ok small"></span>
 				&nbsp;identity <code id="i-keyid"></code>
 			</p>
@@ -183,6 +186,28 @@ function renderQr(payload) {
 	box.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
 }
 
+// the same key as a link: on Android the intent URL opens the app list for
+// sending text, everywhere else the platform share sheet or the clipboard
+function wireShare(d) {
+	const text = 'WLAN "' + d.ssid + '", key: ' + d.psk;
+	const link = document.getElementById('share');
+	if (!link) { return; }
+	const intent = 'intent:#Intent;action=android.intent.action.SEND;type=text/plain;S.text='
+		+ encodeURIComponent(text) + ';end';
+	const isAndroid = /android/i.test(navigator.userAgent);
+	link.onclick = async (ev) => {
+		ev.preventDefault();
+		if (isAndroid) { window.location.href = intent; return; }
+		if (navigator.share) {
+			try { await navigator.share({ text: text }); return; } catch (e) { /* cancelled */ }
+		}
+		try {
+			await navigator.clipboard.writeText(text);
+			document.getElementById('copied').textContent = 'copied';
+		} catch (e) { /* nothing to do */ }
+	};
+}
+
 async function poll(id) {
 	try {
 		const res = await fetch('{{ path('ipsk_status', {'id': '__ID__'}) }}'.replace('__ID__', id));
@@ -209,6 +234,7 @@ function display(d) {
 	document.getElementById('i-psk').textContent = d.psk;
 	document.getElementById('i-keyid').textContent = d.keyid || '';
 	renderQr(d.qr);
+	wireShare(d);
 	document.getElementById('issued').style.display = 'block';
 	document.getElementById('copy').onclick = async () => {
 		try {
@@ -322,13 +348,27 @@ document.getElementById('new').addEventListener('submit', async (ev) => {
 		document.getElementById('i-ssid').textContent = d.ssid;
 		document.getElementById('i-psk').textContent = d.psk;
 		document.getElementById('i-keyid').textContent = d.keyid;
-		// with SAE there is nothing to reload, so the note below explains the
-		// state instead of a warning that would be wrong
-		document.getElementById('i-dist').innerHTML = d.reloaded > 0
-			? '<span class="ok">live on ' + d.reloaded + ' bss</span>' +
-			  (d.pending ? ', ' + d.pending + ' not reloaded' : '')
-			: (d.note ? '<span class="stale">stored in the wireless configuration</span>'
-			          : '<span class="warn">distributed, but no access point confirmed the reload</span>');
+		wireShare(d);
+		// What the distribution actually achieved. "live" is only honest once
+		// an access point has confirmed the key set; before that the key
+		// exists in the database and nowhere else.
+		const dist = document.getElementById('i-dist');
+		if (d.note) {
+			dist.innerHTML = '';
+		} else if (d.dist_error) {
+			dist.innerHTML = '<span class="warn">stored, but not distributed: ' + d.dist_error + '</span>';
+		} else if (d.radius) {
+			dist.innerHTML = d.confirmed
+				? '<span class="ok">live — confirmed by ' + d.confirmed + ' access point(s)' +
+				  (d.version ? ', key set ' + d.version : '') + '; it works at the next (re)association</span>' +
+				  (d.pending ? ' <span class="warn">(' + d.pending + ' did not confirm)</span>' : '')
+				: '<span class="warn">stored, but no access point confirmed the key set</span>';
+		} else {
+			dist.innerHTML = d.confirmed
+				? '<span class="ok">live on ' + d.confirmed + ' bss</span>' +
+				  (d.pending ? ', ' + d.pending + ' not reloaded' : '')
+				: '<span class="warn">distributed, but no access point confirmed the reload</span>';
+		}
 		const note = document.getElementById('i-note');
 		note.style.display = d.note ? 'block' : 'none';
 		note.textContent = d.note || '';

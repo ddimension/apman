@@ -45,8 +45,15 @@
 		<input type="hidden" name="radius_fallback_present" value="1">
 		<p class="small">
 			{% if radius.server %}
-				The access points ask <code>{{ radius.server }}</code> before they let a station in.
-				{% if radius.ppsk %}<span class="pill up">per device keys over RADIUS</span>
+				{% if radius.onap %}
+					Every access point answers this network itself, from the key set the controller
+					ships to it — no <i>wpa_psk_file</i>, no <i>sae_password_file</i>, and a key is
+					live at the station's next association, for WPA2 and WPA3/SAE alike.
+				{% else %}
+					The access points ask <code>{{ radius.server }}</code> before they let a station in.
+				{% endif %}
+				{% if radius.onap %}<span class="pill up" title="the access points answer per-station keys from their own key store; no psk file is involved">iPSK — answered by the AP itself</span>{% if not radius.auto %} <span class="pill">automatic per device keys are off</span>{% endif %}
+				{% elseif radius.ppsk %}<span class="pill up">per device keys over RADIUS</span>
 				{% else %}
 					<span class="pill down">option <code>ppsk</code> is off</span> — without it OpenWrt writes no
 					<code>wpa_psk_radius</code>, so the answer is only used as an access list, not as a key.

@@ -939,7 +939,10 @@ class DefaultController extends AbstractController
                     'ifname' => $device->getIfname(),
                 ];
             }
-            $rows[] = ['ssid' => $ssid, 'keys' => $keys, 'bss' => $bss];
+            $rows[] = ['ssid' => $ssid, 'keys' => $keys, 'bss' => $bss,
+                // an iPSK network has no psk file: no WPS enrolment, nothing
+                // to import from uci, and the keys travel as a key set
+                'ipsk' => $ppsk->usesOnApRadius($ssid)];
         }
 
         return $this->render('default/ppsk.html.twig', [
@@ -957,7 +960,9 @@ class DefaultController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'unknown ssid'], 404);
         }
         // force rewrites and reloads even where nothing changed — the way to
-        // repair an access point whose runtime file was lost or edited
+        // repair an access point whose runtime file was lost or edited. On an
+        // iPSK network there is no file to repair: the key set goes out as a
+        // whole either way, so force changes nothing there.
         try {
             $res = $ppsk->distribute($ssid, (bool) $request->get('force'));
         } catch (\Throwable $e) {
@@ -965,7 +970,17 @@ class DefaultController extends AbstractController
                 'at' => $e->getFile().':'.$e->getLine()]);
         }
 
-        return $this->json(['ok' => !isset($res['error']), 'result' => $res]);
+        $summary = $this->distributionSummary($res);
+
+        return $this->json([
+            'ok' => $summary['ok'],
+            'confirmed' => $summary['confirmed'],
+            'pending' => $summary['pending'],
+            'version' => $summary['version'],
+            'detail' => $summary['detail'],
+            'error' => $summary['error'],
+            'result' => $res,
+        ]);
     }
 
     /**
@@ -1028,7 +1043,7 @@ class DefaultController extends AbstractController
      * with its default shown where nothing is set.
      */
     #[Route(path: '/ssid/{id}', name: 'ssid_detail')]
-    public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, $id)
+    public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\PpskService $ppsk, $id)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
         if (!$ssid) {
@@ -1074,7 +1089,7 @@ class DefaultController extends AbstractController
             'values' => $values,
             'lists' => $lists,
             'keys' => $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(['ssid' => $ssid]),
-            'radius' => $this->radiusSummary($ssid, $values),
+            'radius' => $this->radiusSummary($ssid, $values, $ppsk),
             'features' => $this->apservice->previewFeatureOverrides($ssid),
         ]);
     }
@@ -1082,18 +1097,28 @@ class DefaultController extends AbstractController
     /**
      * How this network is authenticated, from the RADIUS side.
      *
-     * The interesting part is what the two paths for a per device key can do
-     * here: with WPA2 the key can travel in wpa_psk_file and takes effect in
-     * seconds, with SAE it can only come from a RADIUS answer. An SSID that
-     * runs SAE without pointing at a server therefore cannot have per device
-     * keys at all, and saying so here is cheaper than letting somebody find
-     * out by handing out a key that never works.
+     * The interesting part is what the paths for a per device key can do here.
+     * Where the access points answer themselves (iPSK) both WPA2 and SAE work
+     * and a key is live at the next association. Everywhere else the old split
+     * applies: with WPA2 the key can travel in wpa_psk_file and takes effect
+     * in seconds, with SAE it can only come from a RADIUS answer — an SSID
+     * that runs SAE without pointing at a server cannot have per device keys
+     * at all, and saying so here is cheaper than letting somebody find out by
+     * handing out a key that never works.
      */
-    private function radiusSummary(\ApManBundle\Entity\SSID $ssid, array $values)
+    private function radiusSummary(\ApManBundle\Entity\SSID $ssid, array $values, ?\ApManBundle\Service\PpskService $ppsk = null)
     {
         $encryption = strtolower((string) ($values['encryption'] ?? 'none'));
         $broadcast = $values['ssid'] ?? $ssid->getName();
         $server = $values['auth_server'] ?? ($values['auth_server_addr'] ?? null);
+        // An iPSK network usually carries none of this in its own options: the
+        // marker lives in the feature, and exportConfig() does not merge that.
+        // Reading only the options made the page tell an SSID that is doing
+        // per device SAE keys right now that it cannot have per device keys.
+        $onAp = $ppsk && $ppsk->usesOnApRadius($ssid);
+        if ($onAp) {
+            $server = $server ?: '127.0.0.1';
+        }
 
         $counts = [];
         try {
@@ -1119,7 +1144,9 @@ class DefaultController extends AbstractController
 
         return [
             'server' => $server,
-            'ppsk' => (bool) ($values['ppsk'] ?? false),
+            'onap' => $onAp,
+            'ipsk' => $ppsk ? $ppsk->isIpsk($ssid) : false,
+            'ppsk' => $onAp || (bool) ($values['ppsk'] ?? false),
             'sae' => (bool) preg_match('/sae|wpa3/', $encryption),
             'psk' => (bool) preg_match('/psk|wpa2/', $encryption),
             'fallback' => $ssid->getRadiusFallback(),
@@ -1327,7 +1354,8 @@ class DefaultController extends AbstractController
             'keyid' => $key->getKeyid(),
             'name' => $key->getName(),
             'ssid' => $ssid->getName(),
-            'qr' => $this->wifiQrPayload($ssid, $key->getPsk()),
+            'qr' => $this->wifiQrPayload($ssid->getName(), $key->getPsk(), false,
+                $ssid->exportConfig()->encryption ?? null),
             'converted' => $converted,
             'suspended' => $suspended,
             'moving' => (bool) ($res['moving'] ?? false),
@@ -1428,14 +1456,41 @@ class DefaultController extends AbstractController
 
         $rows = $conn->fetchAllAssociative($sql, $params);
 
+        $flaky = $this->radiusFlaky($conn);
+        foreach ($rows as &$row) {
+            $row['flaky'] = in_array($row['mac'].'|'.(string) $row['ssid_name'], $flaky, true);
+        }
+
         return new JsonResponse([
             'rows' => $rows,
             'newest' => $rows ? (int) $rows[0]['id'] : $since,
         ]);
     }
 
+    /**
+     * The keys (mac|ssid) of devices whose last 24 h hold both accepts and
+     * rejects: they authenticate fine most of the time — which is why they
+     * keep coming back — and sometimes they do not.
+     *
+     * @return string[]
+     */
+    private function radiusFlaky($conn)
+    {
+        $keys = [];
+        foreach ($conn->fetchAllAssociative(
+            'SELECT mac, ssid_name FROM radius_auth'
+            .' WHERE created > DATE_SUB(NOW(), INTERVAL 24 HOUR)'
+            .' GROUP BY mac, ssid_name'
+            ." HAVING SUM(result = 'accept') > 0 AND SUM(result <> 'accept') > 0"
+        ) as $row) {
+            $keys[] = $row['mac'].'|'.(string) $row['ssid_name'];
+        }
+
+        return $keys;
+    }
+
     #[Route(path: '/radius', name: 'radius')]
-    public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, Request $request)
+    public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, \ApManBundle\Service\PpskService $ppsk, Request $request)
     {
         $em = $this->doctrine->getManager();
         $filterSsid = trim((string) $request->get('ssid'));
@@ -1470,6 +1525,16 @@ class DefaultController extends AbstractController
             ." WHERE result <> 'accept' AND created > DATE_SUB(NOW(), INTERVAL 24 HOUR)"
             .' GROUP BY mac, ssid_name ORDER BY MAX(created) DESC LIMIT 20'
         );
+        $flaky = $em->getConnection()->fetchAllAssociative(
+            'SELECT mac, ssid_name, SUM(result = \'accept\') AS ok, SUM(result <> \'accept\') AS bad,'
+            .' MAX(created) AS last FROM radius_auth'
+            .' WHERE created > DATE_SUB(NOW(), INTERVAL 24 HOUR)'
+            .' GROUP BY mac, ssid_name HAVING ok > 0 AND bad > 0 ORDER BY MAX(created) DESC'
+        );
+        $flakyKeys = array_map(function ($row) {
+            return $row['mac'].'|'.(string) $row['ssid_name'];
+        }, $flaky);
+        $flaky = array_slice($flaky, 0, 20);
 
         // which SSIDs point their access points at us, and which of those run
         // SAE — where a per device key works over RADIUS and nowhere else
@@ -1486,6 +1551,7 @@ class DefaultController extends AbstractController
                 'server' => $server,
                 'encryption' => $config->encryption ?? 'none',
                 'ours' => (bool) preg_match('/(^|\D)'.preg_quote($this->radiusOwnAddress($radius), '/').'(\D|$)/', (string) $server),
+                'onap' => '127.0.0.1' === (string) $server || $ppsk->usesOnApRadius($ssid),
                 'fallback' => $ssid->getRadiusFallback(),
                 'id' => $ssid->getId(),
             ];
@@ -1495,6 +1561,8 @@ class DefaultController extends AbstractController
             'rows' => $rows,
             'stats' => $stats,
             'unknown' => $unknown,
+            'flaky' => $flaky,
+            'flakyKeys' => $flakyKeys,
             'pointing' => $pointing,
             'enabled' => $radius->isEnabled(),
             'bind' => $radius->getBind(),
@@ -1574,41 +1642,31 @@ class DefaultController extends AbstractController
             return $this->json(['ok' => false, 'error' => get_class($e).': '.$e->getMessage()]);
         }
 
-        // how far did the distribution get? the key only works where hostapd
-        // has actually re-read the file
-        $reloaded = 0;
-        $pending = 0;
-        foreach ($result as $rows) {
-            if (!is_array($rows)) {
-                continue;
-            }
-            foreach ($rows as $row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-                if ('ok' === ($row['reload'] ?? null)) {
-                    ++$reloaded;
-                } elseif (isset($row['ifname'])) {
-                    ++$pending;
-                }
-            }
-        }
+        // How far did the distribution get? A key that exists in the database
+        // but on no access point is not yet a key anybody can use, and saying
+        // "live" there would be a lie.
+        $summary = $this->distributionSummary($result);
 
-        // an SAE network cannot take the key into the running radio: hostapd
-        // reads sae_password_file only when it parses its whole config, and
-        // that reload costs every client of the radio its connection. The key
-        // is stored and persisted, it just is not live yet — saying so beats
-        // handing out a code that does not work.
+        // An on-AP RADIUS network answers every station from the key store on
+        // the spot — the key works at the next (re)association, for WPA2 and
+        // SAE alike. Only a network without RADIUS still has the old SAE
+        // limitation: hostapd reads sae_password_file only when it parses its
+        // whole config, and that reload costs every client of the radio its
+        // connection.
         $delivery = $ppsk->keyDelivery($ssid);
         $note = null;
-        if ($delivery['sae'] && !$delivery['psk']) {
-            $note = 'This network uses WPA3/SAE. The key is stored and written into '.
-                'the wireless configuration, but it only starts working after the next '.
-                'wireless reload — it cannot be activated without disconnecting the radio.';
-        } elseif ($delivery['sae']) {
-            $note = 'This network offers WPA2 and WPA3. The key works right away for '.
-                'clients connecting with WPA2/PSK; for WPA3/SAE it takes effect after '.
-                'the next wireless reload.';
+        // On-AP RADIUS answers every station on the spot — WPA2 and SAE alike,
+        // because such a network has no psk and no sae file at all (the
+        // options are not written; pointing them at /dev/null does not work).
+        // The reload limitation below only exists on networks without RADIUS.
+        if (!$ppsk->usesOnApRadius($ssid)) {
+            if ($delivery['sae'] && !$delivery['psk']) {
+                $note = 'This network uses WPA3/SAE. The key is distributed to the access '.
+                    'points now and takes effect at the next wireless reload.';
+            } elseif ($delivery['sae']) {
+                $note = 'This network offers WPA2 and WPA3. WPA2/PSK works at the next '.
+                    'reload; WPA3/SAE takes effect at the next wireless reload.';
+            }
         }
 
         return $this->json([
@@ -1617,13 +1675,81 @@ class DefaultController extends AbstractController
             'name' => $key->getName(),
             'keyid' => $key->getKeyid(),
             'note' => $note,
+            'radius' => $ppsk->usesOnApRadius($ssid),
             'ssid' => $ssid->getName(),
             'psk' => $key->getPsk(),
-            'qr' => $this->wifiQrPayload($ssid->getName(), $key->getPsk()),
-            'reloaded' => $reloaded,
-            'pending' => $pending,
+            'qr' => $this->wifiQrPayload($ssid->getName(), $key->getPsk(), false,
+                $ssid->exportConfig()->encryption ?? null),
+            'distributed' => $summary['ok'],
+            'confirmed' => $summary['confirmed'],
+            'pending' => $summary['pending'],
+            'version' => $summary['version'],
+            'detail' => $summary['detail'],
+            'dist_error' => $summary['error'],
             'result' => $result,
         ]);
+    }
+
+    /**
+     * What a distribution actually achieved — for both shapes it can have.
+     *
+     * An iPSK network answers one entry per access point, carrying the version
+     * of the key set it now holds; the file based path answers a list of per
+     * device rows carrying a reload result. The interface needs the same few
+     * numbers from either, and reading only one of them (which is what this
+     * used to do) made every iPSK distribution look like it confirmed nothing.
+     *
+     * @return array ['ok', 'confirmed', 'pending', 'version', 'detail', 'error']
+     */
+    private function distributionSummary($result)
+    {
+        $out = ['ok' => true, 'confirmed' => 0, 'pending' => 0,
+            'version' => null, 'detail' => [], 'error' => null];
+        if (!is_array($result)) {
+            return ['ok' => false, 'confirmed' => 0, 'pending' => 0,
+                'version' => null, 'detail' => [], 'error' => 'no answer'];
+        }
+        if (isset($result['error'])) {
+            $out['ok'] = false;
+            $out['error'] = (string) $result['error'];
+
+            return $out;
+        }
+        foreach ($result as $apName => $rows) {
+            if (!is_array($rows)) {
+                continue;
+            }
+            if (array_key_exists('ack', $rows)) {
+                // key set: one answer per access point
+                $out['version'] = $rows['version'] ?? $out['version'];
+                $out['detail'][$apName] = (string) $rows['ack'];
+                if ('ok' === $rows['ack']) {
+                    ++$out['confirmed'];
+                } else {
+                    ++$out['pending'];
+                    $out['ok'] = false;
+                }
+                continue;
+            }
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                if ('ok' === ($row['reload'] ?? null) || !empty($row['unchanged'])) {
+                    ++$out['confirmed'];
+                } elseif (isset($row['ifname'])) {
+                    ++$out['pending'];
+                    $out['ok'] = false;
+                    $out['detail'][$apName.'/'.$row['ifname']] = (string) ($row['reload'] ?? 'not reloaded');
+                }
+            }
+        }
+        if (0 === $out['confirmed'] && 0 === $out['pending']) {
+            $out['ok'] = false;
+            $out['error'] = $out['error'] ?: 'no access point carries this network';
+        }
+
+        return $out;
     }
 
     /**
@@ -1638,20 +1764,36 @@ class DefaultController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'unknown key'], 404);
         }
 
-        // where the key is in use at this moment: the access points report the
-        // keyid per station, so this needs no extra round trip
+        // Where the key is in use at this moment. Two ways to recognise it,
+        // and a network needs the second one: the access points report a keyid
+        // per station only for keys that came out of a psk file, and an iPSK
+        // network has no such file. There the address the key is bound to (or
+        // was last seen on) is the identity, so the station is matched by mac.
+        $bound = strtolower((string) ($key->getMac() !== \ApManBundle\Entity\Ppsk::ANY_MAC
+            ? $key->getMac() : $key->getLastMac()));
         $online = [];
         $query = $em->createQuery('SELECT d,r,a FROM ApManBundle\Entity\Device d
                 LEFT JOIN d.radio r LEFT JOIN r.accesspoint a');
         foreach ($query->getResult() as $device) {
             $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
-            if (!is_array($status) || empty($status['sta_ctrl'])) {
+            if (!is_array($status)) {
                 continue;
             }
-            foreach ($status['sta_ctrl'] as $mac => $values) {
-                if (!is_array($values) || ($values['keyid'] ?? null) !== $key->getKeyid()) {
-                    continue;
+            $seen = [];
+            foreach ((array) ($status['sta_ctrl'] ?? []) as $mac => $values) {
+                if (is_array($values) && ($values['keyid'] ?? null) === $key->getKeyid()) {
+                    $seen[strtolower((string) $mac)] = true;
                 }
+            }
+            if ($bound && '' !== $bound && $key->getSsid() && $device->getSsid()
+                && $device->getSsid()->getId() === $key->getSsid()->getId()) {
+                foreach (array_keys((array) ($status['stations'] ?? [])) as $mac) {
+                    if (strtolower((string) $mac) === $bound) {
+                        $seen[$bound] = true;
+                    }
+                }
+            }
+            foreach (array_keys($seen) as $mac) {
                 $signal = null;
                 foreach ($status['assoclist']['results'] ?? [] as $entry) {
                     if (isset($entry['mac']) && strtolower($entry['mac']) === strtolower($mac)) {
@@ -1708,23 +1850,14 @@ class DefaultController extends AbstractController
             return $this->json(['ok' => false, 'error' => get_class($e).': '.$e->getMessage()]);
         }
 
-        $reloaded = 0;
-        foreach ($res['result'] as $rows) {
-            if (!is_array($rows)) {
-                continue;
-            }
-            foreach ($rows as $row) {
-                if (is_array($row) && 'ok' === ($row['reload'] ?? null)) {
-                    ++$reloaded;
-                }
-            }
-        }
+        $summary = $this->distributionSummary($res['result'] ?? null);
+        $reloaded = $summary['confirmed'];
+        $ssid = $key->getSsid();
+        $onAp = $ssid && $ppsk->usesOnApRadius($ssid);
 
         // What actually happened depends on how this network hands out keys,
         // and the difference is worth saying rather than hiding behind a
-        // generic "saved": a psk file withdrawal drops the station on the
-        // spot, a RADIUS one has to disconnect it so it asks again, and SAE
-        // without RADIUS cannot take effect before the next wireless reload.
+        // generic "saved".
         $disconnected = $res['disconnected'] ?? [];
         if ($disconnected) {
             $where = implode(', ', array_map(function ($e) {
@@ -1732,12 +1865,26 @@ class DefaultController extends AbstractController
             }, $disconnected));
             $hint = 'Withdrawn. The device was disconnected on '.$where
                 .' and is turned away when it tries again.';
+        } elseif ($onAp) {
+            // No station was connected on this key, so nothing was kicked. The
+            // access points already have the new key set; a device that shows
+            // up again is refused as soon as they ask about it, which is at
+            // its next association — and up to half a minute later if they
+            // answered about it just before (hostapd caches that answer).
+            $hint = 'Withdrawn on '.$summary['confirmed'].' access point(s). '
+                .'No device was using it — one that returns is refused at its next '
+                .'association, within about half a minute.';
         } elseif (isset($res['note'])) {
             $hint = 'Withdrawn — but '.$res['note'].'.';
         } elseif ($reloaded) {
             $hint = 'Withdrawn on '.$reloaded.' bss. A device still using this key lost its connection.';
         } else {
             $hint = 'Withdrawn. No device was using it.';
+        }
+        if (!$summary['ok'] && $summary['error']) {
+            $hint .= ' The key set did not reach every access point: '.$summary['error'].'.';
+        } elseif ($summary['pending']) {
+            $hint .= ' '.$summary['pending'].' access point(s) did not confirm the new key set.';
         }
 
         return $this->json([
@@ -1757,13 +1904,24 @@ class DefaultController extends AbstractController
      * understands it. The separators have to be escaped or a key containing
      * one would truncate the code.
      */
-    private function wifiQrPayload($ssid, $psk, $hidden = false)
+    private function wifiQrPayload($ssid, $psk, $hidden = false, $encryption = null)
     {
         $escape = function ($value) {
             return preg_replace('/([\\\\;,:"])/', '\\\\$1', (string) $value);
         };
 
-        return 'WIFI:T:WPA;S:'.$escape($ssid).';P:'.$escape($psk).';'.
+        // WPA3-only networks must advertise SAE: a T:WPA code makes clients
+        // try WPA2, which a pure SAE network cannot answer. Mixed networks
+        // stay T:WPA — WPA2 is available there.
+        $type = 'WPA';
+        if (null !== $encryption && '' !== $encryption) {
+            $enc = strtolower((string) $encryption);
+            if (preg_match('/sae|wpa3/', $enc) && !preg_match('/psk|wpa2|mixed/', $enc)) {
+                $type = 'SAE';
+            }
+        }
+
+        return 'WIFI:T:'.$type.';S:'.$escape($ssid).';P:'.$escape($psk).';'.
             ($hidden ? 'H:true;' : '').';';
     }
 

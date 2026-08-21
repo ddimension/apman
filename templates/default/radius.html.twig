@@ -37,7 +37,8 @@
 					{% endif %}
 				</td>
 				<td class="small">{{ p.server }}
-					{% if p.ours %}<span class="pill up">us</span>
+					{% if p.onap %}<span class="pill up" title="answered by the AP's own RADIUS server — works without this controller">on the AP</span>
+					{% elseif p.ours %}<span class="pill up">us</span>
 					{% else %}<span class="pill">elsewhere</span>{% endif %}
 				</td>
 				<td class="small">
@@ -91,6 +92,28 @@
 	</table>
 {% endif %}
 
+{% if flaky|length %}
+	<h3>Devices that get in — and sometimes do not</h3>
+	<p class="small">
+		Both accepted and failed attempts within the last 24 hours. They authenticate
+		fine most of the time, which is why they keep coming back — and every now and
+		then they are turned away. The failed half of a flaky device is worth a look
+		before the network is blamed.
+	</p>
+	<table class="aps">
+		<tr><th>Device</th><th>Network</th><th>Accepted</th><th>Failed</th><th>Last</th></tr>
+		{% for f in flaky %}
+			<tr>
+				<td><a href="{{ path('client_detail', {'mac': f.mac}) }}"><code>{{ f.mac }}</code></a></td>
+				<td class="small">{{ f.ssid_name }}</td>
+				<td class="small">{{ f.ok }}</td>
+				<td class="small"><span class="warn">{{ f.bad }}</span></td>
+				<td class="small">{{ f.last }}</td>
+			</tr>
+		{% endfor %}
+	</table>
+{% endif %}
+
 <h3>Requests</h3>
 <form method="get" class="toolbar small">
 	<label>Network <input type="text" name="ssid" value="{{ filterSsid }}" placeholder="all"></label>
@@ -118,6 +141,7 @@
 				{% if r.result == 'accept' %}<span class="pill up">own key</span>
 				{% elseif r.result == 'fallback' %}<span class="pill">network passphrase</span>
 				{% else %}<span class="pill down">turned away</span>{% endif %}
+				{% if (r.mac ~ '|' ~ r.ssidName) in flakyKeys %}<span class="pill" title="accepts and rejects in the last 24 h">flaky</span>{% endif %}
 				<span class="stale">{{ r.reason }}</span>
 			</td>
 			<td class="small">{% if r.keyid %}<code>{{ r.keyid }}</code>{% else %}<span class="stale">—</span>{% endif %}</td>
@@ -152,8 +176,9 @@ function resultCell(r) {
 	const pill = r.result === 'accept' ? '<span class="pill up">own key</span>'
 		: (r.result === 'fallback' ? '<span class="pill">network passphrase</span>'
 		: '<span class="pill down">turned away</span>');
+	const flaky = r.flaky ? ' <span class="pill" title="accepts and rejects in the last 24 h">flaky</span>' : '';
 
-	return pill + ' <span class="stale">' + esc(r.reason || '') + '</span>';
+	return pill + flaky + ' <span class="stale">' + esc(r.reason || '') + '</span>';
 }
 
 function rowHtml(r) {
