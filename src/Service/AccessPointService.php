@@ -99,6 +99,18 @@ class AccessPointService
         }
         $config->device = $device->getRadio()->getName();
 
+        // An SSID pointing its ppsk auth at the AP itself is answered by the
+        // AP's own RADIUS server, whose secret is per AP and lives in
+        // /etc/config/apman. The SSID config carries the marker (auth_server
+        // 127.0.0.1) but no secret — this override is what gives every AP its
+        // own, provisioned with the rest of the config.
+        if ($this->ppskService->usesOnApRadius($device->getSsid())) {
+            $ap = $device->getRadio()->getAccessPoint();
+            if ($ap) {
+                $config->auth_secret = $ap->getRadiusSecret() ?: '';
+            }
+        }
+
         if (false and count($device->getSsid()->getConfigFiles())) {
             foreach ($device->getSsid()->getConfigFiles() as $configFile) {
                 $name = $configFile->getName();
@@ -160,6 +172,24 @@ class AccessPointService
                 $additionalCfgs = array_merge($additionalCfgs, $additionalCfg);
             }
         }
+        // 802.11r: nas_identifier (uci: nasid) is the R0KH-ID and has to be
+        // unique per access point. Coming from the SSID config it is the same
+        // row for the whole fleet, so every access point accepts every
+        // broadcast PMK-R1 pull and the ones that never held the key answer
+        // "No matching PMK-R0-Name found", racing the one real answer.
+        // Measured 2026-08-21: with a unique value the transition completes
+        // (auth_alg=ft), with the shared one it never did.
+        //
+        // Set last, after the features have had their say — ieee80211r often
+        // comes from one of them. Derived from the access point name so it is
+        // stable across runs, and cut to the 48 octets hostapd accepts.
+        if (!empty($cfg['ieee80211r']) || !empty($cfg['mobility_domain'])) {
+            $ap = $device->getRadio() ? $device->getRadio()->getAccessPoint() : null;
+            if ($ap && $ap->getName()) {
+                $cfg['nasid'] = substr($ap->getName(), 0, 48);
+            }
+        }
+
         $configObject = new \stdClass();
         $configObject->config = 'wireless';
         $configObject->type = 'wifi-iface';
@@ -320,6 +350,16 @@ class AccessPointService
     }
 
     /**
+     * A secret for the AP's own RADIUS server. Hex on purpose: it survives
+     * every quoting layer between the database, uci and the agent's config
+     * reader unchanged.
+     */
+    private function generateRadiusSecret()
+    {
+        return bin2hex(random_bytes(24));
+    }
+
+    /**
      * publish config.
      *
      * @return \boolean|\object|\null
@@ -349,6 +389,26 @@ class AccessPointService
                 'cancel_on_error' => false,
             ],
         ];
+
+        // An SSID answered by the AP's own RADIUS server needs the secret
+        // generated before the device configs are built — they carry it as a
+        // per device override (getDeviceConfig()).
+        $onApRadius = false;
+        foreach ($em->createQuery(
+            'SELECT d FROM ApManBundle\Entity\Device d'
+            .' JOIN d.radio r WHERE r.accesspoint = :ap'
+        )->setParameter('ap', $ap)->getResult() as $device) {
+            if ($device->getSsid() && $this->ppskService->usesOnApRadius($device->getSsid())) {
+                $onApRadius = true;
+                break;
+            }
+        }
+        if ($onApRadius && !$ap->getRadiusSecret()) {
+            $ap->setRadiusSecret($this->generateRadiusSecret());
+            $em->flush();
+            $logger->notice($ap->getName().': generated a RADIUS secret for the on-AP server');
+        }
+
         // total clean up
         $opts = new \stdClass();
         $opts->config = 'wireless';
@@ -418,9 +478,17 @@ class AccessPointService
 
                 // per device psks ride along with the wireless config: this is
                 // the persistent half, wifi-scripts renders the runtime
-                // wpa_psk_file from these sections on every reload
-                foreach ($this->ppskService->getStationSections($device) as $station) {
-                    $commands['list'][] = $this->uciRequest('ppsk-'.$station->name, 'add', $station, $session);
+                // wpa_psk_file from these sections on every reload.
+                // Not on an iPSK network: there the AP's RADIUS server is the
+                // only key source, and without wifi-station sections
+                // wifi-scripts renders neither wpa_psk_file nor
+                // sae_password_file — which is what lets SAE keys go live
+                // without a bss restart (the files must not be /dev/null,
+                // hostapd chokes on that; they must simply not exist).
+                if ($device->getSsid() && !$this->ppskService->usesOnApRadius($device->getSsid())) {
+                    foreach ($this->ppskService->getStationSections($device) as $station) {
+                        $commands['list'][] = $this->uciRequest('ppsk-'.$station->name, 'add', $station, $session);
+                    }
                 }
 
                 $changed = true;
@@ -446,6 +514,32 @@ class AccessPointService
                     $logger->debug($ap->getName().': Configured device '.$device->getName().' vlan '.$vlan->vid);
                 }
             }
+        }
+
+        // The AP's own RADIUS server answers the per-station PSK queries from
+        // the same wifi-station sections this config writes. Written with the
+        // uci command line on purpose: it persists without a config change
+        // event, and the agent picks the change up through its /etc/config/
+        // apman digest watch — no restart command involved.
+        if ($onApRadius) {
+            foreach ([
+                'radius_enabled' => '1',
+                'radius_port' => '1812',
+                'radius_secret' => $ap->getRadiusSecret(),
+            ] as $name => $value) {
+                $set = new \stdClass();
+                $set->command = '/sbin/uci';
+                $set->params = ['set', 'apman.main.'.$name.'='.$value];
+                $commands['list'][] = $this->rpcService->createRpcRequest(
+                    'apman-'.$name, 'call', null, 'file', 'exec', $set
+                );
+            }
+            $commit = new \stdClass();
+            $commit->command = '/sbin/uci';
+            $commit->params = ['commit', 'apman'];
+            $commands['list'][] = $this->rpcService->createRpcRequest(
+                'apman-commit', 'call', null, 'file', 'exec', $commit
+            );
         }
 
         // Let the access point report what would actually change. The staged

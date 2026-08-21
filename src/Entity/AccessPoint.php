@@ -65,6 +65,17 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     private $IsProductive;
 
     /**
+     * The secret this AP's own RADIUS server answers with. Set when an SSID on
+     * this AP points its ppsk auth at 127.0.0.1, and provisioned into
+     * /etc/config/apman — it is per AP on purpose, the SSID config is shared
+     * by every AP of the network and must not carry it.
+     *
+     * @var string|null
+     */
+    #[ORM\Column(name: 'radius_secret', type: 'string', nullable: true)]
+    private $radiusSecret;
+
+    /**
      * Constructor.
      */
     public function __construct()
@@ -277,6 +288,18 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     public function setIsProductive(?bool $IsProductive): self
     {
         $this->IsProductive = $IsProductive;
+
+        return $this;
+    }
+
+    public function getRadiusSecret(): ?string
+    {
+        return $this->radiusSecret;
+    }
+
+    public function setRadiusSecret(?string $radiusSecret): self
+    {
+        $this->radiusSecret = $radiusSecret;
 
         return $this;
     }

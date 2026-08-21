@@ -23,6 +23,22 @@ class WlanConsistencyService
         'r0_key_lifetime', 'auth_server_addr', 'auth_server_port',
         'acct_server_addr', 'okc', 'disable_pmksa_caching', 'dynamic_vlan',
         'wmm_enabled', 'ap_isolate', 'multi_ap', 'sae_pwe', 'sae_require_mfp',
+        // where the keys come from: these decide whether per device keys work
+        // at all, and they must be the same on every access point of a network
+        'wpa_psk_radius', 'macaddr_acl',
+    ];
+
+    /**
+     * Options where only the *presence* has to match, not the value.
+     *
+     * The two key files carry the interface name, so their values differ by
+     * design. But an access point that renders one while its neighbours do
+     * not has drifted — which is exactly what a patched wifi-scripts looks
+     * like. Six of seven access points ran such a patch on 2026-08-21 and
+     * nothing noticed, because no comparison covered these options.
+     */
+    public const PRESENCE = [
+        'wpa_psk_file', 'sae_password_file', 'wpa_passphrase',
     ];
 
     /** never rendered, only compared as a hash */
@@ -116,11 +132,30 @@ class WlanConsistencyService
                     ];
                 }
             }
+            foreach (self::PRESENCE as $opt) {
+                $seen = [];
+                foreach ($members as $m) {
+                    $seen[isset($m['cfg'][$opt]) ? 'set' : '<unset>'][] = $m['ap'].'/'.$m['bss'];
+                }
+                if (count($seen) > 1) {
+                    $findings[] = ['group' => $key, 'option' => $opt.' (set on some, not on others)',
+                        'values' => $seen, 'roaming' => false];
+                }
+            }
+
             // secrets are compared, never shown
             foreach (self::SECRETS as $opt) {
                 $seen = [];
                 foreach ($members as $m) {
                     if (!isset($m['cfg'][$opt])) {
+                        continue;
+                    }
+                    // iPSK: every AP answers with its own RADIUS secret —
+                    // a difference across the fleet is the design, not a
+                    // drift. Only external auth servers must match.
+                    if ('auth_server_shared_secret' === $opt
+                        && isset($m['cfg']['auth_server_addr'])
+                        && '127.0.0.1' === $m['cfg']['auth_server_addr']) {
                         continue;
                     }
                     $seen[substr(hash('sha256', $m['cfg'][$opt]), 0, 8)][] = $m['ap'].'/'.$m['bss'];

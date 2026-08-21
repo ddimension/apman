@@ -22,6 +22,13 @@ use ApManBundle\Entity\Ppsk;
  */
 class PpskService
 {
+    /**
+     * How long a station that lost its key is kept out. hostapd caches the
+     * RADIUS answer for roughly half a minute; the ban has to outlast that or
+     * the station is let back in with the key that was just withdrawn.
+     */
+    public const KICK_BAN_MS = 45000;
+
 
     private $logger;
     private $doctrine;
@@ -89,6 +96,35 @@ class PpskService
         }
 
         return $sections;
+    }
+
+    /**
+     * Map a uci wifi-station section name back to its ppsk row.
+     *
+     * getStationSections() names them ppsk_<device>_<id>, the keystore
+     * ppsk_<ssid>_<id>; the row id is the trailing segment. The device part cannot be trusted across renames, the
+     * id can. The ssid name is a cross-check: a section that uses our naming
+     * scheme must also belong to the ssid it answers for — anything else is a
+     * leftover from a rename or a rogue.
+     */
+    public function resolveBySectionName($sectionName, $ssidName = null)
+    {
+        if (!preg_match('/^ppsk_.+_(\d+)$/', (string) $sectionName, $m)) {
+            return null;
+        }
+        $ppsk = $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->find((int) $m[1]);
+        if (!$ppsk) {
+            return null;
+        }
+        if (null !== $ssidName && '' !== $ssidName
+            && $ppsk->getSsid() && $ppsk->getSsid()->getName() !== $ssidName) {
+            $this->logger->warning('PpskService: section '.$sectionName.' answered for ssid '.
+                $ssidName.' but belongs to '.$ppsk->getSsid()->getName());
+
+            return null;
+        }
+
+        return $ppsk;
     }
 
     /**
@@ -170,7 +206,9 @@ class PpskService
     {
         $ssid = $shared->getSsid();
         $mac = strtolower((string) $mac);
-        if (!$ssid || !$this->managesOwnKeys($ssid)) {
+        // the learn belongs to networks that hand out per-station keys — the
+        // classic auto_ppsk marker or the iPSK feature (on-AP radius)
+        if (!$ssid || !($this->managesOwnKeys($ssid) || $this->usesOnApRadius($ssid))) {
             return null;
         }
         if (\ApManBundle\Entity\Ppsk::ANY_MAC !== $shared->getMac()) {
@@ -390,6 +428,84 @@ class PpskService
     }
 
     /**
+     * A station used this key — timestamps, and the pin/learn logic that turns
+     * a use into an identity.
+     *
+     * Shared by both sources that report a key's use: the keyid reports from
+     * the control channel, and the accept events of the agent's RADIUS server.
+     * For an SAE network the latter is the only trace a use leaves at all.
+     *
+     * @return int|null the ssid id that needs a redistribution, null when
+     *                  nothing changed
+     */
+    public function recordUsed(\ApManBundle\Entity\Ppsk $ppsk, $mac, $apName = null)
+    {
+        $from = $apName ? '['.$apName.'] ' : '';
+        $mac = strtolower((string) $mac);
+        $now = new \DateTime();
+        if (!$ppsk->getFirstSeen()) {
+            $ppsk->setFirstSeen($now);
+            $this->logger->notice('recordUsed(): '.$from.'ipsk '.$ppsk->getKeyid().
+                ' used for the first time by '.$mac);
+        }
+        $ppsk->setLastSeen($now);
+        $ppsk->setLastMac($mac);
+
+        // the running station→key registry: every auth overwrites its entry,
+        // so a key change or revoke can find and kick exactly the stations
+        // that used it — the file kick that used to do this is gone on
+        // RADIUS-only networks
+        if ($ppsk->getSsid()) {
+            $this->cacheFactory->addCacheItem(
+                'sta.key.'.str_replace(':', '', $mac),
+                ['id' => $ppsk->getId(), 'keyid' => $ppsk->getKeyid(),
+                    'ssid' => $ppsk->getSsid()->getId(), 'h' => sha1((string) $ppsk->getPsk()),
+                    'ts' => time()],
+                7 * 86400
+            );
+        }
+
+        // Bind the key to the device that just claimed it. From here on the
+        // key only works for this address: a copy of the code on a second
+        // phone is refused, and the refusal is visible as
+        // AP-STA-POSSIBLE-PSK-MISMATCH. The station itself keeps its
+        // connection — RELOAD_WPA_PSK only drops stations whose key stopped
+        // matching, and for this one it still does.
+        $pending = null;
+        $wasRegistration = $ppsk->isRegistration();
+        if ($ppsk->isPinPending()) {
+            $ppsk->setMac($mac);
+            $this->logger->notice('recordUsed(): '.$from.'ipsk '.$ppsk->getKeyid().
+                ' pinned to '.$mac.', redistributing');
+            if ($ppsk->getSsid()) {
+                $pending = $ppsk->getSsid()->getId();
+            }
+
+            // An enrolment ends the moment its key finds a device: what stepped
+            // aside for it goes back into service, and the network is shared
+            // again.
+            if ($wasRegistration) {
+                $back = $this->finishRegistration($ppsk);
+                if ($back) {
+                    $this->logger->notice('recordUsed(): '.$from.'registration on '.
+                        $ppsk->getSsid()->getName().' finished, back in service: '.implode(', ', $back));
+                }
+            }
+        } elseif (\ApManBundle\Entity\Ppsk::ANY_MAC === $ppsk->getMac()) {
+            // A station on a key bound to no address, on a network that manages
+            // its own keys: give it one of its own, same passphrase, so it
+            // becomes an identity without noticing anything.
+            $learned = $this->learnFromShared($ppsk, $mac);
+            if ($learned && $ppsk->getSsid()) {
+                $pending = $ppsk->getSsid()->getId();
+            }
+        }
+        $this->doctrine->getManager()->flush();
+
+        return $pending;
+    }
+
+    /**
      * Whether the access points ask a RADIUS server about every station of this
      * SSID instead of deciding on their own.
      *
@@ -407,6 +523,113 @@ class PpskService
     }
 
     /**
+     * Kick the stations whose key changed, was disabled, or is no longer
+     * bound to them — the explicit replacement for the file kick that
+     * RADIUS-only networks no longer have.
+     *
+     * The registry (sta.key.<mac>) records which key every station used at
+     * its last auth; the devices' status caches say where it is right now.
+     *
+     * @return string[] the macs that were kicked
+     */
+    public function kickChangedKeys($ssid, $banMs = 0)
+    {
+        if (!$this->usesOnApRadius($ssid)) {
+            return [];
+        }
+        $keys = [];
+        foreach ($this->getForSsid($ssid) as $ppsk) {
+            if ($ppsk->isValid()) {
+                $keys[$ppsk->getId()] = $ppsk;
+            }
+        }
+        $kicked = [];
+        foreach ($ssid->getDevices() as $device) {
+            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+            if (!is_array($status) || !isset($status['stations']) || !is_array($status['stations'])) {
+                continue;
+            }
+            foreach (array_keys($status['stations']) as $mac) {
+                $mac = strtolower((string) $mac);
+                $entry = $this->cacheFactory->getCacheItemValue('sta.key.'.str_replace(':', '', $mac));
+                if (!is_array($entry) || ($entry['ssid'] ?? null) != $ssid->getId()) {
+                    continue;
+                }
+                $ppsk = $keys[$entry['id'] ?? 0] ?? null;
+                $stale = !$ppsk
+                    || ((string) ($entry['h'] ?? '')) !== sha1((string) $ppsk->getPsk())
+                    || (\ApManBundle\Entity\Ppsk::ANY_MAC !== $ppsk->getMac()
+                        && strtolower((string) $ppsk->getMac()) !== $mac);
+                if (!$stale) {
+                    continue;
+                }
+                if ($this->deauthenticate($ssid, $mac, $banMs)) {
+                    $kicked[] = $mac;
+                    $this->cacheFactory->deleteCacheItem('sta.key.'.str_replace(':', '', $mac));
+                }
+            }
+        }
+
+        return $kicked;
+    }
+
+    /**
+     * Whether this SSID points its per-station PSK queries at the AP itself.
+     *
+     * Answered by the agent's own RADIUS server, whose secret is per AP and
+     * lives in /etc/config/apman — the SSID config is shared by every AP of
+     * the network and must not carry it. True either on the stored marker
+     * (ppsk + auth_server pinned to loopback, the manual flip) or when the
+     * iPSK feature is assigned — the feature's catalog config carries the
+     * marker, not the SSID's own options.
+     */
+    public function usesOnApRadius($ssid, $fresh = false)
+    {
+        if ($this->hasIpskFeature($ssid, $fresh)) {
+            return true;
+        }
+        if (!$this->usesRadius($ssid)) {
+            return false;
+        }
+        $config = $ssid->exportConfig();
+        $server = $config->auth_server ?? ($config->auth_server_addr ?? null);
+
+        return '127.0.0.1' === (string) $server;
+    }
+
+    /**
+     * The same, restricted to networks that manage their own keys.
+     */
+    public function isIpsk($ssid)
+    {
+        return $this->usesOnApRadius($ssid) && $this->managesOwnKeys($ssid);
+    }
+
+    /**
+     * Whether the iPSK feature is assigned and enabled for this SSID.
+     *
+     * Read through the connection like managesOwnKeys(): the subscriber runs
+     * for weeks and must not depend on Doctrine's hydration of feature maps.
+     */
+    private function hasIpskFeature($ssid, $fresh = false)
+    {
+        $id = $ssid->getId();
+        if (!$fresh && isset($this->flagCache['ipsk']) && (time() - $this->flagCache['ipsk']['at']) < 10) {
+            return isset($this->flagCache['ipsk']['on'][$id]);
+        }
+        $on = [];
+        foreach ($this->doctrine->getManager()->getConnection()->fetchAllAssociative(
+            'SELECT m.ssid_id FROM ssid_feature_map m JOIN feature f ON f.id = m.feature_id'
+            ." WHERE m.enabled = 1 AND f.implementation LIKE '%IpskFeatureService'"
+        ) as $row) {
+            $on[(int) $row['ssid_id']] = true;
+        }
+        $this->flagCache['ipsk'] = ['at' => time(), 'on' => $on];
+
+        return isset($on[$id]);
+    }
+
+    /**
      * Throw a station off the air, wherever it currently is.
      *
      * Needed because withdrawing a key over RADIUS is not the same as
@@ -419,7 +642,7 @@ class PpskService
      *
      * @return array [['ap' => …, 'ifname' => …], …] where it was sent
      */
-    public function deauthenticate($ssid, $mac)
+    public function deauthenticate($ssid, $mac, $banMs = 0)
     {
         $mac = strtolower((string) $mac);
         $sent = [];
@@ -427,20 +650,35 @@ class PpskService
             return $sent;
         }
 
-        $client = null;
+        // Where the status cache says the station is. It is a cache: a device
+        // that has not reported yet, or a station that associated since the
+        // last report, is simply not in it — and a kick that silently does
+        // nothing is the worst outcome of a revocation. So when nothing
+        // matches, every bss of the network is asked instead; hostapd ignores
+        // a del_client for a station it does not have.
+        $targets = [];
         foreach ($ssid->getDevices() as $device) {
             $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
             if (!is_array($status) || !isset($status['stations']) || !is_array($status['stations'])) {
                 continue;
             }
-            $here = false;
             foreach (array_keys($status['stations']) as $station) {
                 if (strtolower((string) $station) === $mac) {
-                    $here = true;
+                    $targets[$device->getId()] = $device;
                     break;
                 }
             }
-            if (!$here) {
+        }
+        $blind = !$targets;
+        if ($blind) {
+            foreach ($ssid->getDevices() as $device) {
+                $targets[$device->getId()] = $device;
+            }
+        }
+
+        $client = null;
+        foreach ($targets as $device) {
+            if (!$device->getIfname()) {
                 continue;
             }
             $ap = $device->getRadio() ? $device->getRadio()->getAccessPoint() : null;
@@ -462,7 +700,12 @@ class PpskService
             // moment it has a key again
             $opts->reason = 1;
             $opts->deauth = true;
-            $opts->ban_time = 0;
+            // A ban is what makes a withdrawal stick. hostapd caches the
+            // RADIUS answer per station for about half a minute, so a station
+            // that comes back right away is admitted again with the key that
+            // was just taken away (measured 2026-08-21). Keeping it out until
+            // that cache has expired forces a fresh question.
+            $opts->ban_time = (int) $banMs;
             $cmd = $this->rpcService->createRpcRequest('ppsk-deauth-'.$device->getIfname(),
                 'call', null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
             $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
@@ -473,7 +716,8 @@ class PpskService
         }
         if ($sent) {
             $this->logger->notice('PpskService: disconnected '.$mac.' on '
-                .implode(', ', array_map(function ($e) { return $e['ap'].'/'.$e['ifname']; }, $sent)));
+                .implode(', ', array_map(function ($e) { return $e['ap'].'/'.$e['ifname']; }, $sent))
+                .($blind ? ' (every bss of the network — the status cache did not know it)' : ''));
         }
 
         return $sent;
@@ -519,6 +763,14 @@ class PpskService
         $lines = [];
         foreach ($this->getForSsid($ssid) as $ppsk) {
             if (!$ppsk->isValid()) {
+                continue;
+            }
+            // A key that is waiting to claim its first device is stored with
+            // the wildcard address — and in a psk file that address means
+            // "any station", which is the opposite of what it is for. The
+            // RADIUS answer applies the pin; a file cannot, so such a key
+            // stays out of the file until it has an owner.
+            if ($ppsk->isPinPending()) {
                 continue;
             }
             $line = $ppsk->getMac().' '.$ppsk->getPsk();
@@ -573,13 +825,24 @@ class PpskService
         }
 
         $delivery = $this->keyDelivery($ssid);
-        $radius = $this->usesRadius($ssid);
+        // Both kinds of RADIUS count. usesRadius() only sees an auth_server in
+        // the SSID's own options, and an iPSK network carries it in the
+        // feature config instead — asking it alone left the station connected
+        // with a key that had just been taken away (measured 2026-08-21).
+        $onAp = $this->usesOnApRadius($ssid);
+        $radius = $onAp || $this->usesRadius($ssid);
         $out = ['ok' => true, 'result' => [], 'disconnected' => []];
 
         // Where a psk file is in play, distributing is the withdrawal:
         // RELOAD_WPA_PSK drops exactly the stations whose key no longer
         // matches and leaves everybody else connected.
-        if ($delivery['psk']) {
+        if ($onAp) {
+            // the key set goes out and the pmksa caches are flushed, so the
+            // station cannot come back through a cached one
+            $out['result'] = $this->distribute($ssid, true);
+            $out['note'] = 'the access points answer this network themselves — '
+                .'the key stops working at the next association';
+        } elseif ($delivery['psk']) {
             $out['result'] = $this->distribute($ssid, true);
         } elseif (!$radius) {
             // SAE without a RADIUS server: the keys live in uci and hostapd
@@ -595,8 +858,19 @@ class PpskService
         // device that is already connected would keep its connection until it
         // next tries. Disconnect it and let it ask again — with the key gone,
         // the answer is now a reject.
+        //
+        // The ban and the flush after it are what make a withdrawal stick:
+        // without them the station is back within seconds, on hostapd's
+        // cached answer or on its cached PMKSA (both measured 2026-08-21).
         if ($radius && $mac) {
-            $out['disconnected'] = $this->deauthenticate($ssid, $mac);
+            $out['disconnected'] = $this->deauthenticate($ssid, $mac, self::KICK_BAN_MS);
+            if ($onAp && $out['disconnected']) {
+                $mqtt = $this->mqttFactory->getClient();
+                if ($mqtt) {
+                    $this->flushPmksa($ssid, $mqtt, bin2hex(random_bytes(3)));
+                    $mqtt->disconnect();
+                }
+            }
         }
 
         return $out;
@@ -906,6 +1180,15 @@ class PpskService
      */
     public function distribute($ssid, $force = false)
     {
+        // Read the flag without the cache here, and only here. Everywhere else
+        // ten seconds of staleness is harmless; at this fork it is not. Taking
+        // the file branch for a network that is answered by the access points
+        // writes wifi-station sections and commits them, and wifi-scripts then
+        // renders real keys out of them that beat the RADIUS answer until the
+        // next provisioning run deletes the sections again.
+        if ($this->usesOnApRadius($ssid, true)) {
+            return $this->distributeKeystore($ssid);
+        }
         $em = $this->doctrine->getManager();
         $keys = $this->getForSsid($ssid);
         if (!$keys && !$force) {
@@ -918,15 +1201,35 @@ class PpskService
         $content = $this->renderPskFile($ssid);
         $results = [];
 
+        // An on-AP RADIUS network gets no file from us: the bss generates
+        // its psk/sae files locally from the uci sections at the next wifi
+        // reload, so a file we wrote would fight the radios' own and
+        // RELOAD_WPA_PSK against the wrong list would deauth stations.
+        // Changed keys are kicked explicitly instead (kickChangedKeys below).
+        //
+        // An external RADIUS network still gets its file: at the handshake
+        // hostapd consults wpa_psk_file before the RADIUS answer
+        // (wpa_auth_glue.c), so file and server must speak with one voice.
+        // The file plus RELOAD_WPA_PSK is also what kicks a station whose key
+        // changed.
+        //
         // A network that only speaks SAE has no wpa_psk_file at all: writing
         // one would leave an unused file behind and RELOAD_WPA_PSK would fail.
         // Its keys travel through the uci sections alone and take effect at the
         // next wireless reload.
         $delivery = $this->keyDelivery($ssid);
-        $runtime = $delivery['psk'];
+        $runtime = $delivery['psk'] && !$this->usesOnApRadius($ssid);
         if (!$runtime) {
-            $this->logger->info('PpskService: '.$ssid->getName().
-                ' is SAE only, persisting the keys in uci without touching a runtime file');
+            if ($this->usesOnApRadius($ssid)) {
+                $this->logger->info('PpskService: '.$ssid->getName().
+                    " is answered by the AP's own RADIUS server, persisting the keys in uci only — effective at the next association");
+            } elseif ($this->usesRadius($ssid)) {
+                $this->logger->info('PpskService: '.$ssid->getName().
+                    ' is SAE with a RADIUS server, persisting the keys in uci only — wildcard keys work through RADIUS at the next association');
+            } else {
+                $this->logger->info('PpskService: '.$ssid->getName().
+                    ' is SAE only, persisting the keys in uci without touching a runtime file');
+            }
         }
 
         $query = $em->createQuery('SELECT d,r,a FROM ApManBundle\Entity\Device d
@@ -1112,6 +1415,18 @@ class PpskService
                     'ppsk-own-'.$ifname.'-'.$run, 'call', null, 'file', 'exec', $own
                 );
 
+                // …and the group has to be able to read it. The mode passed to
+                // the write above does not survive the move, so the file ends
+                // up 0600 and hostapd still cannot read it — measured
+                // 2026-08-21: every RELOAD_WPA_PSK answered FAIL with "WPA PSK
+                // file not found" until this chmod was added.
+                $mode = new \stdClass();
+                $mode->command = '/bin/chmod';
+                $mode->params = ['640', $path];
+                $commands['list'][] = $this->rpcService->createRpcRequest(
+                    'ppsk-mode-'.$ifname.'-'.$run, 'call', null, 'file', 'exec', $mode
+                );
+
                 // 3. read it back: the reload only goes out for a file that is
                 // provably the one we meant to write
                 $read = new \stdClass();
@@ -1131,7 +1446,10 @@ class PpskService
 
             $fileBatches[$apName] = $commands;
             $verify[$apName] = ['ifaces' => $ifaces, 'targets' => $runtime ? $targets : [],
-                'staged' => $runtime ? [] : $targets];
+                'staged' => $runtime ? [] : $targets,
+                'staged_note' => $this->usesRadius($ssid)
+                    ? 'not applicable — RADIUS answers per station, effective at the next association'
+                    : 'not applicable — SAE takes effect at the next wireless reload'];
         }
 
         // Let the config change settle before the runtime files go out. Without
@@ -1161,6 +1479,214 @@ class PpskService
         $client->disconnect();
 
         return $results;
+    }
+
+    /**
+     * The complete key set of an SSID as the AP's RADIUS server wants it: one
+     * command per AP, answered with the version in force. No uci, no runtime
+     * file, no RELOAD_WPA_PSK — hostapd on these networks has neither
+     * wpa_psk_file nor sae_password_file (no wifi-station sections exist,
+     * so wifi-scripts renders none) and takes every key, WPA2 and SAE, from
+     * the Access-Accept. The key name is ppsk_<ssid>_<id>, which
+     * resolveBySectionName() maps back to the row.
+     *
+     * @return array per AP result
+     */
+    public function distributeKeystore($ssid)
+    {
+        $keys = [];
+        foreach ($this->getForSsid($ssid) as $ppsk) {
+            if (!$ppsk->isValid()) {
+                continue;
+            }
+            $keys[] = [
+                'name' => 'ppsk_'.$ssid->getId().'_'.$ppsk->getId(),
+                'mac' => \ApManBundle\Entity\Ppsk::ANY_MAC === $ppsk->getMac() ? null : $ppsk->getMac(),
+                'psk' => $ppsk->getPsk(),
+                'vid' => null !== $ppsk->getVid() ? (string) $ppsk->getVid() : null,
+            ];
+        }
+        $config = $ssid->exportConfig();
+        $networkKey = ($ssid->getRadiusFallback() && strlen((string) ($config->key ?? '')) >= 8)
+            ? (string) $config->key : null;
+        // hostapd does not put WLAN-AKM-Suite in the mac acl query, so the
+        // access point cannot tell an SAE association from a WPA2 one and
+        // would offer a 64 hex raw psk (wps) to a station that can only use
+        // a passphrase. We know the encryption, so we say so.
+        $sae = $this->keyDelivery($ssid)['sae'];
+        $version = substr(sha1(json_encode([$keys, $networkKey, $sae])), 0, 12);
+
+        $byAp = $this->devicesByAp($ssid);
+        if (!$byAp) {
+            return [];
+        }
+        $client = $this->mqttFactory->getClient();
+        if (!$client) {
+            $this->logger->error('PpskService: no mqtt client, cannot distribute');
+
+            return ['error' => 'no mqtt connection'];
+        }
+        $run = bin2hex(random_bytes(3));
+        $wait = [];
+        $results = [];
+        foreach ($byAp as $apName => $devices) {
+            $payload = new \stdClass();
+            $payload->ssid = $ssid->getName();
+            $payload->version = $version;
+            $payload->ifaces = array_values(array_map(function ($d) { return $d->getName(); }, $devices));
+            $payload->network_key = $networkKey;
+            $payload->sae = $sae;
+            $payload->keys = $keys;
+            $id = 'ppsk-keys-'.$apName.'-'.$run;
+            $commands = ['list' => [
+                $this->rpcService->createRpcRequest($id, 'call', null, 'apman', 'keys', $payload),
+            ], 'options' => ['cancel_on_error' => false]];
+            $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);
+            $wait[$id] = $apName;
+            $results[$apName] = ['version' => $version, 'keys' => count($keys), 'ack' => 'no answer'];
+        }
+        $deadline = microtime(true) + 8;
+        while ($wait && microtime(true) < $deadline) {
+            $hit = $this->cacheFactory->waitForAnyResult($wait, max(1, (int) ceil($deadline - microtime(true))));
+            if (!$hit || !isset($wait[$hit['id']])) {
+                break;
+            }
+            $apName = $wait[$hit['id']];
+            unset($wait[$hit['id']]);
+            $data = $hit['data'];
+            if (isset($data['error'])) {
+                $results[$apName]['ack'] = 'failed: '.($data['error']['message'] ?? '?');
+                $this->logger->error('PpskService: '.$apName.' refused the key set: '.$results[$apName]['ack']);
+            } else {
+                $got = $data['result']['versions'][$ssid->getName()] ?? null;
+                $results[$apName]['ack'] = $got === $version ? 'ok' : 'version mismatch: '.json_encode($got);
+                if (!empty($data['result']['errors'])) {
+                    $results[$apName]['errors'] = $data['result']['errors'];
+                }
+            }
+        }
+        foreach ($wait as $apName) {
+            $this->logger->error('PpskService: '.$apName.' did not acknowledge the key set');
+        }
+        $this->logger->notice('PpskService: '.$ssid->getName().' key set '.$version.' ('.count($keys).
+            ' keys) sent to '.count($byAp).' access point(s), '.(count($byAp) - count($wait)).' acknowledged');
+
+        // A changed key set needs more than a new answer. Three properties of
+        // hostapd get in the way, all measured on the fleet 2026-08-21, and
+        // the order below is what defeats them:
+        //
+        //  1. it caches the RADIUS answer per station for about half a minute,
+        //     so a station that reassociates right away is admitted again with
+        //     the key that was just withdrawn — the kick therefore carries a
+        //     ban long enough to outlast that cache;
+        //  2. a station it deauthenticates otherwise comes back through its
+        //     cached PMKSA without running SAE or the four way handshake at
+        //     all (auth_alg=open on an SAE bss), keeping the withdrawn key;
+        //  3. flushing the PMKSA cache only helps after the last successful
+        //     association, so it has to happen *after* the kick, not before.
+        //
+        // Flushing costs the stations that stay connected nothing: their PTK
+        // lives on, only their next reassociation is a full one.
+        $previous = $this->cacheFactory->getCacheItemValue('ppsk.version.'.$ssid->getId());
+        $changed = $previous !== $version;
+
+        $kicked = $this->kickChangedKeys($ssid, $changed ? self::KICK_BAN_MS : 0);
+        if ($kicked) {
+            $this->logger->notice('PpskService: kicked '.count($kicked).' station(s) whose key changed on '.$ssid->getName());
+        }
+
+        if ($changed) {
+            $this->flushPmksa($ssid, $client, $run);
+            $this->cacheFactory->addCacheItem('ppsk.version.'.$ssid->getId(), $version, 180 * 86400);
+        }
+        $client->disconnect();
+
+        return $results;
+    }
+
+    /**
+     * Take this network's key set off the access points again.
+     *
+     * The counterpart of distributeKeystore(): a network that stops being an
+     * iPSK network, or a test network being taken down, would otherwise leave
+     * a key set behind that keeps answering for interfaces of that name.
+     *
+     * @return array per access point result
+     */
+    public function removeKeystore($ssid)
+    {
+        $byAp = $this->devicesByAp($ssid);
+        if (!$byAp) {
+            return [];
+        }
+        $client = $this->mqttFactory->getClient();
+        if (!$client) {
+            return ['error' => 'no mqtt connection'];
+        }
+        $run = bin2hex(random_bytes(3));
+        $wait = [];
+        $results = [];
+        foreach ($byAp as $apName => $devices) {
+            $payload = new \stdClass();
+            $payload->ssid = $ssid->getName();
+            $payload->keys = null;
+            $id = 'ppsk-drop-'.$apName.'-'.$run;
+            $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode(['list' => [
+                $this->rpcService->createRpcRequest($id, 'call', null, 'apman', 'keys', $payload),
+            ], 'options' => ['cancel_on_error' => false]]), 1);
+            $wait[$id] = $apName;
+            $results[$apName] = 'no answer';
+        }
+        $deadline = microtime(true) + 8;
+        while ($wait && microtime(true) < $deadline) {
+            $hit = $this->cacheFactory->waitForAnyResult($wait, max(1, (int) ceil($deadline - microtime(true))));
+            if (!$hit || !isset($wait[$hit['id']])) {
+                break;
+            }
+            $apName = $wait[$hit['id']];
+            unset($wait[$hit['id']]);
+            $results[$apName] = isset($hit['data']['error'])
+                ? 'failed: '.($hit['data']['error']['message'] ?? '?') : 'removed';
+        }
+        $client->disconnect();
+        $this->cacheFactory->deleteCacheItem('ppsk.version.'.$ssid->getId());
+        $this->logger->notice('PpskService: took the key set of '.$ssid->getName().' off '
+            .count($byAp).' access point(s)');
+
+        return $results;
+    }
+
+    /**
+     * Empty the PMKSA caches of every bss of this network.
+     *
+     * Only useful *after* the stations that lost their key were thrown off: a
+     * station that associates successfully afterwards simply builds a new
+     * entry and comes back on it, without running SAE or the four way
+     * handshake again.
+     *
+     * @return int the number of bss asked
+     */
+    private function flushPmksa($ssid, $client, $run)
+    {
+        $flushed = 0;
+        foreach ($this->devicesByAp($ssid) as $apName => $devices) {
+            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            foreach ($devices as $device) {
+                $commands['list'][] = $this->rpcService->createRpcRequest(
+                    'ppsk-pmksa-'.$device->getIfname().'-'.$run, 'ctrl', null,
+                    $device->getIfname(), 'PMKSA_FLUSH'
+                );
+                ++$flushed;
+            }
+            if ($commands['list']) {
+                $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);
+            }
+        }
+        if ($flushed) {
+            $this->logger->notice('PpskService: flushed the pmksa cache of '.$flushed.' bss of '.$ssid->getName());
+        }
+
+        return $flushed;
     }
 
     /**
@@ -1238,7 +1764,7 @@ class PpskService
                 }
                 $results[$apName][] = ['device' => $device->getName(), 'ifname' => $ifname,
                     'uci' => $staged, 'file' => null,
-                    'reload' => 'not applicable — SAE takes effect at the next wireless reload'];
+                    'reload' => $what['staged_note'] ?? 'not applicable — SAE takes effect at the next wireless reload'];
             }
             if (!$reload) {
                 continue;
