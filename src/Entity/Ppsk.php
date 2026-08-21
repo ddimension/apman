@@ -25,7 +25,13 @@ use Doctrine\ORM\Mapping as ORM;
  * key, which is what makes an iPSK an identity.
  */
 #[ORM\Table(name: 'ppsk')]
-#[ORM\UniqueConstraint(name: 'ppsk_ssid_mac_psk', columns: ['ssid_id', 'mac', 'psk'])]
+// One key per device per network. The psk used to be part of this, which
+// allowed a second row for the same address — and the access point can only
+// ever answer with one key, so the second was unreachable and became a way to
+// lose a device quietly. The corollary is that a network can hold only one
+// unbound key (they all carry ANY_MAC), which is the same rule the agent
+// enforces when it picks what to answer.
+#[ORM\UniqueConstraint(name: 'ppsk_ssid_mac', columns: ['ssid_id', 'mac'])]
 #[ORM\Entity]
 class Ppsk
 {
