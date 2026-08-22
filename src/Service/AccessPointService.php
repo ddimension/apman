@@ -33,6 +33,7 @@ class AccessPointService
     private $publisher;
     private $steeringState = ['clients' => [], 'state' => []];
     private $ieparser;
+    private FeatureRegistry $features;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -44,7 +45,8 @@ class AccessPointService
         WifiIeParser $ieparser,
         PpskService $ppskService,
         SteeringService $steering,
-        StateTreeService $stateTree
+        StateTreeService $stateTree,
+        FeatureRegistry $features
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -56,6 +58,7 @@ class AccessPointService
         $this->ppskService = $ppskService;
         $this->steering = $steering;
         $this->stateTree = $stateTree;
+        $this->features = $features;
     }
 
     public function getSteering()
@@ -174,19 +177,22 @@ class AccessPointService
         $additionalCfgs = [];
         foreach ($maps as $map) {
             $feature = $map->getFeature();
-            $implementation = $feature->getImplementation();
-            $this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Implementation '.$implementation);
-            $instance = new $implementation();
-            $instance->setServices($this->logger, $this->doctrine, $this->rpcService, $this->mqttFactory, $this->kernel);
-            $instance->setSsid($device->getSsid());
-            $instance->setDevice($device);
-            $instance->setSSIDFeatureMap($map);
-            $instance->applyConstraints();
-            $this->logger->info('AccessPointService:getDeviceConfig('.$device->getName().'): Implementation '.$implementation.' instance created.');
-            $cfg = $instance->getConfig($cfg);
-            $additionalCfg = $instance->getAdditionalConfig($cfg);
-            if (is_array($additionalCfg) and count($additionalCfg)) {
-                $additionalCfgs = array_merge($additionalCfgs, $additionalCfg);
+            $ctx = new \ApManBundle\Library\FeatureContext(
+                $device->getSsid(), $map, $feature, $device);
+            // A feature that throws must not leave half a wireless
+            // configuration behind. publishConfig() deletes the sections
+            // before it re-adds them, so an access point that gets some of
+            // them is worse off than one that gets none — this is rethrown
+            // with the bss named, and publishConfig() abandons the run.
+            try {
+                $instance = $this->features->get($feature->getImplementation());
+                $instance->applyConstraints($ctx);
+                $cfg = $instance->getConfig($cfg, $ctx);
+                $additionalCfgs = array_merge($additionalCfgs,
+                    $instance->getAdditionalConfig($cfg, $ctx));
+            } catch (\Throwable $e) {
+                throw new \RuntimeException('feature '.($map->getName() ?: $feature->getName())
+                    .' failed on '.$device->getName().': '.$e->getMessage(), 0, $e);
             }
         }
         // 802.11r: nas_identifier (uci: nasid) is the R0KH-ID and has to be
@@ -280,19 +286,13 @@ class AccessPointService
 
             $before = $cfg;
             try {
-                $implementation = $feature->getImplementation();
-                if (!class_exists($implementation)) {
-                    throw new \RuntimeException('no such implementation: '.$implementation);
-                }
-                $instance = new $implementation();
-                $instance->setServices($this->logger, $this->doctrine, $this->rpcService, $this->mqttFactory, $this->kernel);
-                $instance->setFeature($feature);
-                $instance->setSSID($ssid);
-                $instance->setSSIDFeatureMap($map);
-                $after = $instance->getConfig($cfg);
-                if (is_array($after)) {
-                    $cfg = $after;
-                }
+                // The same chain the provisioning path runs, built from the
+                // same context object — with no device, because a preview
+                // belongs to a network and not to a bss. That is now part of
+                // the contract rather than an omission each implementation had
+                // to survive on its own.
+                $ctx = new \ApManBundle\Library\FeatureContext($ssid, $map, $feature);
+                $cfg = $this->features->get($feature->getImplementation())->getConfig($cfg, $ctx);
             } catch (\Throwable $e) {
                 $row['error'] = $e->getMessage();
                 $rows[] = $row;

@@ -2,88 +2,28 @@
 
 namespace ApManBundle\Service;
 
-class OweFeatureService implements iFeatureService
+use ApManBundle\Library\FeatureContext;
+
+/**
+ * Opportunistic Wireless Encryption, in transition mode.
+ *
+ * OWE is encryption without a passphrase, and a client that does not know it
+ * sees nothing. Transition mode is the answer: two bsses, one open and one
+ * OWE, each naming the other, so an old client joins the open one and a new
+ * one is moved silently to the encrypted twin. The pairing is the whole
+ * feature — an owe_transition_ifname that names nothing turns the encrypted
+ * half into a hidden network nobody finds.
+ */
+class OweFeatureService extends AbstractFeatureService
 {
-    public $name = 'owe';
-    private $logger;
-    private $doctrine;
-    private $rpcService;
-    private $mqttFactory;
-    private $kernel;
-
-    private $map;
-    private $feature;
-
-    /**
-     * set Services.
-     *
-     * @return \boolean|\null
-     */
-    public function setServices(
-        \Psr\Log\LoggerInterface $logger,
-        \Doctrine\Persistence\ManagerRegistry $doctrine,
-        wrtJsonRpc $rpcService,
-        \ApManBundle\Factory\MqttFactory $mqttFactory,
-        \Symfony\Component\HttpKernel\KernelInterface $kernel
-    ) {
-        $this->logger = $logger;
-        $this->doctrine = $doctrine;
-        $this->rpcService = $rpcService;
-        $this->mqttFactory = $mqttFactory;
-        $this->kernel = $kernel;
+    public function getName(): string
+    {
+        return 'owe';
     }
 
-    /**
-     * set Feature.
-     *
-     * @return \boolean|\null
-     */
-    public function setFeature(\ApManBundle\Entity\Feature $feature)
+    public function getConfig(array $config, FeatureContext $ctx): array
     {
-        $this->feature = $feature;
-    }
-
-    /**
-     * set SSID.
-     *
-     * @return \boolean|\null
-     */
-    public function setSSID(\ApManBundle\Entity\SSID $ssid)
-    {
-        $this->ssid = $ssid;
-    }
-
-    /**
-     * set Device.
-     *
-     * @return \boolean|\null
-     */
-    public function setDevice(\ApManBundle\Entity\Device $device)
-    {
-        $this->device = $device;
-    }
-
-    /**
-     * set SSIDFeatureMap.
-     *
-     * @return \boolean|\null
-     */
-    public function setSSIDFeatureMap(\ApManBundle\Entity\SSIDFeatureMap $map)
-    {
-        $this->map = $map;
-        $this->feature = $map->getFeature();
-    }
-
-    /**
-     * get Config.
-     *
-     * @return \array|\null
-     */
-    public function getConfig(array $config)
-    {
-        $this->logger->info('OweFeatureService:getConfig(): called.');
-
-        $fcfg = $this->feature->getConfig();
+        $fcfg = $ctx->catalog();
         if (!isset($fcfg['ssid_open'])) {
             $this->logger->error('OweFeatureService:getConfig(): No ssid_open config entry.');
 
@@ -109,6 +49,15 @@ class OweFeatureService implements iFeatureService
             $other_ssid_name = $fcfg['ssid_owe'];
         }
 
+        // Naming the partner needs a radio, and a radio needs a bss. The
+        // network page previews the chain without one, and that is legitimate:
+        // what it can say is which half is hidden, which is the option an
+        // editor would otherwise find flipped behind their back. The pairing
+        // itself belongs to a bss and is shown when there is one.
+        if (!$ctx->device) {
+            return $config;
+        }
+
         // get other SSID
         $em = $this->doctrine->getManager();
         $query = $em->createQuery(
@@ -121,8 +70,14 @@ class OweFeatureService implements iFeatureService
         $query->setParameter('ssid_name', $other_ssid_name);
         try {
             $other_ssid_config = $query->getSingleResult();
-        } catch (\Doctrine\Orm\NoResultException $e) {
+        } catch (\Doctrine\ORM\NoResultException $e) {
             $this->logger->error('OweFeatureService:getConfig(): SSID '.$other_ssid_name.' not found.');
+
+            return $config;
+        } catch (\Doctrine\ORM\NonUniqueResultException $e) {
+            // two networks broadcasting the same name: which of them is the
+            // partner is not ours to guess
+            $this->logger->error('OweFeatureService:getConfig(): more than one network broadcasts '.$other_ssid_name.'.');
 
             return $config;
         }
@@ -136,11 +91,15 @@ class OweFeatureService implements iFeatureService
 			WHERE d.ssid = :ssid AND d.radio = :radio'
         );
         $query->setParameter('ssid', $other_ssid);
-        $query->setParameter('radio', $this->device->getRadio());
+        $query->setParameter('radio', $ctx->device->getRadio());
         try {
             $other_device = $query->getSingleResult();
-        } catch (\Doctrine\Orm\NoResultException $e) {
-            $this->logger->error('OweFeatureService:getConfig(): No device found for SSID '.$other_ssid_name.' and radio '.$this->device->getRadio()->getName());
+        } catch (\Doctrine\ORM\NonUniqueResultException $e) {
+            $this->logger->error('OweFeatureService:getConfig(): more than one bss of '.$other_ssid_name.' on this radio.');
+
+            return $config;
+        } catch (\Doctrine\ORM\NoResultException $e) {
+            $this->logger->error('OweFeatureService:getConfig(): No device found for SSID '.$other_ssid_name.' and radio '.$ctx->device->getRadio()->getName());
 
             return $config;
         }
@@ -162,14 +121,11 @@ class OweFeatureService implements iFeatureService
         return $config;
     }
 
-    /**
-     * apply implementation specific constraints.
-     *
-     * @return \boolean|\null
-     */
-    public function applyConstraints()
+    public function applyConstraints(FeatureContext $ctx): void
     {
-        $this->logger->info('OweFeatureService:applyConstraints(): called.');
+        if (!$ctx->device) {
+            return;
+        }
         $em = $this->doctrine->getManager();
         $query = $em->createQuery(
             'SELECT m
@@ -177,34 +133,36 @@ class OweFeatureService implements iFeatureService
 			WHERE m.feature = :feature
 			AND m.id != :mapid'
         );
-        $query->setParameter('feature', $this->feature);
-        $query->setParameter('mapid', $this->map->getId());
+        $query->setParameter('feature', $ctx->feature);
+        $query->setParameter('mapid', $ctx->map->getId());
         $maps = $query->getResult();
         if (!count($maps)) {
-            $this->logger->info('OweFeatureService:applyConstraints(): owe map missing');
-            $this->setupOweSsid();
+            $this->logger->info('OweFeatureService: no partner mapping for this feature, creating one');
+            $this->setupOweSsid($ctx);
         }
-        foreach ($maps as $map) {
-            $this->logger->info('OweFeatureService:applyConstraints(): loop.');
-        }
-
-        $this->logger->info('OweFeatureService:applyConstraints(): finished.');
     }
 
-    private function setupOweSsid()
+    /**
+     * Build the encrypted twin of an open network, once.
+     *
+     * This clones a network, its options and a bss per radio, and assigns
+     * addresses — from a provisioning run, which is not where that belongs. It
+     * is left as it is on purpose: moving it into a command of its own is a
+     * change with its own risks and its own decision.
+     */
+    private function setupOweSsid(FeatureContext $ctx)
     {
-        $this->logger->info('OweFeatureService:applyConstraints(): owe map missing');
         $em = $this->doctrine->getManager();
-        $open_ssid = $this->device->getSsid();
+        $open_ssid = $ctx->device->getSsid();
         $owe_ssid = clone $open_ssid;
         $owe_ssid->setName($open_ssid->getName().' Secure');
         $em->persist($owe_ssid);
         $map = new \ApManBundle\Entity\SSIDFeatureMap();
         $map->setSsid($owe_ssid);
-        $map->setFeature($this->feature);
+        $map->setFeature($ctx->feature);
         $map->setPriority(2);
         $map->setConfig(['owe' => true]);
-        $map->setName($this->map->getName().' OWE');
+        $map->setName($ctx->map->getName().' OWE');
         $em->persist($map);
         $em->flush();
         foreach ($open_ssid->getConfigOptions() as $option) {
@@ -222,7 +180,6 @@ class OweFeatureService implements iFeatureService
             $owe_ssid->addConfigOption($new);
             $em->persist($new);
         }
-        $this->logger->info('OweFeatureService:applyConstraints(): XXX');
         $devmap = [];
         $devmapr = [];
         foreach ($open_ssid->getDevices() as $md) {
@@ -242,15 +199,11 @@ class OweFeatureService implements iFeatureService
 
             $this->logger->info('OweFeatureService:applyConstraints(): Added Device '.$device->getName().' for SSID '.$owe_ssid->getName());
         }
-        $this->map->setConfig(['owe' => false, 'devmap' => $devmap]);
+        $ctx->map->setConfig(['owe' => false, 'devmap' => $devmap]);
         $map->setConfig(['owe' => true, 'devmap' => $devmapr]);
-        $em->persist($this->map);
+        $em->persist($ctx->map);
         $em->flush();
         $this->logger->info('OweFeatureService:applyConstraints(): cloned ssid.');
     }
 
-    public function getAdditionalConfig(array $config)
-    {
-        return null;
-    }
 }

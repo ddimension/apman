@@ -16,6 +16,14 @@ services:
         autowire: true      # Automatically injects dependencies in your services.
         autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
 
+    # Every feature implementation, collected for FeatureRegistry. The database
+    # names one of these per feature row and the registry resolves it — nothing
+    # builds them with new any more, so a row naming a class that is not here is
+    # a clear error instead of a fatal one in the middle of a provisioning run.
+    _instanceof:
+        ApManBundle\Service\iFeatureService:
+            tags: ['apman.feature']
+
     # makes classes in src/ available to be used as services
     # this creates a service per class whose id is the fully-qualified class name
     ApManBundle\:
@@ -45,6 +53,10 @@ services:
             $firewallUrl: '%firewall_url%'
             $firewallUser: '%firewall_user%'
             $firewallPassword: '%firewall_password%'
+
+    ApManBundle\Service\FeatureRegistry:
+        arguments:
+            $services: !tagged_iterator apman.feature
 
     ApManBundle\Service\wrtJsonRpc:
         class: ApManBundle\Service\wrtJsonRpc
@@ -131,9 +143,9 @@ services:
 
     admin.feature:
         class: ApManBundle\Admin\FeatureAdmin
-        arguments: [~, ApManBundle\Entity\Feature, ~]
+        arguments: ['@ApManBundle\Service\FeatureRegistry']
         tags:
-            - { name: sonata.admin, manager_type: orm, label: "Features" }
+            - { name: sonata.admin, model_class: ApManBundle\Entity\Feature, manager_type: orm, label: "Features" }
         public: true
 
     admin.ssid_feature_map:

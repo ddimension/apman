@@ -2,110 +2,47 @@
 
 namespace ApManBundle\Service;
 
-class StaticMACFeatureService implements iFeatureService
+use ApManBundle\Library\FeatureContext;
+
+/**
+ * Give a bss a MAC address of its own and keep it.
+ *
+ * A bss without an address gets whatever the driver derives from the radio,
+ * which changes with the firmware and with the order the interfaces come up —
+ * and a bssid that moves takes the neighbour reports and every client's
+ * remembered network with it. Assigning one once and storing it makes the
+ * address ours.
+ *
+ * The whole feature is the constraint; it changes no option. The address
+ * reaches the configuration through getDeviceConfig(), which copies
+ * Device::getAddress() into macaddr — and does so *before* the feature chain
+ * runs, so the very first provisioning of a new bss still goes out without it
+ * and the address arrives on the next one.
+ */
+class StaticMACFeatureService extends AbstractFeatureService
 {
-    public $name = 'static_mac';
-    private $logger;
-    private $doctrine;
-    private $rpcService;
-    private $mqttFactory;
-    private $kernel;
-
-    private $map;
-    private $feature;
-
-    /**
-     * set Services.
-     *
-     * @return \boolean|\null
-     */
-    public function setServices(
-        \Psr\Log\LoggerInterface $logger,
-        \Doctrine\Persistence\ManagerRegistry $doctrine,
-        wrtJsonRpc $rpcService,
-        \ApManBundle\Factory\MqttFactory $mqttFactory,
-        \Symfony\Component\HttpKernel\KernelInterface $kernel
-    ) {
-        $this->logger = $logger;
-        $this->doctrine = $doctrine;
-        $this->rpcService = $rpcService;
-        $this->mqttFactory = $mqttFactory;
-        $this->kernel = $kernel;
+    public function getName(): string
+    {
+        return 'static_mac';
     }
 
-    /**
-     * set Feature.
-     *
-     * @return \boolean|\null
-     */
-    public function setFeature(\ApManBundle\Entity\Feature $feature)
+    public function applyConstraints(FeatureContext $ctx): void
     {
-        $this->feature = $feature;
-    }
-
-    /**
-     * set SSID.
-     *
-     * @return \boolean|\null
-     */
-    public function setSSID(\ApManBundle\Entity\SSID $ssid)
-    {
-        $this->ssid = $ssid;
-    }
-
-    /**
-     * set Device.
-     *
-     * @return \boolean|\null
-     */
-    public function setDevice(\ApManBundle\Entity\Device $device)
-    {
-        $this->device = $device;
-    }
-
-    /**
-     * set SSIDFeatureMap.
-     *
-     * @return \boolean|\null
-     */
-    public function setSSIDFeatureMap(\ApManBundle\Entity\SSIDFeatureMap $map)
-    {
-        $this->map = $map;
-        $this->feature = $map->getFeature();
-    }
-
-    /**
-     * get Config.
-     *
-     * @return \array|\null
-     */
-    public function getConfig(array $config)
-    {
-        $this->logger->info('StaticMACFeatureService:getConfig(): called.');
-
-        return $config;
-    }
-
-    /**
-     * apply implementation specific constraints.
-     *
-     * @return \boolean|\null
-     */
-    public function applyConstraints()
-    {
-        $this->logger->info('StaticMACFeatureService:applyConstraints(): called.');
-        $em = $this->doctrine->getManager();
-        if (empty($this->device->getAddress())) {
-            $this->device->setAddress(exec($this->kernel->getProjectDir().'/bin/randmac.pl'));
-            $this->logger->info('StaticMACFeatureService:applyConstraints(): MAC assigned to device.', ['device_id' => $this->device->getId()]);
-            $em->persist($this->device);
-            $em->flush();
+        $device = $ctx->device;
+        if (!$device || !empty($device->getAddress())) {
+            return;
         }
-        $this->logger->info('StaticMACFeatureService:applyConstraints(): finished.');
-    }
+        $address = exec($this->kernel->getProjectDir().'/bin/randmac.pl');
+        if (!$address) {
+            $this->logger->error('StaticMACFeatureService: randmac.pl returned nothing, no address assigned',
+                ['device_id' => $device->getId()]);
 
-    public function getAdditionalConfig(array $config)
-    {
-        return null;
+            return;
+        }
+        $device->setAddress($address);
+        $this->logger->info('StaticMACFeatureService: assigned '.$address.' to '.$device->getName());
+        $em = $this->doctrine->getManager();
+        $em->persist($device);
+        $em->flush();
     }
 }

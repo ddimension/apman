@@ -17,19 +17,25 @@ namespace ApManBundle\Service;
  * — WPA2 and SAE alike. Keys reach the access point as a versioned set
  * through the agent's keystore (PpskService::distributeKeystore).
  */
-class IpskFeatureService extends DefaultFeatureService
+class IpskFeatureService extends AbstractFeatureService
 {
-    public $name = 'ipsk';
-
-    public function getConfig(array $config)
+    public function getName(): string
     {
-        $config = parent::getConfig($config);
+        return 'ipsk';
+    }
+
+    public function getConfig(array $config, \ApManBundle\Library\FeatureContext $ctx): array
+    {
+        $config = parent::getConfig($config, $ctx);
 
         // the secret is per AP and lives on the AP (/etc/config/apman), not
         // in the SSID config which every AP of the network shares. The
-        // preview instantiates without a device — nothing to override there.
-        if ($this->device && $this->device->getRadio() && $this->device->getRadio()->getAccessPoint()) {
-            $config['auth_secret'] = $this->device->getRadio()->getAccessPoint()->getRadiusSecret() ?: '';
+        // preview has no device and therefore no access point — nothing to
+        // override there, which the context says outright instead of leaving
+        // it to a guard on an undeclared property.
+        $ap = $ctx->accessPoint();
+        if ($ap) {
+            $config['auth_secret'] = $ap->getRadiusSecret() ?: '';
         }
         // ppsk is the OpenWrt-native switch: ap.uc turns it into
         // wpa_psk_radius=2 + macaddr_acl=2 and, in the same branch, skips the
@@ -45,6 +51,9 @@ class IpskFeatureService extends DefaultFeatureService
 
         // …and the raw lines repeat both, so the generated conf carries them
         // even if the uci rendering ever changes
+        if (!isset($config['hostapd_bss_options']) || !is_array($config['hostapd_bss_options'])) {
+            $config['hostapd_bss_options'] = [];
+        }
         foreach (['wpa_psk_radius=2', 'macaddr_acl=2'] as $raw) {
             $config['hostapd_bss_options'][] = $raw;
         }

@@ -10,10 +10,16 @@ use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Show\ShowMapper;
 use Symfony\Component\Form\CallbackTransformer;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 
 final class FeatureAdmin extends AbstractAdmin
 {
+    public function __construct(private readonly \ApManBundle\Service\FeatureRegistry $features)
+    {
+        parent::__construct();
+    }
+
     protected function configureDatagridFilters(DatagridMapper $datagridMapper): void
     {
         $datagridMapper
@@ -44,7 +50,14 @@ final class FeatureAdmin extends AbstractAdmin
     {
         $formMapper
             ->add('name')
-        ->add('implementation')
+            // A list, not a text field. This used to accept anything, and what
+            // it accepted was executed as a class name on the provisioning
+            // path — a typo here was a fatal error while an access point was
+            // being configured.
+            ->add('implementation', ChoiceType::class, [
+                'choices' => $this->features->choices(),
+                'help' => 'The implementation that runs over this network\'s configuration.',
+            ])
             ->add('config', TextAreaType::class);
 
         $formMapper->get('config')->addModelTransformer(new CallbackTransformer(

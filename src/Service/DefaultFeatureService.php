@@ -2,140 +2,24 @@
 
 namespace ApManBundle\Service;
 
-class DefaultFeatureService implements iFeatureService
+/**
+ * A feature that is nothing but its catalog row.
+ *
+ * Most of the catalog is this: "Advanced AP Settings", "802.11r PSK SAE",
+ * "Load Sharing Settings" and a dozen more carry a json map of uci options and
+ * no code at all. The merge itself lives in AbstractFeatureService, because
+ * every other implementation starts from it too.
+ *
+ * What used to be here besides that: sixty-eight lines of setters identical to
+ * three other classes, and an applyConstraints() body that began with an
+ * unconditional `return;` and continued with a copy of the OWE one — including
+ * a call to setupOweSsid(), a method this class does not have. Had the return
+ * ever been removed it would have been a fatal error on the provisioning path.
+ */
+class DefaultFeatureService extends AbstractFeatureService
 {
-    public $name = 'default';
-    private $logger;
-    private $doctrine;
-    private $rpcService;
-    private $mqttFactory;
-    private $kernel;
-
-    private $map;
-    private $feature;
-
-    /**
-     * set Services.
-     *
-     * @return \boolean|\null
-     */
-    public function setServices(
-        \Psr\Log\LoggerInterface $logger,
-        \Doctrine\Persistence\ManagerRegistry $doctrine,
-        wrtJsonRpc $rpcService,
-        \ApManBundle\Factory\MqttFactory $mqttFactory,
-        \Symfony\Component\HttpKernel\KernelInterface $kernel
-    ) {
-        $this->logger = $logger;
-        $this->doctrine = $doctrine;
-        $this->rpcService = $rpcService;
-        $this->mqttFactory = $mqttFactory;
-        $this->kernel = $kernel;
-    }
-
-    /**
-     * set Feature.
-     *
-     * @return \boolean|\null
-     */
-    public function setFeature(\ApManBundle\Entity\Feature $feature)
+    public function getName(): string
     {
-        $this->feature = $feature;
-    }
-
-    /**
-     * set SSID.
-     *
-     * @return \boolean|\null
-     */
-    public function setSSID(\ApManBundle\Entity\SSID $ssid)
-    {
-        $this->ssid = $ssid;
-    }
-
-    /**
-     * set Device.
-     *
-     * @return \boolean|\null
-     */
-    public function setDevice(\ApManBundle\Entity\Device $device)
-    {
-        $this->device = $device;
-    }
-
-    /**
-     * set SSIDFeatureMap.
-     *
-     * @return \boolean|\null
-     */
-    public function setSSIDFeatureMap(\ApManBundle\Entity\SSIDFeatureMap $map)
-    {
-        $this->map = $map;
-        $this->feature = $map->getFeature();
-    }
-
-    /**
-     * get Config.
-     *
-     * @return \array|\null
-     */
-    public function getConfig(array $config)
-    {
-        $this->logger->info('DefaultFeatureService:getConfig(): called.');
-
-        $fcfg = $this->feature->getConfig();
-        foreach ($fcfg as $key => $value) {
-            if (is_array($value)) {
-                if (!array_key_exists($key, $config) or !is_array($config[$key])) {
-                    $config[$key] = [];
-                }
-                foreach ($value as $listKey => $listValue) {
-                    $config[$key][] = $listValue;
-                }
-                $config[$key] = array_values(array_unique($config[$key]));
-            } else {
-                $config[$key] = $value;
-            }
-        }
-
-        return $config;
-    }
-
-    /**
-     * apply implementation specific constraints.
-     *
-     * @return \boolean|\null
-     */
-    public function applyConstraints()
-    {
-        $this->logger->info('DefaultFeatureService:applyConstraints(): called.');
-
-        return;
-        $em = $this->doctrine->getManager();
-        $qb = $em->createQueryBuilder();
-        $query = $em->createQuery(
-            'SELECT m
-                        FROM ApManBundle\Entity\SSIDFeatureMap m
-                        WHERE m.feature = :feature
-                        AND m.id != :mapid'
-        );
-        $query->setParameter('feature', $this->feature);
-        $query->setParameter('mapid', $this->map->getId());
-        $maps = $query->getResult();
-        if (!count($maps)) {
-            $this->logger->info('DefaultFeatureService:applyConstraints(): owe map missing');
-            $this->setupOweSsid();
-        }
-
-        foreach ($maps as $map) {
-            $this->logger->info('DefaultFeatureService:applyConstraints(): loop.');
-        }
-
-        $this->logger->info('DefaultFeatureService:applyConstraints(): finished.');
-    }
-
-    public function getAdditionalConfig(array $config)
-    {
-        return null;
+        return 'default';
     }
 }
