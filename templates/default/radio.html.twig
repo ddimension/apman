@@ -33,6 +33,74 @@
 	</p>
 </div>
 
+{% if running.freq is defined %}
+<div class="card">
+	<h3 class="small" style="margin:0 0 .5em">What the radio is doing</h3>
+	<div class="stats">
+		<div class="stat{{ running.drifted ? ' warn' : '' }}">
+			<b>{{ running.channel }}</b>
+			<span>channel · {{ running.freq }} MHz{% if running.op_class is defined %}, class {{ running.op_class }}{% endif %}</span>
+			{% if running.drifted %}<span class="warn">configured {{ running.wanted_channel }} — moved, most likely by DFS</span>
+			{% elseif running.wanted_channel is null %}<span class="stale">chosen by the access point</span>
+			{% endif %}
+		</div>
+		<div class="stat">
+			<b>{% if running.bss_color is defined and running.bss_color >= 0 %}{{ running.bss_color }}{% else %}—{% endif %}</b>
+			<span>bss colour</span>
+			<span class="stale">{% if running.bss_color is defined and running.bss_color >= 0 %}hostapd picks and re-picks this itself{% else %}none reported — this radio is not running HE{% endif %}</span>
+		</div>
+		{% if running.airtime is defined and running.airtime.utilization is defined %}
+		<div class="stat">
+			<b>{{ (running.airtime.utilization * 100 / 255)|round }}%</b>
+			<span>airtime in use</span>
+			<span class="stale">{{ running.airtime.utilization }} of 255</span>
+		</div>
+		{% endif %}
+		{% if running.dfs is defined %}
+		<div class="stat{{ running.dfs.cac_active ? ' warn' : '' }}">
+			<b>{% if running.dfs.cac_active %}{{ running.dfs.cac_seconds_left|default('?') }}s{% else %}clear{% endif %}</b>
+			<span>dfs</span>
+			<span class="stale">{% if running.dfs.cac_active %}channel availability check running, no traffic until it ends{% else %}not listening{% if running.dfs.cac_seconds %}, {{ running.dfs.cac_seconds }}s would be needed{% endif %}{% endif %}</span>
+		</div>
+		{% endif %}
+		{% if running.beacon_interval is defined %}
+		<div class="stat">
+			<b>{{ running.beacon_interval }}</b>
+			<span>beacon interval · {{ running.phy|default('') }}</span>
+			<span class="stale">{{ (running.beacon_interval * 1.024)|round }} ms between beacons</span>
+		</div>
+		{% endif %}
+	</div>
+	{% if running.disagree is defined %}
+		<p class="small warn">The bsses on this radio report different values for
+		{{ running.disagree|keys|join(', ') }} — they share one radio, so they should not.</p>
+	{% endif %}
+
+	<table class="counters small">
+		<tr><th>bss</th><th>bssid</th><th>state</th><th title="neighbour reports sent">rrm nr_tx</th>
+			<th title="bss transition requests we sent">wnm req</th>
+			<th title="responses stations sent back">resp</th>
+			<th title="stations asking where else to go">query</th></tr>
+		{% for b in bss %}
+		<tr>
+			<td>{{ b.ssid ?: b.name }}<div class="stale">{{ b.ifname ?: '(no name)' }}</div></td>
+			<td class="mono">{{ b.status.bssid|default('—') }}</td>
+			<td>{{ b.status.status|default(b.state) }}</td>
+			<td>{{ b.status.rrm.neighbor_report_tx|default('—') }}</td>
+			<td>{{ b.status.wnm.bss_transition_request_tx|default('—') }}</td>
+			<td>{{ b.status.wnm.bss_transition_response_rx|default('—') }}</td>
+			<td>{{ b.status.wnm.bss_transition_query_rx|default('—') }}</td>
+		</tr>
+		{% endfor %}
+	</table>
+	<p class="small stale">
+		Read from the last status cycle, not fetched now. The counters are hostapd's own and
+		reset when a bss restarts, so they count since the last provisioning run rather than
+		since forever.
+	</p>
+</div>
+{% endif %}
+
 <form id="editor" method="post" action="{{ path('radio_save', {'id': radio.id}) }}">
 	<div class="toolbar">
 		<input type="search" id="filter" placeholder="filter by name or description…">
@@ -67,4 +135,18 @@
 
 {% block stylesheets %}
 {{ include('default/_option_styles.html.twig') }}
+<style>
+.stats { display: flex; flex-wrap: wrap; gap: 1.2em 2em; }
+.stat { min-width: 8em; max-width: 22em; }
+.stat b { display: block; font-size: 1.6em; line-height: 1.1; }
+.stat span { display: block; font-size: .8em; }
+.stat span + span { color: #777; }
+.stat.warn b { color: #b36b00; }
+.stat span.warn { color: #b36b00; }
+table.counters { border-collapse: collapse; margin-top: 1em; }
+table.counters th, table.counters td { padding: .25em .8em .25em 0; text-align: left; vertical-align: top; }
+table.counters th { border-bottom: 1px solid #ddd; font-weight: 600; }
+table.counters .stale { color: #777; }
+table.counters .mono { font-family: ui-monospace, monospace; }
+</style>
 {% endblock %}

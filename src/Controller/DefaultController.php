@@ -1069,17 +1069,47 @@ class DefaultController extends AbstractController
             }
         }
 
+        // What the radio is doing, as opposed to what it was told. hostapd's own
+        // get_status arrives with every status cycle and has been sitting in
+        // the cache unread by this page.
         $bss = [];
+        $running = [];
         foreach ($radio->getDevices() as $device) {
             $node = $stateTree->bss($device);
+            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+            $ap_status = is_array($status) && is_array($status['ap_status'] ?? null) ? $status['ap_status'] : [];
             $bss[] = [
                 'name' => $device->getName(),
                 'ssid' => $device->getSsid() ? $device->getSsid()->getName() : null,
                 'ifname' => $device->ifname(),
                 'wanted' => $device->getIfname(),
                 'state' => $node['state_name'],
+                'status' => $ap_status,
             ];
+            // Frequency, colour, airtime and dfs belong to the radio; every bss
+            // on it repeats them. Take them from the first one that answered,
+            // and note it if the others disagree — they should not, and if they
+            // do that is worth seeing rather than averaging away.
+            foreach (['freq', 'channel', 'op_class', 'bss_color', 'beacon_interval', 'phy'] as $k) {
+                if (isset($ap_status[$k]) && !isset($running[$k])) {
+                    $running[$k] = $ap_status[$k];
+                } elseif (isset($ap_status[$k]) && $running[$k] !== $ap_status[$k]) {
+                    $running['disagree'][$k] = true;
+                }
+            }
+            foreach (['airtime', 'dfs'] as $k) {
+                if (isset($ap_status[$k]) && !isset($running[$k])) {
+                    $running[$k] = $ap_status[$k];
+                }
+            }
         }
+        // The channel the radio was told to use. 'auto' and an empty value are
+        // both "we did not say", and neither is a disagreement.
+        $wantedChannel = (string) $radio->getConfigChannel();
+        $running['wanted_channel'] = ('' === $wantedChannel || 'auto' === strtolower($wantedChannel))
+            ? null : $wantedChannel;
+        $running['drifted'] = null !== $running['wanted_channel'] && isset($running['channel'])
+            && (string) $running['channel'] !== $running['wanted_channel'];
 
         return $this->render('default/radio.html.twig', [
             'radio' => $radio,
@@ -1088,6 +1118,7 @@ class DefaultController extends AbstractController
             'titles' => $schema->groupTitles(\ApManBundle\Service\WirelessSchemaService::DEVICE),
             'columns' => array_keys(\ApManBundle\Entity\Radio::COLUMN_OPTIONS),
             'bss' => $bss,
+            'running' => $running,
         ]);
     }
 
@@ -2246,6 +2277,7 @@ class DefaultController extends AbstractController
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
         $aps = [];
+        $channelMap = [];
 
         $query = $em->createQuery('SELECT a,r,d FROM ApManBundle\\Entity\\AccessPoint a
                 LEFT JOIN a.radios r LEFT JOIN r.devices d ORDER BY a.name');
@@ -2268,6 +2300,7 @@ class DefaultController extends AbstractController
             ];
 
             foreach ($ap->getRadios() as $radio) {
+                $onAir = null;
                 foreach ($radio->getDevices() as $device) {
                     $status = $cf->getCacheItemValue('status.device.'.$device->getId());
                     $bssInfo = $cf->getCacheItemValue('status.device.'.$device->getId().'.bss_info');
@@ -2299,14 +2332,57 @@ class DefaultController extends AbstractController
                         'wnm' => isset($apStatus['wnm']) ? $apStatus['wnm'] : null,
                         'survey' => $this->surveySummary($survey, isset($apStatus['channel']) ? $apStatus['channel'] : null),
                     ];
+
+                    // The frequency and the colour belong to the radio, and
+                    // every bss on it repeats them — take the first that
+                    // answered and count the rest.
+                    if (isset($apStatus['freq'])) {
+                        if (null === $onAir) {
+                            $onAir = [
+                                'ap' => $ap->getName(),
+                                'radio' => $radio->getName(),
+                                'radio_id' => $radio->getId(),
+                                'freq' => (int) $apStatus['freq'],
+                                'channel' => $apStatus['channel'] ?? null,
+                                // -1 is the driver saying it has no colour, which
+                                // is what a radio without HE reports
+                                'colour' => (isset($apStatus['bss_color']) && $apStatus['bss_color'] >= 0)
+                                    ? $apStatus['bss_color'] : null,
+                                'op_class' => $apStatus['op_class'] ?? null,
+                                'airtime' => $apStatus['airtime']['utilization'] ?? null,
+                                'cac' => !empty($apStatus['dfs']['cac_active']),
+                                'htmode' => $radio->getConfigHtmode(),
+                                'wanted' => $radio->getConfigChannel(),
+                                'bss' => 0,
+                            ];
+                        }
+                        ++$onAir['bss'];
+                    }
+                }
+                if ($onAir) {
+                    $channelMap[$onAir['freq']]['radios'][] = $onAir;
                 }
             }
             $aps[] = $row;
         }
 
+        // Grouped by frequency rather than by channel number: hostapd reports
+        // sometimes the control and sometimes the centre channel, so the number
+        // alone does not say where a radio sits in the band. Busiest first,
+        // because a crowded frequency is the thing worth looking at.
+        ksort($channelMap);
+        uasort($channelMap, function ($a, $b) { return count($b['radios']) <=> count($a['radios']); });
+        foreach ($channelMap as $freq => $group) {
+            // Two radios on one frequency with one colour cannot be told apart
+            // by a station, which is the one case the mechanism cannot handle.
+            $colours = array_filter(array_column($group['radios'], 'colour'), function ($c) { return null !== $c; });
+            $channelMap[$freq]['clash'] = count($colours) !== count(array_unique($colours));
+        }
+
         return $this->render('default/aps.html.twig', [
             'aps' => $aps,
             'steering' => $this->steeringStats(),
+            'channel_map' => $channelMap,
         ]);
     }
 

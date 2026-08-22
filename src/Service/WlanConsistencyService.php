@@ -405,7 +405,10 @@ class WlanConsistencyService
                 'radio' => $radio->getName(),
                 'freq' => (int) $ap_status['freq'],
                 'channel' => $ap_status['channel'] ?? null,
-                'colour' => $ap_status['bss_color'] ?? null,
+                // -1 is the driver saying it has no colour to report, which is
+                // what a radio without HE says; it is not a value that collides
+                'colour' => (isset($ap_status['bss_color']) && $ap_status['bss_color'] >= 0)
+                    ? $ap_status['bss_color'] : null,
                 'wanted' => $radio->getConfigChannel(),
             ];
         }

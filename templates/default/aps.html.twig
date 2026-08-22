@@ -2,6 +2,44 @@
 
 {% block body %}
 <h2>Access Points</h2>
+
+{% if channel_map|length %}
+<h3>On the air</h3>
+<p class="small stale">
+	Which radios share a frequency, and the colour each one runs. Grouped by frequency, not by
+	channel number — hostapd reports sometimes the control and sometimes the centre channel.
+	The colour is hostapd's own choice, not ours: it picks one and changes it when it sees a
+	collision, so two radios here with the same colour on one row is a real problem and the
+	configured value says nothing about it.
+</p>
+<table class="chanmap">
+	<tr><th>frequency</th><th>radios</th><th>colour</th><th>bss</th><th>htmode</th><th>airtime</th></tr>
+	{% for freq, group in channel_map %}
+		{% for r in group.radios %}
+			<tr class="{{ loop.first ? 'first' : '' }}">
+				{% if loop.first %}
+					<td rowspan="{{ group.radios|length }}">
+						<b>{{ freq }} MHz</b>
+						<div class="stale">ch {{ r.channel }}{% if group.radios|length > 1 %} · {{ group.radios|length }} radios{% endif %}</div>
+					</td>
+				{% endif %}
+				<td>
+					<a href="{{ path('radio_detail', {'id': r.radio_id}) }}">{{ r.ap }}/{{ r.radio }}</a>
+					{% if r.cac %}<span class="pill">CAC</span>{% endif %}
+					{% if r.wanted and r.wanted != 'auto' and r.wanted != r.channel~'' %}
+						<div class="warn small">configured {{ r.wanted }}</div>
+					{% endif %}
+				</td>
+				<td class="{{ group.clash ? 'warn' : '' }}">{{ r.colour is null ? '—' : r.colour }}</td>
+				<td>{{ r.bss }}</td>
+				<td class="small">{{ r.htmode ?: 'auto' }}</td>
+				<td>{% if r.airtime is not null %}{{ (r.airtime * 100 / 255)|round }}%{% else %}—{% endif %}</td>
+			</tr>
+		{% endfor %}
+	{% endfor %}
+</table>
+{% endif %}
+
 <table class="aps">
 	<tr>
 		<th>AP</th><th>State</th><th>Tree</th><th>Agent</th><th>Features</th><th>Intervals</th>
@@ -122,6 +160,12 @@
 
 {% block stylesheets %}
 <style>
+table.chanmap { border-collapse: collapse; margin: .5em 0 1.5em; }
+table.chanmap th, table.chanmap td { padding: .3em 1em .3em 0; text-align: left; vertical-align: top; border-bottom: 1px solid #eee; }
+table.chanmap th { font-weight: 600; border-bottom: 1px solid #ccc; }
+table.chanmap tr.first td { border-top: 1px solid #ddd; }
+table.chanmap .stale { color: #777; font-size: .85em; }
+table.chanmap .warn { color: #b36b00; font-weight: 600; }
 	table.aps { border-collapse: collapse; width: 100%; }
 	table.aps th, table.aps td { border: 1px solid #ccc; padding: 2px 6px; vertical-align: top; }
 	tr.ap { background: #eef; }
