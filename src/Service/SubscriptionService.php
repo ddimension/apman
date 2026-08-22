@@ -1053,7 +1053,16 @@ class SubscriptionService
 
             return false;
         }
-        $ssid = isset($data['ssid']) ? mb_substr((string) $data['ssid'], 0, 64) : null;
+        // Called-Station-Id is the bssid and the ssid in one string, and an
+        // access point that passes it through unchanged names a network that
+        // does not exist — the key is then refused and nothing is stamped.
+        $ssid = isset($data['ssid'])
+            ? mb_substr($this->radiusAuthService->normaliseSsid((string) $data['ssid']), 0, 64)
+            : null;
+        if (isset($data['ssid']) && $ssid !== mb_substr((string) $data['ssid'], 0, 64)) {
+            $this->logger->info('handleRadiusAuthEvent(): '.$ap->getName().
+                ' called the network "'.$data['ssid'].'", reading it as "'.$ssid.'"');
+        }
 
         // The key field names the uci section the answer came from,
         // ppsk_<device>_<id> — resolveBySectionName() knows the naming.
@@ -1072,6 +1081,15 @@ class SubscriptionService
             if ($pending) {
                 $this->ppskPending[$pending] = true;
             }
+        } elseif ('accept' === $data['decision']) {
+            // A station was let in and we could not say on which key. Nothing
+            // is stamped, first_seen stays empty and the key looks unused for
+            // ever after — so it is said out loud rather than passed over,
+            // which is how this went unnoticed for a day.
+            $this->logger->warning('handleRadiusAuthEvent(): '.$ap->getName().' let '.$mac.
+                ' onto "'.$ssid.'" and no key could be resolved from '.
+                (empty($data['key']) ? 'an answer that named none' : '"'.$data['key'].'"').
+                ' — nothing was recorded as used');
         }
 
         return true;
