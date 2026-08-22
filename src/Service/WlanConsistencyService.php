@@ -55,19 +55,22 @@ class WlanConsistencyService
     private $rpcService;
     private $cacheFactory;
     private $stateTree;
+    private $schema;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
         \Doctrine\Persistence\ManagerRegistry $doctrine,
         wrtJsonRpc $rpcService,
         \ApManBundle\Factory\CacheFactory $cacheFactory,
-        StateTreeService $stateTree
+        StateTreeService $stateTree,
+        WirelessSchemaService $schema
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
         $this->cacheFactory = $cacheFactory;
         $this->stateTree = $stateTree;
+        $this->schema = $schema;
     }
 
     /**
@@ -181,6 +184,9 @@ class WlanConsistencyService
                 $findings[] = $f;
             }
         }
+        foreach ($this->macListRules() as $f) {
+            $findings[] = $f;
+        }
         foreach ($this->rawOptionRules() as $f) {
             $findings[] = $f;
         }
@@ -247,6 +253,40 @@ class WlanConsistencyService
         if ($radiusKeys && $sae && '6g' === ($cfg['_band'] ?? '')) {
             $say('wpa_psk_radius on 6 GHz SAE',
                 'keys delivered over RADIUS carry no PT, and 6 GHz requires H2E');
+        }
+
+        // OWE without protected management frames cannot work: the whole
+        // point of OWE is an encrypted association, and 802.11 requires PMF
+        // for it. hostapd sets it itself for an OWE-only bss, so this fires
+        // where something else has written ieee80211w back down.
+        if (false !== strpos($cfg['wpa_key_mgmt'] ?? '', 'OWE') && '2' !== ($cfg['ieee80211w'] ?? '')) {
+            $say('ieee80211w', 'OWE requires protected management frames, this bss does not require them');
+        }
+        // Same for SAE. A WPA3 network that lets a station opt out of PMF is
+        // not a WPA3 network.
+        if ($sae && '2' !== ($cfg['ieee80211w'] ?? '')) {
+            $say('ieee80211w', 'SAE without required management frame protection');
+        }
+
+        // 6 GHz permits nothing but hash-to-element, and a password delivered
+        // over RADIUS has no PT to derive it from. The combination cannot be
+        // fixed by configuration — measured on ap-av-grwz 2026-08-22: the bss
+        // beacons on 6055 MHz with SAE FT-SAE, wpa_psk_radius=2 and no
+        // sae_pwe, and has never had a station.
+        if ($radiusKeys && $sae && '6g' === ($cfg['_band'] ?? '')) {
+            $say('wpa_psk_radius on 6 GHz SAE',
+                'a key delivered over RADIUS carries no PT, and 6 GHz allows only hash-to-element — '
+                .'this bss can never admit a station', true);
+        }
+
+        // A server nobody asks. Without a RADIUS key management method and
+        // without macaddr_acl there is no path from this configuration to the
+        // server it names, so the address and the shared secret sit in the
+        // file doing nothing but looking configured.
+        if (!empty($cfg['auth_server_addr']) && !$radiusKeys
+            && '2' !== ($cfg['macaddr_acl'] ?? '')
+            && false === strpos($cfg['wpa_key_mgmt'] ?? '', 'EAP')) {
+            $say('auth_server_addr', 'a RADIUS server is configured but nothing in this bss ever asks it');
         }
 
         // Leftovers. For a network on iPSK the files exist and are empty; what
@@ -341,16 +381,91 @@ class WlanConsistencyService
                 foreach ($list->getOptions() as $option) {
                     $raw = trim((string) $option->getValue());
                     $name = trim(explode('=', $raw, 2)[0]);
-                    if (!in_array($name, $owned, true)) {
+                    if (in_array($name, $owned, true)) {
+                        $out[] = [
+                            'group' => $ssid->getName().' / raw options',
+                            'option' => $list->getName().': '.$name,
+                            'values' => [$raw => ['configured in the controller, not on an access point']],
+                            'roaming' => false,
+                        ];
+                        continue;
+                    }
+                    // A raw line for something the schema models is a value
+                    // hidden from the editor, from this check, and from the
+                    // person who set the same option one field higher up.
+                    // Worse when the schema puts it on the radio: written per
+                    // bss it lands in the generated file once for every bss,
+                    // and hostapd takes the last one. Eleven copies of
+                    // bss_load_update_period=50 sat under one of 60 that ap.uc
+                    // had written itself, on every bss of ap-av-attic, until
+                    // 2026-08-22.
+                    $section = $this->schema->sectionOf($name);
+                    if (null === $section) {
                         continue;
                     }
                     $out[] = [
                         'group' => $ssid->getName().' / raw options',
                         'option' => $list->getName().': '.$name,
-                        'values' => [$raw => ['configured in the controller, not on an access point']],
+                        'values' => [$raw => [WirelessSchemaService::DEVICE === $section
+                            ? 'the schema has this as a radio option — set it on the radio, not per bss'
+                            : 'the schema has this as an option of its own — set it there, not as a raw line']],
                         'roaming' => false,
                     ];
                 }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * An access list made of invented addresses.
+     *
+     * It blocks nobody and reads like a rule. kalinfra carried
+     * 11:22:33:44:55:66 and :67 behind macfilter=deny until 2026-08-22, and
+     * anyone reading the network page saw a MAC filter that was doing
+     * something.
+     *
+     * Checked against what the controller holds rather than against the
+     * running configuration: this is a value somebody typed, and the place it
+     * comes back is the editor.
+     */
+    private function macListRules()
+    {
+        $out = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\SSID')->findAll() as $ssid) {
+            $filter = null;
+            foreach ($ssid->getConfigOptions() as $option) {
+                if ('macfilter' === $option->getName()) {
+                    $filter = (string) $option->getValue();
+                }
+            }
+            if (null === $filter || '' === $filter) {
+                continue;
+            }
+            foreach ($ssid->getConfigLists() as $list) {
+                if ('maclist' !== $list->getName()) {
+                    continue;
+                }
+                $entries = [];
+                foreach ($list->getOptions() as $option) {
+                    $entries[] = trim((string) $option->getValue());
+                }
+                if (!$entries) {
+                    continue;
+                }
+                $placeholders = array_filter($entries, function ($mac) {
+                    return (bool) preg_match('/^(11:22:33:44:55:|00:00:00:00:00:|de:ad:be:ef:)/i', $mac);
+                });
+                if (count($placeholders) !== count($entries)) {
+                    continue;
+                }
+                $out[] = [
+                    'group' => $ssid->getName().' / raw options',
+                    'option' => 'maclist with macfilter='.$filter,
+                    'values' => [implode(', ', $entries) => ['placeholder addresses — this filter blocks nobody']],
+                    'roaming' => false,
+                ];
             }
         }
 

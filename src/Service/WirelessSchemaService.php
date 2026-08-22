@@ -262,7 +262,12 @@ class WirelessSchemaService
                 'hard to predict; set vlan_naming explicitly.'],
     ];
 
-    private $schema;
+    /** the section type an option belongs to */
+    public const IFACE = 'iface';
+    public const DEVICE = 'device';
+
+    /** @var array<string,array> loaded schemas by section type */
+    private $schema = [];
     private $projectDir;
 
     public function __construct($projectDir)
@@ -270,29 +275,63 @@ class WirelessSchemaService
         $this->projectDir = $projectDir;
     }
 
-    private function schema()
+    /**
+     * OpenWrt's own schema for one section type, as shipped in config/wireless.
+     *
+     * wifi-device.json sat there unread for as long as it has been in the
+     * repository: schema() had the iface file hard-wired, so the 152 options a
+     * radio can carry were described by a file nothing opened, and the radio
+     * editor was nineteen fields written by hand.
+     */
+    private function schema($type = self::IFACE)
     {
-        if (null === $this->schema) {
-            $file = $this->projectDir.'/config/wireless/wifi-iface.json';
+        if (!isset($this->schema[$type])) {
+            $file = $this->projectDir.'/config/wireless/wifi-'.$type.'.json';
             $data = is_readable($file) ? json_decode(file_get_contents($file), true) : null;
-            $this->schema = (is_array($data) && isset($data['properties'])) ? $data['properties'] : [];
+            $this->schema[$type] = (is_array($data) && isset($data['properties'])) ? $data['properties'] : [];
         }
 
-        return $this->schema;
+        return $this->schema[$type];
     }
 
-    public function isKnown($name)
+    /**
+     * Is this option known to either schema?
+     *
+     * Without a type it answers for both, which is what a check that only has
+     * an option name — a raw hostapd line, say — can ask.
+     */
+    public function isKnown($name, $type = null)
     {
-        return isset($this->schema()[$name]);
+        if (null !== $type) {
+            return isset($this->schema($type)[$name]);
+        }
+
+        return isset($this->schema(self::IFACE)[$name]) || isset($this->schema(self::DEVICE)[$name]);
+    }
+
+    /**
+     * Which section type declares this option, or null if neither does.
+     *
+     * The answer that says a raw line in hostapd_bss_options is really a radio
+     * option: stationary_ap lives in wifi-device, and setting it per bss writes
+     * it eleven times into the file it was going to be in once.
+     */
+    public function sectionOf($name)
+    {
+        if (isset($this->schema(self::IFACE)[$name])) {
+            return self::IFACE;
+        }
+
+        return isset($this->schema(self::DEVICE)[$name]) ? self::DEVICE : null;
     }
 
     /**
      * Everything known about one option, with aliases resolved: uci accepts
      * "acct_server" but the schema documents "acct_server_addr".
      */
-    public function option($name)
+    public function option($name, $type = self::IFACE)
     {
-        $schema = $this->schema();
+        $schema = $this->schema($type);
         $entry = $schema[$name] ?? null;
         $aliasOf = null;
         if ($entry && 'alias' === ($entry['type'] ?? null)) {
@@ -364,10 +403,12 @@ class WirelessSchemaService
     }
 
     /**
-     * The editor model for one SSID: every group with its options, the ones
+     * The editor model for one section: every group with its options, the ones
      * that are set first, each with value, default and documentation.
+     *
+     * $type picks the schema — a network's options or a radio's.
      */
-    public function describe($values, $lists)
+    public function describe($values, $lists, $type = self::IFACE)
     {
         $groups = [];
         foreach (self::GROUPS as $key => $group) {
@@ -382,7 +423,7 @@ class WirelessSchemaService
         }
 
         // everything the schema knows, plus whatever this SSID has on top
-        $names = array_keys($this->schema());
+        $names = array_keys($this->schema($type));
         foreach (array_keys($values) as $name) {
             if ('' !== $name && !in_array($name, $names, true)) {
                 $names[] = $name;
@@ -399,7 +440,7 @@ class WirelessSchemaService
             if ('' === $name) {
                 continue;
             }
-            $option = $this->option($name);
+            $option = $this->option($name, $type);
             $isList = $option['is_list'] || isset($lists[$name]);
             $option['is_list'] = $isList;
             $option['value'] = $isList ? ($lists[$name] ?? null) : ($values[$name] ?? null);
