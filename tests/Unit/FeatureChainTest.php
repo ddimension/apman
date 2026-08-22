@@ -112,6 +112,11 @@ class FeatureChainTest extends TestCase
         // survives a rename
         $this->assertSame($ipsk, $registry->get(IpskFeatureService::class));
         $this->assertSame($ipsk, $registry->get('ipsk'));
+        // twenty of the twenty-one rows in the feature table are spelled with
+        // a leading backslash; `new $string()` never minded and neither may
+        // this
+        $this->assertSame($ipsk, $registry->get('\\'.IpskFeatureService::class));
+        $this->assertTrue($registry->has('\\'.IpskFeatureService::class));
         $this->assertContains('ipsk', $registry->names());
     }
 

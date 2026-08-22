@@ -27,14 +27,29 @@ class FeatureRegistry
     public function __construct(iterable $services)
     {
         foreach ($services as $service) {
-            $this->byKey[$service::class] = $service;
+            $this->byKey[$this->normalise($service::class)] = $service;
             $this->byKey[$service->getName()] = $service;
         }
     }
 
+    /**
+     * Both spellings of a class name are the same class.
+     *
+     * The feature table holds twenty rows written as
+     * "\ApManBundle\Service\DefaultFeatureService" and one, inserted by
+     * apman:ipsk-migrate through a parameterised query, without the leading
+     * backslash. `new $string()` never minded; an array lookup does. Normalise
+     * rather than migrate — a leading backslash is a spelling, not a fact
+     * about the row.
+     */
+    private function normalise(string $key): string
+    {
+        return ltrim($key, '\\');
+    }
+
     public function has(string $key): bool
     {
-        return isset($this->byKey[$key]);
+        return isset($this->byKey[$this->normalise($key)]);
     }
 
     /**
@@ -42,12 +57,13 @@ class FeatureRegistry
      */
     public function get(string $key): iFeatureService
     {
-        if (!isset($this->byKey[$key])) {
+        $normalised = $this->normalise($key);
+        if (!isset($this->byKey[$normalised])) {
             throw new \RuntimeException('no such feature implementation: '.$key
                 .' (known: '.implode(', ', $this->names()).')');
         }
 
-        return $this->byKey[$key];
+        return $this->byKey[$normalised];
     }
 
     /**
