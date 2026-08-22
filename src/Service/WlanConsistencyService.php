@@ -230,7 +230,10 @@ class WlanConsistencyService
         foreach ($this->arrivalRules($blocks) as $f) {
             $findings[] = $f;
         }
-        foreach ($this->ifnameRules() as $f) {
+        foreach ($this->addressRules($blocks) as $f) {
+            $findings[] = $f;
+        }
+        foreach ($this->ifnameRules($blocks) as $f) {
             $findings[] = $f;
         }
         foreach ($this->macListRules() as $f) {
@@ -723,15 +726,217 @@ class WlanConsistencyService
      * access point did not take the name provisioning gave it — which used to
      * be invisible, because the status message wrote over the wish.
      */
-    private function ifnameRules()
+    /**
+     * The address a bss was given, and the address it is using.
+     *
+     * A bss address is not decoration. It is the BSSID a station stores, the
+     * name a neighbour report carries, the identity 802.11r keys are held
+     * against, and the thing a MAC filter matches on. Two bsses sharing one is
+     * an outage that presents as "some clients cannot connect, sometimes", and
+     * nothing looked for it.
+     *
+     * Three questions, in order of how much trouble a wrong answer causes:
+     * does anything have the same address as something else, is the address we
+     * configured the address that is running, and is there an address at all.
+     *
+     * @param array $blocks every bss of every access point, as parsed
+     */
+    /**
+     * The address a bss was given, and the address it is using.
+     *
+     * A bss address is not decoration. It is the BSSID a station stores, the
+     * name a neighbour report carries, the identity 802.11r keys are held
+     * against, and the thing a MAC filter matches on. Two bsses sharing one is
+     * an outage that presents as "some clients cannot connect, sometimes", and
+     * nothing looked for it.
+     *
+     * This half reads; addressFindings() decides, so the deciding can be tested
+     * against cases the fleet does not currently have. A rule that is silent
+     * because everything is right and a rule that is silent because it is
+     * broken look exactly the same from outside.
+     *
+     * @param array $blocks every bss of every access point, as parsed
+     */
+    private function addressRules(array $blocks)
     {
-        $out = [];
-        foreach ($this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll() as $device) {
+        $rows = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\\Entity\\Device')->findAll() as $device) {
             $radio = $device->getRadio();
             $ap = $radio ? $radio->getAccessPoint() : null;
-            $where = ($ap ? $ap->getName() : '?').'/'.$device->getName();
-            $wanted = (string) $device->getIfname();
-            $seen = (string) $device->getIfnameSeen();
+            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+            $rows[] = [
+                'ap' => $ap ? $ap->getName() : null,
+                'productive' => $ap ? (bool) $ap->getIsProductive() : false,
+                'name' => $device->getName(),
+                'ifname' => (string) $device->ifname(),
+                'address' => (string) $device->getAddress(),
+                'enabled' => $device->getIsEnabled(),
+                'reported' => is_array($status) && is_array($status['ap_status'] ?? null)
+                    ? (string) ($status['ap_status']['bssid'] ?? '') : '',
+            ];
+        }
+
+        $running = [];
+        foreach ($blocks as $b) {
+            if (isset($b['cfg']['bssid'])) {
+                $running[$b['ap']][$b['bss']] = strtolower($b['cfg']['bssid']);
+            }
+        }
+
+        return self::addressFindings($rows, $running);
+    }
+
+    /**
+     * Three questions, in the order of how much trouble a wrong answer causes:
+     * does anything share an address with something else, is the address we
+     * configured the one that is running, and is there a configured address at
+     * all.
+     *
+     * The last is not pedantry. Without one the driver picks, so the address
+     * changes with the hardware and with the order the interfaces come up, and
+     * every mac filter and neighbour report built on it goes stale without
+     * saying so.
+     *
+     * @param array $rows    one per bss, as addressRules() builds them
+     * @param array $running ap => ifname => the bssid in the generated config
+     */
+    public static function addressFindings(array $rows, array $running): array
+    {
+        $out = [];
+
+        $byAddress = [];
+        foreach ($rows as $r) {
+            $address = strtolower($r['address']);
+            if ('' === $address) {
+                continue;
+            }
+            $byAddress[$address][($r['ap'] ? $r['ap'].'/' : '').$r['name']] = true;
+        }
+        foreach ($byAddress as $address => $where) {
+            if (count($where) > 1) {
+                $out[] = [
+                    'group' => 'bss addresses',
+                    'option' => $address,
+                    'values' => ['two bsses cannot share an address — it is the bssid a station '
+                        .'stores, the identity roaming keys are held against, and what a mac '
+                        .'filter matches' => array_keys($where)],
+                    'roaming' => true,
+                ];
+            }
+        }
+
+        $unset = [];
+        foreach ($rows as $r) {
+            if (!$r['ap'] || !$r['productive']) {
+                continue;
+            }
+            $where = $r['ap'].'/'.$r['name'];
+            $address = strtolower($r['address']);
+
+            if ('' === $address) {
+                if ($r['enabled']) {
+                    $unset[$where] = true;
+                }
+                continue;
+            }
+            if (!preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/', $address)) {
+                $out[] = [
+                    'group' => 'bss addresses',
+                    'option' => $r['name'],
+                    'values' => ['"'.$r['address'].'" is not an address, and uci will take it anyway'
+                        => [$where]],
+                    'roaming' => false,
+                ];
+                continue;
+            }
+
+            $onDevice = $running[$r['ap']][$r['ifname']] ?? null;
+            if (null !== $onDevice && $onDevice !== $address) {
+                $out[] = [
+                    'group' => 'bss addresses',
+                    'option' => $r['name'],
+                    'values' => ['configured '.$address.', in the running configuration '.$onDevice
+                        => [$where]],
+                    'roaming' => true,
+                ];
+            }
+
+            $reported = strtolower($r['reported']);
+            if ('' !== $reported && $reported !== $address) {
+                $out[] = [
+                    'group' => 'bss addresses',
+                    'option' => $r['name'],
+                    'values' => ['configured '.$address.', on the air '.$reported
+                        .' — the second one is what stations see' => [$where]],
+                    'roaming' => true,
+                ];
+            }
+        }
+
+        if ($unset) {
+            $out[] = [
+                'group' => 'bss addresses',
+                'option' => 'not configured',
+                'values' => ['no address was chosen for these, so the driver picks one and it '
+                    .'changes with the hardware and with the order the interfaces come up — mac '
+                    .'filters and neighbour reports built on it go stale without warning'
+                    => array_keys($unset)],
+                'roaming' => false,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The name a bss was given, and the name it is running under.
+     *
+     * An interface name is the hostapd ubus object, the key file path, the mqtt
+     * status topic, the owe partner a bss names and the neighbour reports. All
+     * five follow it, so a name nobody chose — one the access point invents,
+     * which moves with the order the interfaces come up — takes all of them
+     * with it.
+     *
+     * Reads here, decides in ifnameFindings().
+     */
+    private function ifnameRules(array $blocks = [])
+    {
+        $rows = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\\Entity\\Device')->findAll() as $device) {
+            $radio = $device->getRadio();
+            $ap = $radio ? $radio->getAccessPoint() : null;
+            $rows[] = [
+                'ap' => $ap ? $ap->getName() : null,
+                'productive' => $ap ? (bool) $ap->getIsProductive() : false,
+                'name' => $device->getName(),
+                'wanted' => (string) $device->getIfname(),
+                'seen' => (string) $device->getIfnameSeen(),
+                'enabled' => $device->getIsEnabled(),
+            ];
+        }
+        $onDevice = [];
+        foreach ($blocks as $b) {
+            $onDevice[$b['ap']][$b['bss']] = true;
+        }
+
+        return self::ifnameFindings($rows, $onDevice);
+    }
+
+    /**
+     * @param array $rows     one per bss, as ifnameRules() builds them
+     * @param array $onDevice ap => the interface names the access point runs
+     */
+    public static function ifnameFindings(array $rows, array $onDevice): array
+    {
+        $out = [];
+        $perAp = [];
+        $unnamed = [];
+        $unknown = $onDevice;
+
+        foreach ($rows as $r) {
+            $where = ($r['ap'] ?? '?').'/'.$r['name'];
+            $wanted = $r['wanted'];
+            $seen = $r['seen'];
 
             if ('' !== $wanted && strlen($wanted) > \ApManBundle\Library\IfnameScheme::MAX_LENGTH) {
                 $out[] = [
@@ -746,8 +951,59 @@ class WlanConsistencyService
             if ('' !== $wanted && '' !== $seen && $wanted !== $seen) {
                 $out[] = [
                     'group' => 'interface names',
-                    'option' => $device->getName(),
+                    'option' => $r['name'],
                     'values' => ['configured '.$wanted.', running '.$seen => [$where]],
+                    'roaming' => false,
+                ];
+            }
+
+            if (!$r['ap'] || !$r['productive']) {
+                continue;
+            }
+            if ('' === $wanted && $r['enabled']) {
+                $unnamed[$where.('' !== $seen ? ' (running as '.$seen.')' : '')] = true;
+            }
+            $name = '' !== $seen ? $seen : $wanted;
+            if ('' === $name) {
+                continue;
+            }
+            $perAp[$r['ap']][$name][$where] = true;
+            unset($unknown[$r['ap']][$name]);
+        }
+
+        foreach ($perAp as $apName => $names) {
+            foreach ($names as $name => $where) {
+                if (count($where) > 1) {
+                    $out[] = [
+                        'group' => 'interface names',
+                        'option' => $name,
+                        'values' => ['two bsses of one access point under one name — the second '
+                            .'uci add overwrites the first, and a provisioning run is one '
+                            .'transaction' => array_keys($where)],
+                        'roaming' => false,
+                    ];
+                }
+            }
+        }
+        if ($unnamed) {
+            $out[] = [
+                'group' => 'interface names',
+                'option' => 'not configured',
+                'values' => ['no name was chosen for these, so the access point names them and the '
+                    .'name moves with the order the interfaces come up — the hostapd ubus object, '
+                    .'the key file and the status topic all follow it' => array_keys($unnamed)],
+                'roaming' => false,
+            ];
+        }
+        foreach ($unknown as $apName => $names) {
+            $names = array_keys($names);
+            if ($names) {
+                $out[] = [
+                    'group' => 'interface names',
+                    'option' => 'not ours',
+                    'values' => ['running on the access point and matching no bss we know — either '
+                        .'somebody made it by hand, or we renamed one and left the old behind'
+                        => array_map(function ($n) use ($apName) { return $apName.'/'.$n; }, $names)],
                     'roaming' => false,
                 ];
             }
@@ -756,19 +1012,6 @@ class WlanConsistencyService
         return $out;
     }
 
-    /**
-     * A network that is configured here and is not running there.
-     *
-     * The comparison above only ever sees what runs, so a bss that never came
-     * up is invisible to it — the group simply has one member fewer and looks
-     * perfectly consistent. That is the failure that took a whole evening to
-     * find: one access point where the network was absent while every other
-     * one served it, and no page said so.
-     *
-     * A bss the tree calls DISABLED is not a finding. Somebody switched it
-     * off, and reporting a decision back as drift is how a check teaches
-     * people to ignore it.
-     */
     private function missingBssRules(array $aps, array $blocks)
     {
         $running = [];
