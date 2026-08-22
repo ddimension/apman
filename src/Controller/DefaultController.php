@@ -1409,6 +1409,85 @@ class DefaultController extends AbstractController
      * the row instead of writing an empty one, so the configuration stays a
      * list of decisions rather than a dump of every option that exists.
      */
+    /**
+     * Which radios of the fleet carry this network, and which deliberately do
+     * not.
+     */
+    #[Route(path: '/ssid/{id}/rollout', name: 'ssid_rollout')]
+    public function ssidRolloutAction($id, \ApManBundle\Service\RolloutService $rollout)
+    {
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
+        if (!$ssid) {
+            throw $this->createNotFoundException('no such network');
+        }
+        $rows = $rollout->matrix($ssid);
+
+        $counts = ['carries' => 0, 'opted out' => 0, 'open' => 0];
+        foreach ($rows as $row) {
+            foreach ($row['radios'] as $r) {
+                ++$counts[$r['state']];
+            }
+        }
+
+        return $this->render('default/rollout.html.twig', [
+            'ssid' => $ssid,
+            'rows' => $rows,
+            'counts' => $counts,
+        ]);
+    }
+
+    /**
+     * Add a bss, remove one and remember that it was meant, or forget that.
+     *
+     * Nothing here reaches an access point. The rows change; the access point
+     * finds out at the next provisioning run, and the page says so.
+     */
+    #[Route(path: '/ssid/{id}/rollout/apply', name: 'ssid_rollout_apply', methods: ['POST'])]
+    public function ssidRolloutApplyAction(Request $request, $id, \ApManBundle\Service\RolloutService $rollout)
+    {
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
+        if (!$ssid) {
+            return $this->json(['ok' => false, 'error' => 'no such network'], 404);
+        }
+
+        // the short name is what the naming scheme needs, and the page is
+        // exactly where somebody notices it is missing
+        $short = trim((string) $request->request->get('short_name', ''));
+        if ('' !== $short) {
+            $why = \ApManBundle\Library\IfnameScheme::reject(\ApManBundle\Library\IfnameScheme::PREFIX.$short.'-2g');
+            if ($why) {
+                return $this->json(['ok' => false, 'error' => 'that short name will not do: '.$why], 400);
+            }
+            $ssid->setShortName($short);
+            $this->doctrine->getManager()->flush();
+
+            return $this->json(['ok' => true, 'short_name' => $short]);
+        }
+
+        $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')
+            ->find((int) $request->request->get('radio', 0));
+        if (!$radio) {
+            return $this->json(['ok' => false, 'error' => 'no such radio'], 404);
+        }
+        $action = (string) $request->request->get('action', '');
+        $reason = trim((string) $request->request->get('reason', ''));
+
+        try {
+            switch ($action) {
+                case 'add':
+                    return $this->json($rollout->add($ssid, $radio));
+                case 'remove':
+                    return $this->json($rollout->remove($ssid, $radio, '' === $reason ? null : $reason));
+                case 'reopen':
+                    return $this->json($rollout->reopen($ssid, $radio));
+            }
+        } catch (\Throwable $e) {
+            return $this->json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+
+        return $this->json(['ok' => false, 'error' => 'unknown action'], 400);
+    }
+
     #[Route(path: '/ssid/{id}/save', name: 'ssid_save', methods: ['POST'])]
     public function ssidSaveAction(\ApManBundle\Service\WirelessSchemaService $schema, Request $request, $id)
     {

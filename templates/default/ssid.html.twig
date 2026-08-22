@@ -3,6 +3,8 @@
 
 {% block body %}
 <h2>{{ ssid.name }} <span class="small">network configuration</span></h2>
+<p class="small"><a href="{{ path('ssid_rollout', {'id': ssid.id}) }}">rollout</a> —
+	which radios of the fleet carry this network, and which deliberately do not</p>
 
 <p class="small">
 	These options are written into the <i>wifi-iface</i> section of every access point that

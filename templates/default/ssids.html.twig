@@ -18,6 +18,7 @@
 		<tr class="{{ s.disabled ? 'dim' : '' }}">
 			<td>
 				<a href="{{ path('ssid_detail', {'id': s.id}) }}"><b>{{ s.name }}</b></a>
+				<a class="small" href="{{ path('ssid_rollout', {'id': s.id}) }}">rollout</a>
 				{% if s.disabled %}<span class="pill down">disabled</span>{% endif %}
 			</td>
 			<td class="small">{{ s.ssid }}{% if s.mode and s.mode != 'ap' %}

@@ -2,116 +2,69 @@
 
 namespace ApManBundle\Command;
 
+use ApManBundle\Service\RolloutService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
+/**
+ * Put one network on every radio of one access point that has not said no.
+ *
+ * "That has not said no" is the new part. This used to create a bss on every
+ * radio unconditionally, so a row somebody deleted on purpose came back on the
+ * next run and there was nowhere to write down that the deletion was a
+ * decision. Now there is, and this honours it.
+ */
 #[AsCommand(name: 'apman:assign-ssid')]
 class AssignSSIDCommand extends Command
 {
-
-    private $doctrine;
-    private $logger;
-    private $apservice;
-
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
-    {
+    public function __construct(
+        private readonly \Doctrine\Persistence\ManagerRegistry $doctrine,
+        private readonly \Psr\Log\LoggerInterface $logger,
+        private readonly RolloutService $rollout,
+        $name = null,
+    ) {
         parent::__construct($name);
-        $this->doctrine = $doctrine;
-        $this->logger = $logger;
-        $this->apservice = $apservice;
     }
 
     protected function configure(): void
     {
         $this
-            ->setDescription('Assign SSID to an accesspoint')
+            ->setDescription('Assign SSID to an accesspoint, skipping the radios that opted out')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ->addArgument('ssid', InputArgument::REQUIRED, 'SSID')
+            ->addOption('force', 'f', InputOption::VALUE_NONE, 'also put it on radios that opted out')
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'say what would happen')
             ;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $em = $this->doctrine->getManager();
-        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy([
-        'name' => $input->getArgument('name'),
-    ]);
-        if (is_null($ap)) {
-            echo 'Add this accesspoint. Cannot find it.';
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')
+            ->findOneBy(['name' => $input->getArgument('name')]);
+        if (!$ap) {
+            $output->writeln('<error>no such access point: '.$input->getArgument('name').'</error>');
+
+            return 1;
+        }
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')
+            ->findOneBy(['name' => $input->getArgument('ssid')]);
+        if (!$ssid) {
+            $output->writeln('<error>no such network: '.$input->getArgument('ssid').'</error>');
+
+            return 1;
+        }
+        $radios = $ap->getRadios();
+        if (!count($radios)) {
+            $output->writeln('<error>'.$ap->getName().' has no radios — read them in first</error>');
 
             return 1;
         }
 
-        $radios = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->findBy([
-        'accesspoint' => $ap,
-    ]);
-        if (!is_array($radios) or !count($radios)) {
-            echo 'Readd this accesspoint. No radios found';
-
-            return 1;
-        }
-        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->findOneBy([
-        'name' => $input->getArgument('ssid'),
-    ]);
-        if (is_null($ssid)) {
-            echo 'SSID not found.';
-
-            return 1;
-        }
-
-        $ssids = [$ssid];
-        foreach ($ssids as $ssid) {
-            $localConfigKeys = [
-            'macaddr',
-            'nasid',
-            'r1_key_holder',
-            'disabled',
-            'ifname',
-        ];
-            $i = -1;
-            foreach ($radios as $radio) {
-                ++$i;
-                $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->findOneBy([
-                'ssid' => $ssid,
-                'radio' => $radio,
-            ]);
-                if (!is_null($device)) {
-                    echo 'Radio Device '.$device->getName().' for SSID '.$ssid->getName().' already exists.';
-                    continue;
-                }
-
-                $device = new \ApManBundle\Entity\Device();
-                $device->setName(\ApManBundle\Entity\Device::sectionName($radio, $ssid));
-                $device->setRadio($radio);
-                $device->setSSID($ssid);
-
-                $deviceConfig = [];
-                /*
-                            $deviceConfig['macaddr'] = exec($this->container->get('kernel')->getRootDir().'/../bin/randmac.pl');
-                            if (!$deviceConfig['macaddr']) {
-                                return 1;
-                            }
-                 */
-                $ssidConfig = $ssid->exportConfig();
-                if (isset($ssidConfig->ieee80211r) && 1 == $ssidConfig->ieee80211r) {
-                    /*
-                                    $deviceConfig['nasid'] = str_replace(':', '', $deviceConfig['macaddr']);
-                                    $deviceConfig['r1_key_holder'] = str_replace(':', '', $deviceConfig['macaddr']);
-                     */
-                }
-                if (isset($ssidConfig->ifname) && !empty($ssidConfig->ifname)) {
-                    $device->setIfname($ssidConfig->ifname.$i);
-                }
-                $device->setConfig($deviceConfig);
-                $em->persist($device);
-                echo 'Added Radio Device '.$device->getName().' for SSID '.$ssid->getName()."\n";
-            }
-        }
-        $em->flush();
-
-        return 0;
+        return AssignAllSSIDsCommand::assign($output, $this->doctrine, $this->rollout, $ap, [$ssid],
+            (bool) $input->getOption('force'), (bool) $input->getOption('dry-run'));
     }
 }

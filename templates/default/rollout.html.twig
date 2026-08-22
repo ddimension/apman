@@ -1,0 +1,153 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}{{ ssid.name }} rollout{% endblock %}
+
+{% block body %}
+<h2><a href="{{ path('ssid_detail', {'id': ssid.id}) }}">{{ ssid.name }}</a> <span class="small">rollout</span></h2>
+
+<p class="small">
+	Every radio in the fleet, and what this network does on it. A radio
+	<b class="s-carries">carries</b> the network, is <b class="s-out">deliberately without</b> it,
+	or is <b class="s-open">open</b> — nobody has decided. Only an open radio is touched by an
+	assignment run, which is the whole reason the middle state exists: a row deleted by hand used
+	to come back on the next run.
+</p>
+
+<div class="card">
+	<p class="small">
+		<b>{{ counts.carries }}</b> carry ·
+		<b>{{ counts['opted out'] }}</b> deliberately not ·
+		<b>{{ counts.open }}</b> open
+		{% if ssid.shortName %}
+			· interfaces named <span class="mono">{{ 'wap-' ~ ssid.shortName ~ '-…' }}</span>
+		{% endif %}
+	</p>
+	{% if not ssid.shortName %}
+		<p class="small warn">
+			This network has no short name, so a new bss gets no interface name from us and the
+			access point names it itself — <span class="mono">wlan0-1</span> and the like. The name
+			is a key in five places (the hostapd ubus object, the key file, the status topic, the
+			owe partner, the neighbour reports), so it is worth choosing.
+		</p>
+		<form id="shortname" class="small">
+			short name:
+			<input name="short_name" size="10" maxlength="10" placeholder="e.g. kc">
+			<button type="submit">set</button>
+			<span class="stale">a–z, 0–9 and -, short enough that <span class="mono">wap-…-2g</span> fits in 15</span>
+		</form>
+	{% endif %}
+	<p class="small stale">
+		Nothing here reaches an access point. Provision it afterwards —
+		the button on <a href="{{ path('aps') }}">each access point's page</a>, or
+		<span class="mono">apman:config-ap &lt;ap&gt; --restart</span>, which takes the radios down
+		and waits until they are down before writing.
+	</p>
+</div>
+
+<table class="rollout">
+	<tr><th>access point</th><th>radio</th><th>band</th><th>channel</th><th>state</th><th>interface</th><th></th></tr>
+	{% for row in rows %}
+		{% for r in row.radios %}
+			<tr class="s-{{ r.state|replace({' ': '-'}) }}" data-radio="{{ r.id }}">
+				{% if loop.first %}
+					<td rowspan="{{ row.radios|length }}">
+						<a href="{{ path('ap_detail', {'name': row.name}) }}">{{ row.name }}</a>
+						{% if not row.productive %}<div class="stale small">non productive</div>{% endif %}
+					</td>
+				{% endif %}
+				<td><a href="{{ path('radio_detail', {'id': r.id}) }}">{{ r.name }}</a></td>
+				<td>{{ r.band ?: '—' }}</td>
+				<td>{{ r.channel ?: 'auto' }}</td>
+				<td class="state">
+					{{ r.state }}
+					{% if r.opt_out and r.opt_out.reason %}<div class="stale small">{{ r.opt_out.reason }}</div>{% endif %}
+				</td>
+				<td class="mono small">
+					{% if r.ifname %}{{ r.ifname }}
+					{% elseif r.state == 'carries' %}<span class="stale">named by the access point</span>
+					{% elseif r.proposed %}<span class="stale">would be {{ r.proposed }}</span>
+					{% else %}<span class="stale">unnamed{% if r.why_not %} — {{ r.why_not }}{% endif %}</span>
+					{% endif %}
+				</td>
+				<td class="act">
+					{% if r.state == 'carries' %}
+						<button class="ghost small" data-action="remove">remove, and remember</button>
+					{% elseif r.state == 'opted out' %}
+						<button class="ghost small" data-action="reopen">forget the decision</button>
+						<button class="small" data-action="add">put it on anyway</button>
+					{% else %}
+						<button class="small" data-action="add">put it on</button>
+						<button class="ghost small" data-action="remove">never here</button>
+					{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+	{% endfor %}
+</table>
+<p id="result" class="small"></p>
+{% endblock %}
+
+{% block javascripts %}
+<script>
+var applyUrl = {{ path('ssid_rollout_apply', {'id': ssid.id})|json_encode|raw }};
+function say(text, bad) {
+	var el = document.getElementById('result');
+	el.textContent = text;
+	el.className = 'small ' + (bad ? 'warn' : 'stale');
+}
+document.querySelectorAll('table.rollout button').forEach(function (btn) {
+	btn.addEventListener('click', function () {
+		var tr = btn.closest('tr');
+		var action = btn.dataset.action;
+		var body = new URLSearchParams({radio: tr.dataset.radio, action: action});
+		if (action === 'remove') {
+			// The note is the point of the row. An empty one is allowed —
+			// somebody in a hurry is better served than somebody blocked.
+			var why = window.prompt('Why does this radio not carry the network?', '');
+			if (why === null) { return; }
+			body.set('reason', why);
+		}
+		btn.disabled = true;
+		say('…');
+		fetch(applyUrl, {method: 'POST', body: body})
+			.then(function (r) { return r.json(); })
+			.then(function (d) {
+				if (!d.ok) { say(d.error || 'that did not work', true); btn.disabled = false; return; }
+				say('done — provision the access point to make it real');
+				window.location.reload();
+			})
+			.catch(function (e) { say(String(e), true); btn.disabled = false; });
+	});
+});
+var sn = document.getElementById('shortname');
+if (sn) {
+	sn.addEventListener('submit', function (ev) {
+		ev.preventDefault();
+		var value = sn.querySelector('[name=short_name]').value.trim();
+		fetch(applyUrl, {method: 'POST', body: new URLSearchParams({short_name: value})})
+			.then(function (r) { return r.json(); })
+			.then(function (d) {
+				if (!d.ok) { say(d.error, true); return; }
+				window.location.reload();
+			});
+	});
+}
+</script>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+table.rollout { border-collapse: collapse; margin: 1em 0; }
+table.rollout th, table.rollout td { padding: .35em 1em .35em 0; text-align: left; vertical-align: top; border-bottom: 1px solid #eee; }
+table.rollout th { border-bottom: 1px solid #ccc; font-weight: 600; }
+table.rollout .mono { font-family: ui-monospace, monospace; }
+table.rollout .stale { color: #777; }
+table.rollout tr.s-carries .state { color: #2a7d2a; font-weight: 600; }
+table.rollout tr.s-opted-out .state { color: #777; font-weight: 600; }
+table.rollout tr.s-open .state { color: #b36b00; font-weight: 600; }
+table.rollout td.act { white-space: nowrap; }
+.s-carries { color: #2a7d2a; }
+.s-out { color: #777; }
+.s-open { color: #b36b00; }
+.mono { font-family: ui-monospace, monospace; }
+</style>
+{% endblock %}
