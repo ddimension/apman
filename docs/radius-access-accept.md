@@ -166,3 +166,51 @@ because hostapd prepends — `decode_tunnel_passwords()` does
 `psk->next = cache->info.psk`), a `Reply-Message`, and the Tunnel-\* triplet
 when a `vid` is set. `src/Radius/ApmanTunnelPasswordHandler.php` does the RFC
 2868 encryption including the length octet the library forgets.
+
+## What `duration_ms` measures — and what it hides
+
+`radius_auth.duration_ms`, the "Answer" column on the RADIUS page, is the time
+the access point's own server spent **deciding**. The clock starts in the
+agent's `radius.handle()`, which is where the packet is taken out of the
+socket. It ends when the answer is written.
+
+That leaves out the part a station actually feels. If the agent is busy
+somewhere else when the request arrives — its status cycle used to run
+blocking, 677 ms out of every ten seconds on an access point with eleven
+bsses — the request sits in the kernel's receive buffer and the clock has not
+started yet. The wait is real, the station may give up over it, and the number
+on the page stays at one and a half milliseconds.
+
+Measured 2026-08-22, before and after the agent's status cycle was rebuilt to
+stop blocking:
+
+```
+before (03:00-07:00)   530 requests   0.59 ms mean   1.86 ms max   0% over 10 ms
+after  (from 08:00)    343 requests   0.64 ms mean   2.32 ms max   0% over 10 ms
+```
+
+Identical, across a change that removed a blockade of two thirds of a second
+recurring every ten seconds. The metric is blind to it by construction.
+
+**So do not read this column as "stations get in quickly".** It answers a
+narrower question: once the server looks at a request, does it answer fast.
+It has never not, and it is still worth watching for the day it stops.
+
+### What to measure instead
+
+Round-trip time of a cheap ubus command sent **from the controller**, because
+that includes the waiting. Space the samples at an interval coprime to the
+status cycle — 1.1 s against a 10 s cycle — or every sample lands in the same
+phase and measures the same moment over and over.
+
+The numbers that move are the tail, not the median: p90, p99, and the share
+above 300 ms, which is roughly where a station that retries three times gives
+up. First measurement of the rebuilt agent, on ap-av-grwz (three radios,
+eleven bsses, 6 GHz on DFS — the busiest device in the fleet), 150 samples:
+
+```
+min 41 ms   median 127 ms   p90 220 ms   p99 240 ms   max 437 ms   over 300 ms: 0.7%
+```
+
+That includes the broker and the network, not only the agent, so it is a
+baseline to compare against rather than a measurement of the agent alone.

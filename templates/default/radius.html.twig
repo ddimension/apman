@@ -30,7 +30,9 @@
 	<table class="aps">
 		<tr>
 			<th>Access point</th><th>Server</th><th>Keys</th>
-			<th>24 h</th><th>Answer</th><th>Last action</th><th>Last error</th>
+			<th>24 h</th>
+			<th title="How long the agent took to decide, measured from the moment it took the packet out of the socket. A request that waited in the kernel's receive buffer while the agent was busy elsewhere is not counted here — this says the decision was quick, not that the station got in quickly.">Answer <span class="stale">(processing only)</span></th>
+			<th>Last action</th><th>Last error</th>
 		</tr>
 		{% for a in agents %}
 			{% set i = a.info %}
