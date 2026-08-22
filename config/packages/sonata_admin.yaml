@@ -1,9 +1,14 @@
 sonata_admin:
-    title: 'Sonata Admin'
+    # It said 'Sonata Admin' — the framework's own default, which nobody had
+    # changed — so the admin of this application announced itself as a
+    # different product from the front of it.
+    title: 'AP Manager'
+    options:
+        skin: skin-black
+        logo_content: text
     dashboard:
         blocks:
             - { type: sonata.admin.block.admin_list, position: left }
-    options:
 
 sonata_block:
     blocks:

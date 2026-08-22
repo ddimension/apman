@@ -1,6 +1,9 @@
-{% extends 'frontend.html.twig' %}
+{# Rendered from a link inside the admin, so it wears the admin's layout.
+   It used to extend the frontend one and put the frontend navigation in the
+   middle of the admin, which read as a page that had escaped. #}
+{% extends '@SonataAdmin/standard_layout.html.twig' %}
 
-{% block body %}
+{% block sonata_page_content %}
 <table border=2>
 <tr>
 <th>

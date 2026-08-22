@@ -136,18 +136,18 @@ if (sn) {
 
 {% block stylesheets %}
 <style>
-table.rollout { border-collapse: collapse; margin: 1em 0; }
-table.rollout th, table.rollout td { padding: .35em 1em .35em 0; text-align: left; vertical-align: top; border-bottom: 1px solid #eee; }
-table.rollout th { border-bottom: 1px solid #ccc; font-weight: 600; }
-table.rollout .mono { font-family: ui-monospace, monospace; }
-table.rollout .stale { color: #777; }
-table.rollout tr.s-carries .state { color: #2a7d2a; font-weight: 600; }
-table.rollout tr.s-opted-out .state { color: #777; font-weight: 600; }
-table.rollout tr.s-open .state { color: #b36b00; font-weight: 600; }
-table.rollout td.act { white-space: nowrap; }
-.s-carries { color: #2a7d2a; }
-.s-out { color: #777; }
-.s-open { color: #b36b00; }
-.mono { font-family: ui-monospace, monospace; }
+
+	table.rollout { border-collapse: collapse; margin: 1em 0; }
+	table.rollout th, table.rollout td { padding: .35em 1em .35em 0; text-align: left;
+	                                     vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+	table.rollout th { border-bottom: 1px solid var(--line-strong); font-weight: 600; }
+	table.rollout .stale { color: var(--ink-mute); font-style: normal; }
+	table.rollout tr.s-carries .state { color: var(--good); font-weight: 600; }
+	table.rollout tr.s-opted-out .state { color: var(--ink-mute); font-weight: 600; }
+	table.rollout tr.s-open .state { color: var(--warn-strong); font-weight: 600; }
+	table.rollout td.act { white-space: nowrap; }
+	.s-carries { color: var(--good); }
+	.s-out { color: var(--ink-mute); }
+	.s-open { color: var(--warn-strong); }
 </style>
 {% endblock %}

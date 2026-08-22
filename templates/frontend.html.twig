@@ -18,32 +18,21 @@
            there is nothing left to miss. #}
         <link rel="icon" href="data:image/svg+xml,{{ '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\"><rect width=\"16\" height=\"16\" rx=\"3\" fill=\"%2323303f\"/><path d=\"M4 10a5 5 0 0 1 8 0\" stroke=\"%234a8\" stroke-width=\"1.4\" fill=\"none\"/><path d=\"M6 12a2.6 2.6 0 0 1 4 0\" stroke=\"%234a8\" stroke-width=\"1.4\" fill=\"none\"/><circle cx=\"8\" cy=\"13.6\" r=\"1\" fill=\"%234a8\"/></svg>'|url_encode }}" />
 
+        {{ include('_tokens.html.twig') }}
         <style>
-            body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; }
-            nav.top { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem;
-                      background: #23303f; padding: .4rem .75rem; }
-            nav.top a { color: #dfe6ee; text-decoration: none; padding: .3rem .6rem;
-                        border-radius: 3px; font-size: .95rem; }
-            nav.top a:hover { background: #35455a; }
-            nav.top a.active { background: #43587a; color: #fff; }
-            nav.top .brand { color: #fff; font-weight: 600; margin-right: .75rem; }
-            nav.top .spacer { flex: 1; }
-            main { padding: .75rem; }
-            table.aps { border-collapse: collapse; width: 100%; }
-            table.aps th, table.aps td { border: 1px solid #ccc; padding: 2px 6px; vertical-align: top; }
-            .small { font-size: 85%; color: #444; }
-            .warn { color: #b00; }
-            .ok { color: #070; }
-            .stale { color: #999; font-style: italic; }
-            .pill { padding: 0 .4rem; border-radius: 3px; font-size: 85%; }
-            .pill.up { background: #dfd; color: #060; }
-            .pill.down { background: #fdd; color: #900; }
-            .bar { display: inline-block; height: .6rem; background: #ddd; width: 60px;
-                   vertical-align: middle; border-radius: 2px; overflow: hidden; }
-            .bar > span { display: block; height: 100%; background: #4a8; }
-            .bar.weak > span { background: #d84; }
-            .bar.bad > span { background: #c33; }
-            /* ---- narrow screens ------------------------------------------
+	body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0;
+	       color: var(--ink); background: var(--bg); }
+	main { padding: .75rem; }
+	nav.top { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem;
+	          background: var(--nav-bg); padding: .4rem .75rem; }
+	nav.top a { color: var(--nav-ink); text-decoration: none; padding: .3rem .6rem;
+	            border-radius: var(--r-sm); font-size: .95rem; }
+	nav.top a:hover { background: var(--nav-hover); }
+	nav.top a.active { background: var(--nav-active); color: #fff; }
+	nav.top .brand { color: #fff; font-weight: 600; margin-right: .75rem; }
+	nav.top .spacer { flex: 1; }
+
+	/* ---- narrow screens ------------------------------------------
                The rule that used to live here stacked every table into blocks
                and hid the header row with it, so a phone showed a column of
                values with nothing to say what any of them meant — on /oldStatus
@@ -73,13 +62,13 @@
                    name carried along, which is what the old rule threw away. */
                 table.opts, table.opts tbody, table.opts tr, table.opts td { display: block; width: auto; }
                 table.opts thead, table.opts tr.head { display: none; }
-                table.opts tr { border: 1px solid #e3e3e8; border-radius: 4px;
+                table.opts tr { border: 1px solid var(--line); border-radius: 4px;
                                 margin-bottom: .5rem; padding: .4rem .5rem; }
                 table.opts td { border: none; padding: .15rem 0; }
                 table.opts td[data-label]::before {
                     content: attr(data-label) " ";
                     display: block; font-size: .72rem; text-transform: uppercase;
-                    letter-spacing: .04em; color: #888;
+                    letter-spacing: .04em; color: var(--ink-faint);
                 }
                 table.opts td input[type="text"], table.opts td input[type="number"],
                 table.opts td select, table.opts td textarea { width: 100%; box-sizing: border-box; }
@@ -99,24 +88,39 @@
                 .toolbar, .gridbar { gap: .4rem; }
             }
         </style>
+        {{ include('_components.html.twig') }}
         {% block stylesheets %}{% endblock %}
         {% block header %}{% endblock %}
     </head>
     <body>
-        {# the current route decides which entry is marked, so the bar says
-           where you are instead of only where you can go #}
+        {# The current route decides which entry is marked, so the bar says where
+           you are instead of only where you can go. By group rather than by
+           route name: /ap/{name}, /radio/{id} and /client/{mac} used to leave
+           the whole bar unlit, which is exactly where you are most likely to
+           have lost track of it. #}
         {% set here = app.request is defined and app.request ? app.request.attributes.get('_route') : null %}
+        {# route -> the entry it belongs under. A map rather than a loop with a
+           set in it, because a variable set inside a twig for loop does not
+           survive the loop. #}
+        {% set group = {
+            'apman_default_index': 'clients', 'client_detail': 'clients',
+            'aps': 'aps', 'ap_detail': 'aps', 'radio_detail': 'aps',
+            'ssids': 'ssids', 'ssid_detail': 'ssids', 'ssid_rollout': 'ssids',
+            'apman_default_indexold': 'details',
+            'ppsk': 'ppsk', 'ipsk': 'ipsk', 'radius': 'radius',
+            'consistency': 'consistency',
+        }[here]|default(null) %}
         <nav class="top" aria-label="Main">
             <span class="brand">AP Manager</span>
-            <a href="{{ path('apman_default_index') }}" class="{{ here == 'apman_default_index' ? 'active' }}">Clients</a>
-            <a href="{{ path('aps') }}" class="{{ here == 'aps' ? 'active' }}">Access Points</a>
-            <a href="{{ path('ssids') }}" class="{{ here in ['ssids', 'ssid_detail'] ? 'active' }}">Networks</a>
-            <a href="{{ path('apman_default_indexold') }}" class="{{ here == 'apman_default_indexold' ? 'active' }}">Details</a>
-            <a href="{{ path('ppsk') }}" class="{{ here == 'ppsk' ? 'active' }}">PPSK</a>
-            <a href="{{ path('ipsk') }}" class="{{ here == 'ipsk' ? 'active' }}">iPSK</a>
-            <a href="{{ path('radius') }}" class="{{ here == 'radius' ? 'active' }}">RADIUS</a>
-            <a href="{{ path('consistency') }}" class="{{ here == 'consistency' ? 'active' }}">Consistency</a>
-            <a href="{{ path('admin_apman_accesspoint_list') }}">Admin</a>
+            <a href="{{ path('apman_default_index') }}" class="{{ group == 'clients' ? 'active' }}">Clients</a>
+            <a href="{{ path('aps') }}" class="{{ group == 'aps' ? 'active' }}">Access Points</a>
+            <a href="{{ path('ssids') }}" class="{{ group == 'ssids' ? 'active' }}">Networks</a>
+            <a href="{{ path('apman_default_indexold') }}" class="{{ group == 'details' ? 'active' }}">Details</a>
+            <a href="{{ path('ppsk') }}" class="{{ group == 'ppsk' ? 'active' }}">PPSK</a>
+            <a href="{{ path('ipsk') }}" class="{{ group == 'ipsk' ? 'active' }}">iPSK</a>
+            <a href="{{ path('radius') }}" class="{{ group == 'radius' ? 'active' }}">RADIUS</a>
+            <a href="{{ path('consistency') }}" class="{{ group == 'consistency' ? 'active' }}">Consistency</a>
+            <a href="{{ path('admin_apman_accesspoint_list') }}" class="{{ admin_active|default(false) ? 'active' }}">Admin</a>
             <span class="spacer"></span>
             {% block navextra %}{% endblock %}
         </nav>

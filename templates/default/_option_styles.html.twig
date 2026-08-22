@@ -2,47 +2,9 @@
 	The look of an option table, shared by the network and the radio page.
 #}
 <style>
-	.card { border: 1px solid #dde; border-radius: 4px; padding: .5rem .75rem; margin-bottom: 1rem; }
-	.warnbox { border-color: #f0b7b2; background: #fdf3f2; }
-	.warnbox ul { margin: .3rem 0 0 1rem; }
-	.toolbar { position: sticky; top: 0; z-index: 5; background: #fff; padding: .5rem 0;
-	           display: flex; gap: .75rem; align-items: center; border-bottom: 1px solid #dde; }
-	.toolbar .spacer { flex: 1; }
-	.toolbar input[type=search] { width: 22em; padding: .25rem .4rem; }
-	details.group { border: 1px solid #dde; border-radius: 4px; margin: .5rem 0; }
-	details.group > summary { padding: .45rem .6rem; cursor: pointer; background: #f7f9fc; }
-	details.group > summary .small { color: #667; margin-left: .5rem; }
-	details.group[open] > summary { border-bottom: 1px solid #dde; }
-	table.opts { width: 100%; border-collapse: collapse; }
-	table.opts td { border-top: 1px solid #eef; padding: .3rem .5rem; vertical-align: top; }
-	td.name { width: 15em; }
-	td.val { width: 18em; }
-	td.val input, td.val select, td.val textarea { width: 100%; box-sizing: border-box; }
-	td.doc { color: #445; }
-	tr.state-set { background: #fbfdff; }
-	tr.state-set td.name code { font-weight: 600; }
-	tr.state-default td.name code,
-	tr.state-off td.name code,
-	tr.state-unwritten td.name code { color: #889; }
-	.tag { font-size: .72em; border-radius: 8px; padding: 0 .4em; margin-left: .35em;
-	       border: 1px solid; white-space: nowrap; }
-	.tag.set { background: #e8f0fe; border-color: #b6ccf5; color: #24478f; }
-	.tag.def { background: #eef7ee; border-color: #c3e0c3; color: #2f6b33; }
-	.tag.off { background: #fff4e5; border-color: #f0d3a8; color: #8a5a10; }
-	.tag.un  { background: #f4f4f6; border-color: #e0e0e6; color: #777; }
-	/* an option a feature overwrites: what is edited here is not what arrives */
-	.override { color: #8a5a10; }
-	.override code { background: #fff4e5; border: 1px solid #f0d3a8; border-radius: 3px; padding: 0 .25em; }
-	details.features > summary { background: #fbf7ef; }
-	details.features .opt td { vertical-align: top; }
-	.pill.off { background: #fff4e5; border-color: #f0d3a8; }
-	.pill { background: #eef2f8; border: 1px solid #dde; border-radius: 10px; padding: 0 .45em; font-size: .85em; }
-	.pill.up { background: #e8f5e9; border-color: #b8ddb9; }
-	.pill.stale { background: #f4f4f6; color: #778; }
-	.legend { color: #667; margin: .4rem 0 .8rem; line-height: 1.9; }
-	.legend .tag, .legend .src { margin-left: 0; }
-	button.ghost { background: #f7f9fc; border: 1px solid #dde; border-radius: 3px;
-	               padding: .15rem .5rem; cursor: pointer; }
-	.src { font-size: .72em; border: 1px solid #dcd6ea; background: #f3f0fa; color: #5b4f86;
-	       border-radius: 8px; padding: 0 .4em; margin-left: .3em; white-space: nowrap; cursor: help; }
+	/* Everything that was here and is used by more than the two editors moved
+	   to _components.html.twig — the card, the pills, the tags, the toolbar,
+	   the group boxes and the option table. What is left is the editor's own. */
+	.toolbar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: .5rem 0;
+	           margin: 0; border-bottom: 1px solid var(--line); }
 </style>

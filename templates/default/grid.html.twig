@@ -105,7 +105,7 @@ function duration(sec) {
 	return sec + 's';
 }
 
-function pill(text, cls) { return '<span class="tag ' + (cls || '') + '">' + esc(text) + '</span>'; }
+function pill(text, cls) { return '<span class="chip ' + (cls || '') + '">' + esc(text) + '</span>'; }
 
 // ---- sorting ---------------------------------------------------------------
 // merged cells carry objects, so every column gets a comparator that pulls the
@@ -149,13 +149,13 @@ const columns = [
 		id: 'where', name: 'Where', sort: by((c) => txt(c.ap) + ' ' + txt(c.iface)),
 		formatter: (c) => gridjs.html(
 			'<a href="{{ path('aps') }}/../ap/' + encodeURIComponent(c.ap) + '">' + esc(c.ap) + '</a>' +
-			'<div class="sub">' + esc(c.iface) + (c.vlan && c.vlan !== c.iface ? ' <span class="tag">' + esc(c.vlan) + '</span>' : '') + '</div>' +
+			'<div class="sub">' + esc(c.iface) + (c.vlan && c.vlan !== c.iface ? ' <span class="chip">' + esc(c.vlan) + '</span>' : '') + '</div>' +
 			'<div class="sub muted">' + esc(c.ssid || '') + '</div>')
 	},
 	{
 		id: 'radio', name: 'Radio', sort: by(bandKey),
 		formatter: (c) => gridjs.html(
-			'<span class="tag ' + (c.band === '5' || c.band === '6' ? 'band5' : 'band2') + '">' + esc(c.band) + ' GHz</span>' +
+			'<span class="chip ' + (c.band === '5' || c.band === '6' ? 'band5' : 'band2') + '">' + esc(c.band) + ' GHz</span>' +
 			'<div class="sub">ch ' + esc(c.channel || '?') + ' · ' + esc(c.htmode || '') + '</div>')
 	},
 	{ id: 'signal', name: 'Signal', sort: by(num), formatter: (cell, row) => gridjs.html(signalBar(cell, row.cells[9].data)) },
@@ -207,7 +207,7 @@ const columns = [
 		id: 'age', name: 'Age', sort: by(num),
 		formatter: (cell) => {
 			if (cell === null || cell === undefined) return gridjs.html('<span class="muted">?</span>');
-			const cls = cell > 60 ? 'stale' : '';
+			const cls = cell > 60 ? 'aged' : '';
 			return gridjs.html('<span class="' + cls + '">' + cell + 's</span>');
 		}
 	},
@@ -469,34 +469,10 @@ refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 
 {% block stylesheets %}
 <style>
-	.gridbar { display: flex; gap: .75rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
-	.gridbar .spacer { flex: 1; }
-	/* the filter row sits under the toolbar and is quieter than it */
-	.gridbar.filters { gap: .6rem; padding: .3rem .1rem; border-top: 1px solid #eee;
-	                   border-bottom: 1px solid #eee; margin-bottom: .6rem; }
-	.gridbar.filters select { max-width: 14rem; }
-	.gridbar button, .gridbar select { padding: .2rem .5rem; }
-	.sub { font-size: 85%; line-height: 1.25; }
-	.muted { color: #99a; }
-	.stale { color: #b90; font-style: italic; }
-	a.mac { font-family: ui-monospace, monospace; }
-	.tag { display: inline-block; padding: 0 .35em; margin-right: .2em; border-radius: 3px;
-	       background: #eef; color: #335; font-size: 84%; }
-	.tag.ok { background: #dfd; color: #060; }
-	.tag.warn { background: #fdd; color: #900; }
-	.tag.band5 { background: #e5eeff; color: #24457a; }
-	.tag.band2 { background: #fff0e0; color: #7a4a24; }
-	.metric { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
-	.metric .num { font-variant-numeric: tabular-nums; }
-	.bar { display: inline-block; height: .55rem; width: 46px; background: #e6e6ea;
-	       border-radius: 2px; overflow: hidden; }
-	.bar > span { display: block; height: 100%; background: #4a8; }
-	.bar.good > span { background: #4a8; }
-	.bar.weak > span { background: #d90; }
-	.bar.bad > span { background: #c33; }
-	button.act { font-size: 85%; padding: 1px 6px; margin-right: 2px; }
-	button.act.danger { color: #900; }
+	/* The toolbars, chips, bars and small type are in _components.html.twig.
+	   What is left is the grid itself and how it behaves on a phone. */
 	.gridjs-td { vertical-align: top; }
+	.bar { width: 46px; height: .55rem; }
 
 	/* ---- narrow screens ----------------------------------------------
 	   Twelve columns do not become readable by stacking them, so the grid
@@ -518,6 +494,7 @@ refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 		.gridjs-search-input { width: 100%; font-size: 16px; }
 		.sub { font-size: 80%; }
 	}
+
 </style>
 {% endblock %}
 

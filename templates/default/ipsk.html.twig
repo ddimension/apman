@@ -488,19 +488,17 @@ document.getElementById('register').addEventListener('click', async () => {
 
 {% block stylesheets %}
 <style>
-	.card { border: 1px solid #dde; border-radius: 4px; padding: .75rem; margin-bottom: 1rem; }
+
 	form#new label { display: inline-block; margin-right: 1rem; vertical-align: top; }
-	form#new label span.small { display: block; color: #778; }
+	form#new label span.small { display: block; color: var(--ink-mute); }
 	form#new input, form#new select { display: block; margin-top: .15rem; }
 	.keybox { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
-	.psk { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-	       font-size: 1.8rem; letter-spacing: .06em; padding: .4rem .6rem;
-	       background: #f4f6fa; border: 1px solid #dde; border-radius: 4px;
+	.psk { font-size: 1.8rem; letter-spacing: .06em; padding: .4rem .6rem;
+	       background: #f4f6fa; border: 1px solid var(--line); border-radius: var(--r-md);
 	       user-select: all; }
 	#qr svg { width: 180px; height: 180px; }
-	tr.dim { opacity: .6; }
 	tr.revoked { opacity: .55; }
 	tr.revoked td:first-child { text-decoration: line-through; }
-	button.armed { background: #fdd; border-color: #c66; }
+	button.armed { background: var(--bad-bg); border-color: var(--bad-line); }
 </style>
 {% endblock %}

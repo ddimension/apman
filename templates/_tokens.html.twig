@@ -1,0 +1,73 @@
+{# The colours, spacings and radii the whole interface is made of.
+
+   Before this there were about sixty hard coded hex values across nine files
+   and not one variable. `.card` existed in five copies with two different
+   paddings, `.pill` in four with two incompatible designs, `table.aps` twice
+   byte for byte, and `.stale` was amber on the start page and grey everywhere
+   else — the same class name meaning two different things depending on which
+   page you were looking at.
+
+   One definition each, here, and every page that needs a colour asks for it by
+   what it means rather than by what it looks like. #}
+<style>
+:root {
+	/* ink */
+	--ink: #222;
+	--ink-soft: #445;
+	--ink-mute: #667;
+	--ink-faint: #889;
+
+	/* surfaces and lines */
+	--bg: #fff;
+	--bg-soft: #f7f9fc;
+	--bg-sunken: #f4f4f6;
+	--line: #dde;
+	--line-soft: #eee;
+	--line-strong: #ccc;
+
+	/* the three verdicts. Each has an ink, a background and a border, so a
+	   pill, a tag and a bare word can all say the same thing. */
+	--good: #2f6b33;
+	--good-bg: #e8f5e9;
+	--good-line: #b8ddb9;
+	--bad: #900;
+	--bad-bg: #fdecea;
+	--bad-line: #f0b7b2;
+	--warn: #8a5a10;
+	--warn-bg: #fff4e5;
+	--warn-line: #f0d3a8;
+	/* a warning that has to be read at a glance in a table of numbers */
+	--warn-strong: #b36b00;
+
+	/* the accent, which is also the navigation */
+	--accent: #24478f;
+	--accent-bg: #e8f0fe;
+	--accent-line: #b6ccf5;
+	--nav-bg: #23303f;
+	--nav-ink: #dfe6ee;
+	--nav-hover: #35455a;
+	--nav-active: #43587a;
+
+	/* a source or provenance marker: neither good nor bad, just from elsewhere */
+	--src: #5b4f86;
+	--src-bg: #f3f0fa;
+	--src-line: #dcd6ea;
+
+	/* bars */
+	--bar-bg: #e6e6ea;
+	--bar-good: #4a8;
+	--bar-weak: #d90;
+	--bar-bad: #c33;
+	--bar-plain: #7aa7d8;
+
+	/* shape and rhythm */
+	--r-sm: 3px;
+	--r-md: 4px;
+	--r-pill: 10px;
+	--pad-card: .5rem .75rem;
+	--fs-small: 85%;
+	--fs-tiny: .72em;
+
+	--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+</style>

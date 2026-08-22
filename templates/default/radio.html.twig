@@ -271,39 +271,39 @@ document.querySelectorAll('table.plan td.ok').forEach(function (cell) {
 {% block stylesheets %}
 {{ include('default/_option_styles.html.twig') }}
 <style>
-.warn-card { border-left: 3px solid #d9a441; }
-.warn-card ul { margin: .3em 0 0 1.2em; padding: 0; }
-.stats { display: flex; flex-wrap: wrap; gap: 1.2em 2em; }
-.stat { min-width: 8em; max-width: 22em; }
-.stat b { display: block; font-size: 1.6em; line-height: 1.1; }
-.stat span { display: block; font-size: .8em; }
-.stat span + span { color: #777; }
-.stat.warn b { color: #b36b00; }
-.stat span.warn { color: #b36b00; }
-table.counters { border-collapse: collapse; margin-top: 1em; }
-table.counters th, table.counters td { padding: .25em .8em .25em 0; text-align: left; vertical-align: top; }
-table.counters th { border-bottom: 1px solid #ddd; font-weight: 600; }
-table.counters .stale { color: #777; }
-table.counters .mono { font-family: ui-monospace, monospace; }
-.planwrap { overflow-x: auto; }
-table.plan { border-collapse: collapse; font-size: .8em; }
-table.plan th, table.plan td { border: 1px solid #e4e4e4; padding: .15em .35em; text-align: center; }
-table.plan th.w { text-align: right; white-space: nowrap; font-weight: 600; }
-table.plan th .marks { color: #b36b00; font-size: .8em; line-height: 1; }
-table.plan th.now { background: #eef6ff; }
-table.plan td.ok { color: #2a7d2a; cursor: pointer; }
-table.plan td.ok:hover { background: #e8f5e8; }
-table.plan td.ok.now { background: #eef6ff; }
-table.plan td.no { color: #ccc; cursor: help; }
-table.plan td.picked { background: #2a7d2a; color: #fff; }
-table.hist { border-collapse: collapse; margin: .5em 0; }
-table.hist th { text-align: right; padding: .05em .6em .05em 0; font-weight: 400; white-space: nowrap; }
-table.hist td.bar { width: 18em; }
-table.hist td.bar span { display: block; background: #7aa7d8; height: .9em; min-width: 0; }
-table.hist td.n { padding-left: .6em; }
-table.thresh { border-collapse: collapse; margin: .3em 0 .5em; }
-table.thresh th, table.thresh td { padding: .2em .9em .2em 0; text-align: left; }
-table.thresh th { font-weight: 600; }
-table.thresh td.warn { color: #b36b00; font-weight: 600; }
+	.stats { display: flex; flex-wrap: wrap; gap: 1.2em 2em; }
+	.stat { min-width: 8em; max-width: 22em; }
+	.stat b { display: block; font-size: 1.6em; line-height: 1.1; }
+	.stat span { display: block; font-size: .8em; }
+	.stat span + span { color: var(--ink-mute); }
+	.stat.warn b, .stat span.warn { color: var(--warn-strong); }
+
+	table.counters { border-collapse: collapse; margin-top: 1em; }
+	table.counters th, table.counters td { padding: .25em .8em .25em 0; text-align: left;
+	                                       vertical-align: top; }
+	table.counters th { border-bottom: 1px solid var(--line-strong); font-weight: 600; }
+	table.counters .stale { color: var(--ink-mute); font-style: normal; }
+
+	.planwrap { overflow-x: auto; }
+	table.plan { border-collapse: collapse; font-size: .8em; }
+	table.plan th, table.plan td { border: 1px solid #e4e4e4; padding: .15em .35em; text-align: center; }
+	table.plan th.w { text-align: right; white-space: nowrap; font-weight: 600; }
+	table.plan th .marks { color: var(--warn-strong); font-size: .8em; line-height: 1; }
+	table.plan th.now, table.plan td.ok.now { background: var(--accent-bg); }
+	table.plan td.ok { color: var(--good); cursor: pointer; }
+	table.plan td.ok:hover { background: var(--good-bg); }
+	table.plan td.no { color: var(--line-strong); cursor: help; }
+	table.plan td.picked { background: var(--good); color: #fff; }
+
+	table.hist { border-collapse: collapse; margin: .5em 0; }
+	table.hist th { text-align: right; padding: .05em .6em .05em 0; font-weight: 400; white-space: nowrap; }
+	table.hist td.bar { width: 18em; height: auto; background: none; border-radius: 0; display: table-cell; }
+	table.hist td.bar span { display: block; background: var(--bar-plain); height: .9em; min-width: 0; }
+	table.hist td.n { padding-left: .6em; }
+
+	table.thresh { border-collapse: collapse; margin: .3em 0 .5em; }
+	table.thresh th, table.thresh td { padding: .2em .9em .2em 0; text-align: left; }
+	table.thresh th { font-weight: 600; }
+	table.thresh td.warn { color: var(--warn-strong); font-weight: 600; }
 </style>
 {% endblock %}

@@ -160,20 +160,17 @@
 
 {% block stylesheets %}
 <style>
-table.chanmap { border-collapse: collapse; margin: .5em 0 1.5em; }
-table.chanmap th, table.chanmap td { padding: .3em 1em .3em 0; text-align: left; vertical-align: top; border-bottom: 1px solid #eee; }
-table.chanmap th { font-weight: 600; border-bottom: 1px solid #ccc; }
-table.chanmap tr.first td { border-top: 1px solid #ddd; }
-table.chanmap .stale { color: #777; font-size: .85em; }
-table.chanmap .warn { color: #b36b00; font-weight: 600; }
-	table.aps { border-collapse: collapse; width: 100%; }
-	table.aps th, table.aps td { border: 1px solid #ccc; padding: 2px 6px; vertical-align: top; }
+
+	table.chanmap { border-collapse: collapse; margin: .5em 0 1.5em; }
+	table.chanmap th, table.chanmap td { padding: .3em 1em .3em 0; text-align: left;
+	                                     vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+	table.chanmap th { font-weight: 600; border-bottom: 1px solid var(--line-strong); }
+	table.chanmap tr.first td { border-top: 1px solid #ddd; }
+	table.chanmap .stale { color: var(--ink-mute); font-size: .85em; font-style: normal; }
+	table.chanmap .warn { color: var(--warn-strong); font-weight: 600; }
 	tr.ap { background: #eef; }
 	tr.ap.down { background: #fee; }
 	tr.dev td:first-child { padding-left: 1.5em; }
-	.small { font-size: 85%; color: #444; }
-	.warn { color: #b00; }
-	.ok { color: #070; }
-	.mld { background: #dfd; padding: 0 4px; border-radius: 3px; }
+	.mld { background: var(--good-bg); padding: 0 4px; border-radius: var(--r-sm); }
 </style>
 {% endblock %}

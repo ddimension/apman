@@ -1,0 +1,134 @@
+{# The parts more than one page is made of, defined once.
+
+   What lived in nine <style> blocks and disagreed with itself: cards, pills,
+   tags, bars, the two toolbars, the option editor tables, and the small type.
+   A page keeps only what is its own — the channel map, the rollout matrix, the
+   probe histogram — and everything below is available to all of them.
+
+   Where two designs collided the richer one won. `.pill` is the bordered one
+   rather than the flat `#dfd`, because it carries a border colour and so can
+   say three things instead of two. `.stale` is muted grey italic, which is what
+   thirty of its thirty-four uses meant; the four that meant "this reading is
+   old" say `.aged` now, in amber, because that is a different statement. #}
+<style>
+/* ---- type ------------------------------------------------------------- */
+.small { font-size: var(--fs-small); color: var(--ink-soft); }
+.sub { font-size: var(--fs-small); line-height: 1.25; }
+.mono, a.mac, .psk { font-family: var(--mono); }
+.muted { color: var(--ink-faint); }
+.stale { color: var(--ink-faint); font-style: italic; }
+.aged { color: var(--warn-strong); font-style: italic; }
+.warn { color: var(--bad); }
+.ok { color: var(--good); }
+
+/* ---- card ------------------------------------------------------------- */
+.card { border: 1px solid var(--line); border-radius: var(--r-md);
+        padding: var(--pad-card); margin-bottom: 1rem; }
+.card h3 { margin: 0 0 .5rem 0; }
+.card h4 { margin: 0 0 .25rem 0; font-size: .9rem; color: var(--ink-soft); }
+.card.stalecard { opacity: .7; border-style: dashed; }
+.warnbox { border-color: var(--bad-line); background: #fdf3f2; }
+.warnbox ul { margin: .3rem 0 0 1rem; }
+.warn-card { border-left: 3px solid var(--warn-line); }
+.warn-card ul { margin: .3em 0 0 1.2em; padding: 0; }
+
+/* ---- pill: a state, in three flavours --------------------------------- */
+.pill { background: var(--accent-bg); border: 1px solid var(--line);
+        border-radius: var(--r-pill); padding: 0 .45em; font-size: .85em;
+        white-space: nowrap; }
+.pill.up { background: var(--good-bg); border-color: var(--good-line); color: var(--good); }
+.pill.down { background: var(--bad-bg); border-color: var(--bad-line); color: var(--bad); }
+.pill.off { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn); }
+.pill.stale { background: var(--bg-sunken); color: var(--ink-mute); font-style: normal; }
+.pill.cap { background: var(--accent-bg); color: var(--accent); margin-right: .2rem;
+            display: inline-block; margin-bottom: .15rem; }
+
+/* ---- tag: what a value is, next to the value -------------------------- */
+.tag { font-size: var(--fs-tiny); border-radius: 8px; padding: 0 .4em; margin-left: .35em;
+       border: 1px solid; white-space: nowrap; }
+.tag.set { background: var(--accent-bg); border-color: var(--accent-line); color: var(--accent); }
+.tag.def { background: var(--good-bg); border-color: var(--good-line); color: var(--good); }
+.tag.off { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn); }
+.tag.un  { background: var(--bg-sunken); border-color: #e0e0e6; color: var(--ink-mute); }
+
+/* a chip is a different thing from a tag: it labels a row rather than a value,
+   and it is what grid.html.twig had been calling a tag */
+.chip { display: inline-block; padding: 0 .35em; margin-right: .2em; border-radius: var(--r-sm);
+        background: var(--accent-bg); color: var(--accent); font-size: 84%; }
+.chip.ok { background: var(--good-bg); color: var(--good); }
+.chip.warn { background: var(--bad-bg); color: var(--bad); }
+.chip.band5 { background: #e5eeff; color: #24457a; }
+.chip.band2 { background: #fff0e0; color: #7a4a24; }
+
+/* where a value comes from, when that is not obvious */
+.src { font-size: var(--fs-tiny); border: 1px solid var(--src-line); background: var(--src-bg);
+       color: var(--src); border-radius: 8px; padding: 0 .4em; margin-left: .3em;
+       white-space: nowrap; cursor: help; }
+.override { color: var(--warn); }
+.override code { background: var(--warn-bg); border: 1px solid var(--warn-line);
+                 border-radius: var(--r-sm); padding: 0 .25em; }
+
+/* ---- bar -------------------------------------------------------------- */
+.bar { display: inline-block; height: .6rem; width: 60px; background: var(--bar-bg);
+       vertical-align: middle; border-radius: 2px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--bar-good); }
+.bar.good > span { background: var(--bar-good); }
+.bar.weak > span { background: var(--bar-weak); }
+.bar.bad > span { background: var(--bar-bad); }
+.metric { display: flex; align-items: center; gap: .35rem; white-space: nowrap; }
+.metric .num { font-variant-numeric: tabular-nums; }
+
+/* ---- toolbars --------------------------------------------------------- */
+.toolbar { display: flex; gap: .75rem; align-items: center; margin: .5rem 0; }
+.toolbar.sticky { position: sticky; top: 0; z-index: 5; background: var(--bg);
+                  padding: .5rem 0; margin: 0; border-bottom: 1px solid var(--line); }
+.toolbar .spacer { flex: 1; }
+.toolbar input[type=search] { width: 22em; padding: .25rem .4rem; }
+.gridbar { display: flex; gap: .75rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
+.gridbar .spacer { flex: 1; }
+.gridbar.filters { gap: .6rem; padding: .3rem .1rem; border-top: 1px solid var(--line-soft);
+                   border-bottom: 1px solid var(--line-soft); margin-bottom: .6rem; }
+.gridbar.filters select { max-width: 14rem; }
+.gridbar button, .gridbar select { padding: .2rem .5rem; }
+button.ghost { background: var(--bg-soft); border: 1px solid var(--line);
+               border-radius: var(--r-sm); padding: .15rem .5rem; cursor: pointer; }
+button.act { font-size: var(--fs-small); padding: 1px 6px; margin-right: 2px; }
+button.act.danger { color: var(--bad); }
+.legend { color: var(--ink-mute); margin: .4rem 0 .8rem; line-height: 1.9; }
+.legend .tag, .legend .src { margin-left: 0; }
+
+/* ---- tables ----------------------------------------------------------- */
+table.aps { border-collapse: collapse; width: 100%; }
+table.aps th, table.aps td { border: 1px solid var(--line-strong); padding: 2px 6px;
+                             vertical-align: top; }
+table.kv { border-collapse: collapse; width: 100%; }
+table.kv td { padding: 1px 4px; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+table.kv td:first-child { color: var(--ink-mute); width: 45%; }
+/* a plain reading table: left aligned, ruled under the head only */
+table.list { border-collapse: collapse; margin: .5em 0 1.5em; }
+table.list th, table.list td { padding: .3em 1em .3em 0; text-align: left; vertical-align: top;
+                               border-bottom: 1px solid var(--line-soft); }
+table.list th { font-weight: 600; border-bottom: 1px solid var(--line-strong); }
+tr.dim { opacity: .55; }
+tr.here { background: var(--good-bg); }
+
+/* ---- the option editor, shared by the network and radio pages ---------- */
+details.group { border: 1px solid var(--line); border-radius: var(--r-md); margin: .5rem 0; }
+details.group > summary { padding: .45rem .6rem; cursor: pointer; background: var(--bg-soft); }
+details.group > summary .small { color: var(--ink-mute); margin-left: .5rem; }
+details.group[open] > summary { border-bottom: 1px solid var(--line); }
+details.features > summary { background: #fbf7ef; }
+details.features .opt td { vertical-align: top; }
+details summary { cursor: pointer; }
+table.opts { width: 100%; border-collapse: collapse; }
+table.opts td { border-top: 1px solid #eef; padding: .3rem .5rem; vertical-align: top; }
+td.name { width: 15em; }
+td.val { width: 18em; }
+td.val input, td.val select, td.val textarea { width: 100%; box-sizing: border-box; }
+td.doc { color: var(--ink-soft); }
+tr.state-set { background: #fbfdff; }
+tr.state-set td.name code { font-weight: 600; }
+tr.state-default td.name code,
+tr.state-off td.name code,
+tr.state-unwritten td.name code { color: var(--ink-faint); }
+</style>

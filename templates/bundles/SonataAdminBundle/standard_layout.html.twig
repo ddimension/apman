@@ -1,0 +1,77 @@
+{# The admin looked like a different product.
+
+   Title "Sonata Admin" — the framework's default, never changed — skin
+   skin-black, no override of anything, while the front of the same application
+   is a navy bar and a set of cards. Somebody following a link from /aps into
+   the admin arrived somewhere that gave no sign of being the same tool, and had
+   no way back short of the browser button.
+
+   This does two things and nothing else: it paints AdminLTE's chrome with the
+   same tokens the rest uses, and it puts the same navigation bar above the
+   admin so the way back is where it is everywhere else. The admin's own
+   structure — sidebar, breadcrumb, forms — is left alone, because rebuilding it
+   would be a project and dressing it is an afternoon. #}
+{% extends '@!SonataAdmin/standard_layout.html.twig' %}
+
+{% block stylesheets %}
+	{{ parent() }}
+	{{ include('_tokens.html.twig') }}
+	<style>
+		/* the header and the sidebar, in the colours of the front */
+		.skin-black .main-header .navbar,
+		.skin-black .main-header .logo,
+		.skin-black-light .main-header .navbar,
+		.skin-black-light .main-header .logo {
+			background: var(--nav-bg) !important;
+			color: #fff !important;
+			border-bottom: none;
+		}
+		.skin-black .main-header .logo:hover { background: var(--nav-hover) !important; }
+		.skin-black .main-header .navbar .nav > li > a,
+		.skin-black .main-header .logo span,
+		.skin-black-light .main-header .navbar .nav > li > a { color: var(--nav-ink) !important; }
+		.skin-black .main-header .navbar .nav > li > a:hover,
+		.skin-black .main-header .navbar .sidebar-toggle:hover { background: var(--nav-hover) !important; }
+		.main-sidebar, .left-side { background: var(--nav-bg) !important; }
+		.sidebar-menu > li > a { color: var(--nav-ink) !important; }
+		.sidebar-menu > li:hover > a, .sidebar-menu > li.active > a {
+			background: var(--nav-hover) !important; color: #fff !important; }
+		.sidebar-menu > li.active > a { border-left-color: var(--bar-good) !important; }
+
+		/* the same shapes as the front, so a card is a card in both */
+		.content-header > h1 { font-size: 1.4rem; }
+		.box { border-top-color: var(--nav-bg); border-radius: var(--r-md); }
+		.btn-primary { background: var(--accent); border-color: var(--accent); }
+		a { color: var(--accent); }
+
+		/* our bar, above everything the admin draws */
+		nav.top { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem;
+		          background: var(--nav-bg); padding: .4rem .75rem;
+		          font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+		nav.top a { color: var(--nav-ink); text-decoration: none; padding: .3rem .6rem;
+		            border-radius: var(--r-sm); font-size: .95rem; }
+		nav.top a:hover { background: var(--nav-hover); }
+		nav.top a.active { background: var(--nav-active); color: #fff; }
+		nav.top .brand { color: #fff; font-weight: 600; margin-right: .75rem; }
+		nav.top .spacer { flex: 1; }
+		body.sonata-bc { padding-top: 0; }
+		.wrapper > nav.top { position: relative; z-index: 1200; }
+	</style>
+{% endblock %}
+
+{% block sonata_header %}
+	<nav class="top" aria-label="Main">
+		<span class="brand">AP Manager</span>
+		<a href="{{ path('apman_default_index') }}">Clients</a>
+		<a href="{{ path('aps') }}">Access Points</a>
+		<a href="{{ path('ssids') }}">Networks</a>
+		<a href="{{ path('apman_default_indexold') }}">Details</a>
+		<a href="{{ path('ppsk') }}">PPSK</a>
+		<a href="{{ path('ipsk') }}">iPSK</a>
+		<a href="{{ path('radius') }}">RADIUS</a>
+		<a href="{{ path('consistency') }}">Consistency</a>
+		<a href="{{ path('admin_apman_accesspoint_list') }}" class="active">Admin</a>
+		<span class="spacer"></span>
+	</nav>
+	{{ parent() }}
+{% endblock %}
