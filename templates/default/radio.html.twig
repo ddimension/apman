@@ -56,6 +56,13 @@
 			<span class="stale">{{ running.airtime.utilization }} of 255</span>
 		</div>
 		{% endif %}
+		{% if running.dfs is not defined and dfs is not null and dfs.probe is not defined and dfs_why %}
+		<div class="stat">
+			<b>{{ radio_state }}</b>
+			<span>dfs</span>
+			<span class="stale">{{ dfs_why }}</span>
+		</div>
+		{% endif %}
 		{% if running.dfs is not defined and dfs and dfs.probe is defined %}
 		<div class="stat{{ dfs.probe.checking ? ' warn' : '' }}">
 			<b>{% if dfs.probe.checking %}{{ dfs.probe.left is not null ? dfs.probe.left ~ 's' : 'listening' }}{% else %}{{ dfs.probe.state|lower }}{% endif %}</b>

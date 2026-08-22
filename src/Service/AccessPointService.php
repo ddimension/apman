@@ -27,6 +27,7 @@ class AccessPointService
     private $doctrine;
     private $rpcService;
     private $ubus;
+    private $dfs;
     private $kernel;
     private $mqttFactory;
     private $cacheFactory;
@@ -41,6 +42,7 @@ class AccessPointService
         \Doctrine\Persistence\ManagerRegistry $doctrine,
         wrtJsonRpc $rpcService,
         ApUbusService $ubus,
+        DfsService $dfs,
         \Symfony\Component\HttpKernel\KernelInterface $kernel,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
         \ApManBundle\Factory\CacheFactory $cacheFactory,
@@ -54,6 +56,7 @@ class AccessPointService
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
         $this->ubus = $ubus;
+        $this->dfs = $dfs;
         $this->kernel = $kernel;
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
@@ -1087,6 +1090,54 @@ class AccessPointService
      *
      * @return \string|\null
      */
+    /**
+     * Which radios of this access point are listening rather than transmitting.
+     *
+     * One control socket question per radio, and only when interfaces are
+     * already known to be missing — which is rare. The answer becomes a fact on
+     * the radio node, so the state tree can say CAC where it used to say
+     * DEGRADED, and an episode, so the check has a start and a deadline.
+     *
+     * @return array<string,array> radio name => the probe
+     */
+    private function askWhoIsListening(\ApManBundle\Entity\AccessPoint $ap): array
+    {
+        $out = [];
+        foreach ($ap->getRadios() as $radio) {
+            if ('1' === (string) $radio->getConfigDisabled()) {
+                continue;
+            }
+            $probe = null;
+            foreach ($radio->getDevices() as $device) {
+                $ifname = (string) $device->ifname();
+                if ('' === $ifname) {
+                    continue;
+                }
+                $probe = $this->dfs->probe($ap, $ifname);
+                // the socket answers for the whole phy, so one bss is enough
+                break;
+            }
+            if (null === $probe) {
+                continue;
+            }
+            $this->dfs->noteProbe($radio, $probe);
+            $this->stateTree->observeRadio($radio, ['cac' => (bool) $probe['checking']]);
+            if ($probe['checking']) {
+                $out[$radio->getName()] = $probe;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Every interface is there, so no radio of this access point is listening. */
+    private function clearCacFacts(\ApManBundle\Entity\AccessPoint $ap): void
+    {
+        foreach ($ap->getRadios() as $radio) {
+            $this->stateTree->observeRadio($radio, ['cac' => false]);
+        }
+    }
+
     public function getMacManufacturer($mac)
     {
         $cache = new Psr16Cache(new FilesystemAdapter());
@@ -1356,9 +1407,25 @@ class AccessPointService
                     if (!$cac_active && $state >= \ApManBundle\Library\AccessPointState::STATE_CONFIGURED && $state <= \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING) {
                         $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_READY);
                     }
+                    // nothing missing, so nothing is listening
+                    $this->clearCacFacts($ap);
                 } else {
-                    $this->logger->warning('ApLifetimeHandler Monitoring '.$ap->getName().' Interfaces, DFS CAC Active: '.($cac_active ? 1 : 0).", Interfaces found: $found, configured Interfaces: $cif\n");
-                    $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING);
+                    // Interfaces are missing. That used to be assumed to be a
+                    // channel availability check and the access point was parked
+                    // in DFS_RUNNING for as long as it lasted — with no
+                    // expectation, so a bss that never came back looked the same
+                    // as one that was lawfully listening, for ever.
+                    //
+                    // Ask instead. hostapd has no ubus object while it listens,
+                    // but its control socket answers state=DFS throughout.
+                    $listening = $this->askWhoIsListening($ap);
+                    $this->logger->warning('ApLifetimeHandler: '.$ap->getName().' has '.$found
+                        .' of '.$cif.' interfaces; '
+                        .($listening ? 'listening: '.implode(', ', array_keys($listening))
+                            : 'no radio says it is listening, so this is not dfs'));
+                    if ($listening) {
+                        $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING);
+                    }
                 }
             }
 

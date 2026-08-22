@@ -99,6 +99,10 @@ class DfsService
         }
         $dfs = $apStatus['dfs'];
         $active = (bool) ($dfs['cac_active'] ?? false);
+        if ($active) {
+            $this->logger->debug('dfs observe: '.$device->ifname().' reports a check running, '
+                .json_encode($dfs));
+        }
         $expected = (int) ($dfs['cac_seconds'] ?? 0) ?: self::DEFAULT_SECONDS;
         $left = isset($dfs['cac_seconds_left']) ? (int) $dfs['cac_seconds_left'] : null;
         $freq = isset($apStatus['freq']) ? (int) $apStatus['freq'] : null;
@@ -175,6 +179,74 @@ class DfsService
     }
 
     /**
+     * Turn a probe into the same episode observe() keeps.
+     *
+     * The status cycle cannot see a check that runs while the bss is down, so
+     * whoever notices the silence asks the socket and hands the answer here.
+     * From the episode's point of view it makes no difference where the fact
+     * came from — it still has a start, an expectation and a deadline.
+     */
+    public function noteProbe(Radio $radio, array $probe): void
+    {
+        $now = time();
+        $key = $this->key($radio);
+        $episode = $this->cacheFactory->getCacheItemValue($key);
+        $episode = is_array($episode) ? $episode : null;
+        $freq = $probe['freq'] ?? null;
+        $expected = (int) ($probe['expected'] ?? 0) ?: self::DEFAULT_SECONDS;
+
+        if (!($probe['checking'] ?? false)) {
+            if ($episode && empty($episode['ended'])) {
+                $episode['ended'] = $now;
+                $episode['took'] = $now - (int) $episode['started'];
+                $episode['left'] = 0;
+                $moved = null !== $freq && ($episode['freq'] ?? null) !== $freq;
+                $episode['outcome'] = $moved ? 'moved'
+                    : ('ENABLED' === ($probe['state'] ?? null) ? 'completed' : 'stopped');
+                $this->logger->notice('dfs: '.$this->where($episode).' finished after '
+                    .$episode['took'].'s of '.$episode['expected'].' expected — '.$episode['outcome']);
+                $this->cacheFactory->addCacheItem($key, $episode, self::KEEP_SECONDS);
+            }
+
+            return;
+        }
+
+        if (!$episode || !empty($episode['ended']) || ($episode['freq'] ?? null) !== $freq) {
+            $episode = [
+                'radio' => $radio->getName(),
+                'ap' => $radio->getAccessPoint() ? $radio->getAccessPoint()->getName() : null,
+                // The socket counts down, so the start can be worked out rather
+                // than guessed at: a check with 42 of 60 seconds left began 18
+                // seconds ago, whether or not anybody was watching then.
+                'started' => (null !== ($probe['left'] ?? null))
+                    ? $now - max(0, $expected - (int) $probe['left']) : $now,
+                'freq' => $freq,
+                'channel' => $probe['channel'] ?? null,
+                'expected' => $expected,
+                'ended' => null,
+                'outcome' => null,
+                'reported_overdue' => false,
+                'from' => 'socket',
+            ];
+            $this->logger->notice('dfs: '.$this->where($episode).' is listening on '.$freq
+                .' MHz, '.$expected.'s expected'
+                .(null !== ($probe['left'] ?? null) ? ', '.$probe['left'].'s left' : '')
+                .' — the control socket said so, there is no bss to ask');
+        }
+        $episode['expected'] = $expected;
+        $episode['left'] = $probe['left'] ?? null;
+        $episode['seen'] = $now;
+        $elapsed = $now - (int) $episode['started'];
+        if (!$episode['reported_overdue'] && $elapsed > $this->deadline($expected)) {
+            $episode['reported_overdue'] = true;
+            $this->logger->error('dfs: '.$this->where($episode).' has been listening on '.$freq
+                .' MHz for '.$elapsed.'s and '.$expected.'s were expected — no traffic passes '
+                .'and something is keeping it there');
+        }
+        $this->cacheFactory->addCacheItem($key, $episode, self::KEEP_SECONDS);
+    }
+
+    /**
      * Where one radio stands, for a page or a check to read.
      *
      * Null when nothing is known — a radio that has never been seen checking on
@@ -230,13 +302,21 @@ class DfsService
         $opts = new \stdClass();
         $opts->command = '/usr/sbin/hostapd_cli';
         $opts->params = ['-p', '/var/run/hostapd', '-i', $ifname, 'status'];
+        $started = microtime(true);
         $res = $this->ubus->call($ap, 'file', 'exec', $opts, 10);
+        $ms = round((microtime(true) - $started) * 1000, 1);
         if (!$res->isOk()) {
+            $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname.' did not answer in '
+                .$ms.' ms: '.$res->why());
+
             return null;
         }
         $data = $res->data;
         $stdout = is_object($data) ? (string) ($data->stdout ?? '') : '';
         if ('' === $stdout) {
+            $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname
+                .' answered in '.$ms.' ms with nothing on stdout — no control socket for it?');
+
             return null;
         }
 
@@ -249,10 +329,17 @@ class DfsService
             $fields[trim($k)] = trim($v);
         }
         if (!isset($fields['state'])) {
+            $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname.' answered in '.$ms
+                .' ms without a state field: '.substr(str_replace("\n", ' ', $stdout), 0, 120));
+
             return null;
         }
 
         $left = $fields['cac_time_left_seconds'] ?? 'N/A';
+        $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname.' is '.$fields['state']
+            .' on '.($fields['freq'] ?? '?').' MHz after '.$ms.' ms'
+            .(isset($fields['cac_time_seconds']) ? ', cac '.$fields['cac_time_seconds'].'s' : '')
+            .(is_numeric($left) ? ', '.$left.'s left' : ''));
 
         return [
             'state' => $fields['state'],

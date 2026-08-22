@@ -11,6 +11,12 @@ use Amp;
 
 class DefaultController extends AbstractController
 {
+    /**
+     * After this long without a status message, a radio is not reporting and
+     * the control socket is the only thing left to ask. Two status cycles.
+     */
+    private const RADIO_SILENT_AFTER = 25;
+
     private $logger;
     private $apservice;
     private $doctrine;
@@ -1121,10 +1127,14 @@ class DefaultController extends AbstractController
         $bss = [];
         $running = [];
         $heard = [];
+        $newestStatus = null;
         foreach ($radio->getDevices() as $device) {
             $node = $stateTree->bss($device);
             $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
             $ap_status = is_array($status) && is_array($status['ap_status'] ?? null) ? $status['ap_status'] : [];
+            if (is_array($status) && isset($status['received'])) {
+                $newestStatus = max($newestStatus ?? 0, (int) $status['received']);
+            }
             $counts = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
             $bss[] = [
                 'name' => $device->getName(),
@@ -1167,13 +1177,33 @@ class DefaultController extends AbstractController
         // hostapd object only exists once the interface is enabled. The control
         // socket answers throughout, so that is where the present tense comes
         // from, and only in the case that needs it.
+        //
+        // "Down" is not "no frequency in the cache": the cache keeps the last
+        // good status for a while, so during a check it still reads as a radio
+        // on a channel. The age is what says nobody is reporting — measured
+        // 2026-08-22, the first version of this guard never fired once.
         $dfs = $dfsService->state($radio);
-        if (!isset($running['freq']) && $radio->getAccessPoint()) {
+        // The same rule the daemon uses: a radio that is carrying traffic has
+        // nothing to be asked about, and one that is not is exactly the case
+        // ubus cannot answer. Silence alone was the first version of this test
+        // and it never fired — the cache keeps the last good status, so during
+        // a check the radio still read as a radio on a channel.
+        $radioNode = $stateTree->radio($radio);
+        $carrying = in_array($radioNode['state'] ?? null, [
+            \ApManBundle\Library\NodeState::RADIO_ACTIVE,
+            \ApManBundle\Library\NodeState::RADIO_READY,
+            \ApManBundle\Library\NodeState::RADIO_DISABLED,
+        ], true);
+        $probeWhy = $carrying ? 'the radio is carrying traffic, so nothing was asked' : null;
+        if (!$carrying && $radio->getAccessPoint()) {
             foreach ($radio->getDevices() as $device) {
                 if ($device->ifname()) {
                     $probe = $dfsService->probe($radio->getAccessPoint(), (string) $device->ifname());
                     if ($probe) {
                         $dfs = ($dfs ?: []) + ['probe' => $probe];
+                    } else {
+                        $probeWhy = 'asked '.$device->ifname().' through hostapd\'s control socket '
+                            .'and got no answer';
                     }
                     break;
                 }
@@ -1208,6 +1238,11 @@ class DefaultController extends AbstractController
             // and what it needs on the channel it is on, whether or not it is
             // checking — the number a timeout has to be measured against
             'dfs_expect' => $dfsService->expectFor($radio),
+            // said out loud rather than rendering nothing: a blank where an
+            // answer should be is the thing that wasted an hour today
+            'dfs_why' => $probeWhy,
+            'radio_state' => \ApManBundle\Library\NodeState::name(
+                \ApManBundle\Library\NodeState::TYPE_RADIO, $radioNode['state'] ?? null),
             'probes' => $this->probeHistogram($heard),
             'ctrlcounts' => $this->mergedCtrlCounts($bss),
         ]);

@@ -24,6 +24,10 @@ class SubscriptionService
     /** the AP the message currently being handled came from */
     private $apContext;
     private $dfs;
+    private $dfsCheckAt = 0;
+
+    /** seconds between two rounds of asking, when there is anything to ask */
+    private const DFS_CHECK_INTERVAL = 20;
     /** ssid ids whose keys changed and have to go out again */
     private $ppskPending = [];
     private const CACHE_REFRESH_INTERVAL = 60;
@@ -936,8 +940,140 @@ class SubscriptionService
     {
         $this->logger->debug('doHouseKeeping()');
         $this->apService->lifetimeHouseKeeping($this->cacheLocal['ap-by-name'], $this->cacheLocal['dev-by-ap-ifname']);
+        $this->spawnDfsCheck();
         $this->flushPpskPending();
         $this->resetLogger();
+    }
+
+    /**
+     * Start the channel check probe as its own process, never in this loop.
+     *
+     * Same shape as flushPpskPending() and for the same reason: it waits for
+     * MQTT answers, and this loop is what delivers them. One at a time, and
+     * only when a radio is not carrying traffic — otherwise there is nothing to
+     * ask about and the fleet pays nothing.
+     */
+    private function spawnDfsCheck(): void
+    {
+        $now = time();
+        if (($this->dfsCheckAt ?? 0) + self::DFS_CHECK_INTERVAL > $now) {
+            return;
+        }
+        $unhealthy = false;
+        foreach ($this->cacheLocal['ap-by-name'] ?? [] as $ap) {
+            if (!$ap->getIsProductive()) {
+                continue;
+            }
+            foreach ($ap->getRadios() as $radio) {
+                if ('1' === (string) $radio->getConfigDisabled()) {
+                    continue;
+                }
+                $state = $this->stateTree->radio($radio)['state'] ?? null;
+                if (!in_array($state, [\ApManBundle\Library\NodeState::RADIO_ACTIVE,
+                    \ApManBundle\Library\NodeState::RADIO_READY,
+                    \ApManBundle\Library\NodeState::RADIO_CAC,
+                    \ApManBundle\Library\NodeState::RADIO_DISABLED], true)) {
+                    $unhealthy = true;
+                    break 2;
+                }
+            }
+        }
+        if (!$unhealthy) {
+            return;
+        }
+        $this->dfsCheckAt = $now;
+        $console = dirname(__DIR__, 2).'/bin/console';
+        exec(sprintf('%s %s --env=prod apman:dfs-check > /dev/null 2>&1 &',
+            escapeshellarg(PHP_BINARY), escapeshellarg($console)));
+        $this->logger->notice('dfs: a radio is not carrying traffic, asking the control sockets');
+    }
+
+    /**
+     * Ask the radios that are not carrying traffic whether they are listening.
+     *
+     * NOT called from the housekeeping tick, and the reason is worth keeping:
+     * probe() publishes a command and waits for the answer, and the answer
+     * arrives as an MQTT message that only this loop delivers. Calling it here
+     * blocks the loop waiting for something the loop is supposed to hand it —
+     * the same trap flushPpskPending() documents. Done that way on 2026-08-22
+     * it took every access point's ubus path down at once: /bin/echo timed out
+     * on all three tried, while the agents were answering in milliseconds and
+     * the answers had nowhere to land.
+     *
+     * It runs from apman:dfs-check instead, which is a process of its own.
+     *
+     * A channel availability check is invisible to everything the status cycle
+     * reads: hostapd registers its ubus object when the interface is enabled,
+     * and during a check it is not. Measured on ap-av-attic, a sixty second
+     * check on channel 140 — the tree said "composed radio radio1 ACTIVE ->
+     * DEGRADED" and stayed there for the duration, which is a radio doing
+     * exactly what regulation requires being reported as a fault.
+     *
+     * The control socket answers throughout, so this asks it — but only for a
+     * radio that is already not ACTIVE, which is rare, and only once per tick.
+     * A healthy fleet costs nothing.
+     */
+    public function checkListeningRadios(): void
+    {
+        $aps = $this->cacheLocal['ap-by-name'] ?? null;
+        if (!$aps) {
+            $aps = $this->doctrine->getRepository('ApManBundle\\Entity\\AccessPoint')->findAll();
+        }
+        foreach ($aps as $ap) {
+            if (!$ap->getIsProductive()) {
+                continue;
+            }
+            foreach ($ap->getRadios() as $radio) {
+                if ('1' === (string) $radio->getConfigDisabled()) {
+                    continue;
+                }
+                $node = $this->stateTree->radio($radio);
+                $state = $node['state'] ?? null;
+                $healthy = in_array($state, [
+                    \ApManBundle\Library\NodeState::RADIO_ACTIVE,
+                    \ApManBundle\Library\NodeState::RADIO_READY,
+                    \ApManBundle\Library\NodeState::RADIO_DISABLED,
+                ], true);
+                if ($healthy) {
+                    // it is carrying traffic, so it is not listening; clearing
+                    // the fact is what lets the tree leave RADIO_CAC again
+                    if (true === ($node['facts']['cac'] ?? null)) {
+                        $this->stateTree->observeRadio($radio, ['cac' => false]);
+                    }
+                    continue;
+                }
+                $ifname = null;
+                foreach ($radio->getDevices() as $device) {
+                    if ($device->ifname()) {
+                        $ifname = (string) $device->ifname();
+                        break;
+                    }
+                }
+                if (null === $ifname) {
+                    continue;
+                }
+                $probe = $this->dfs->probe($ap, $ifname);
+                if (null === $probe) {
+                    $this->logger->notice('dfs: '.$ap->getName().'/'.$radio->getName()
+                        .' is '.\ApManBundle\Library\NodeState::name(
+                            \ApManBundle\Library\NodeState::TYPE_RADIO, $state)
+                        .' and its control socket did not answer either');
+                    continue;
+                }
+                $this->dfs->noteProbe($radio, $probe);
+                $this->stateTree->observeRadio($radio, ['cac' => (bool) $probe['checking']]);
+                // notice, not info: the service runs with -v, so info never
+                // reaches the journal, and a radio that is not carrying traffic
+                // is worth a line whatever the reason turns out to be
+                $this->logger->notice('dfs: '.$ap->getName().'/'.$radio->getName().' is '
+                    .\ApManBundle\Library\NodeState::name(
+                        \ApManBundle\Library\NodeState::TYPE_RADIO, $state)
+                    .' and hostapd says '.$probe['state']
+                    .($probe['checking'] ? ' — listening on '.$probe['freq'].' MHz, '
+                        .$probe['expected'].'s expected'
+                        .(null !== $probe['left'] ? ', '.$probe['left'].'s left' : '') : ''));
+            }
+        }
     }
 
     /**

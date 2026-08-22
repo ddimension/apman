@@ -141,7 +141,7 @@ class StateTreeService
         }
 
         $out = $this->present(NodeState::TYPE_RADIO, $radio->getId(), $radio->getName(),
-            $this->composeRadio($own, $children), $node);
+            $this->composeRadio($own, $children, $facts), $node);
         $out['children'] = $children;
 
         return $out;
@@ -293,8 +293,19 @@ class StateTreeService
         return NodeState::RADIO_READY;
     }
 
-    private function composeRadio(int $own, array $children): int
+    private function composeRadio(int $own, array $children, array $facts = []): int
     {
+        // A channel availability check outranks the radio's own state, and has
+        // to: during one the bsses do not exist, so the radio reads as PENDING
+        // and the tree calls it DEGRADED. Measured on ap-av-attic 2026-08-22 —
+        // "composed radio radio1 ACTIVE -> DEGRADED" is a sixty second check on
+        // channel 136 doing exactly what regulation says it must.
+        //
+        // This fact is set by whoever asked the control socket, because hostapd
+        // has no ubus object to report through while it is listening.
+        if (true === ($facts['cac'] ?? null)) {
+            return NodeState::RADIO_CAC;
+        }
         if (NodeState::RADIO_READY !== $own) {
             return $own;
         }
