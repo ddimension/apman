@@ -136,6 +136,20 @@ class Device extends \ApManBundle\DynamicEntity\Device
     /**
      * Get config.
      *
+     * The interface name and the address are columns of their own; setConfig()
+     * strips them out of the json, and this puts them back so that a caller
+     * holding the config sees the whole bss and not most of it.
+     *
+     * Two things used to happen here that no longer do. A second condition
+     * replaced the name it had just written with a derived "wlan-d<id>" —
+     * every time, because it tested the key the line above had set. The
+     * provisioning path never noticed, because getDeviceConfig() writes the
+     * real name over it two lines later; the six other callers of this method
+     * were reading a name no interface has ever had. And the address was
+     * written as "macaddress", which is not a uci option — uci calls it
+     * "macaddr", ap.uc ignores anything else, and it travelled all the way to
+     * the access point to be dropped there.
+     *
      * @return array
      */
     public function getConfig()
@@ -144,11 +158,8 @@ class Device extends \ApManBundle\DynamicEntity\Device
         if (!empty($this->ifname)) {
             $config['ifname'] = $this->ifname;
         }
-        if (!empty($config['ifname'])) {
-            $config['ifname'] = 'wlan-d'.$this->getId();
-        }
         if (!empty($this->address)) {
-            $config['macaddress'] = $this->address;
+            $config['macaddr'] = $this->address;
         }
 
         return $config;
