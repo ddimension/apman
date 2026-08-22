@@ -96,11 +96,17 @@ class ChannelPlanService
         }
         $ifname = null;
         $phy = null;
+        $ownAirtime = null;
         foreach ($radio->getDevices() as $device) {
             $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
             $ap_status = is_array($status) && is_array($status['ap_status'] ?? null) ? $status['ap_status'] : [];
             if (isset($ap_status['phy'])) {
                 $phy = $ap_status['phy'];
+            }
+            if (null === $ownAirtime && isset($ap_status['airtime']['utilization'])) {
+                // what this radio itself is putting on the air, so a busy
+                // channel can be told from a busy access point
+                $ownAirtime = (int) round($ap_status['airtime']['utilization'] * 100 / 255);
             }
             if (null === $ifname && $device->ifname()) {
                 $ifname = $device->ifname();
@@ -115,6 +121,9 @@ class ChannelPlanService
                 'args' => ['command' => '/usr/bin/iwinfo', 'params' => [$ifname, 'freqlist']]],
             ['object' => 'file', 'method' => 'exec',
                 'args' => ['command' => '/usr/sbin/iw', 'params' => ['reg', 'get']]],
+            // passive and cheap: the radio counts busy time whether anybody
+            // asks or not, so this costs a read and disturbs nothing
+            ['object' => 'iwinfo', 'method' => 'survey', 'args' => ['device' => $ifname]],
         ], 10);
 
         $freqOut = $answers[0]->isOk() ? ($answers[0]->data['stdout'] ?? '') : null;
@@ -131,6 +140,11 @@ class ChannelPlanService
             return null;
         }
         $reg = $this->parseReg($regOut, $phy);
+        $survey = $answers[2]->isOk() ? $answers[2]->data : null;
+        $neighbours = $this->cacheFactory->getCacheItemValue('neighbour.summary.radio.'.$radio->getId());
+
+        $channels = $this->addLoad($channels, $survey,
+            is_array($neighbours) ? ($neighbours['channels'] ?? []) : []);
 
         return [
             'fetched' => time(),
@@ -139,9 +153,102 @@ class ChannelPlanService
             'phy' => $phy,
             'country' => $reg['country'],
             'rules' => $reg['rules'],
+            'own_airtime' => $ownAirtime,
+            'scan_age' => is_array($neighbours) && isset($neighbours['ts'])
+                ? time() - $neighbours['ts'] : null,
             'channels' => $channels,
             'widths' => $this->widths($channels, $reg['rules']),
+            'blocks' => $this->blockLoad($channels),
         ];
+    }
+
+    /**
+     * How busy each channel is, and who else is on it.
+     *
+     * A channel that is permitted is not thereby free. The three numbers that
+     * say whether it is worth having exist already and were never put next to
+     * each other: the survey counts busy time whether anybody asks or not, the
+     * neighbour scan knows how many networks are on which channel, and
+     * `ap_status.airtime` says how much of the noise is us.
+     *
+     * `noise` arrives as an unsigned byte — 158 means -98 dBm — because that is
+     * how nl80211 hands it over and iwinfo passes it through. Read as written
+     * it would say the quietest channels are the loudest.
+     */
+    private function addLoad(array $channels, $survey, array $neighbours): array
+    {
+        $byMhz = [];
+        if (is_array($survey) && is_array($survey['results'] ?? null)) {
+            foreach ($survey['results'] as $r) {
+                $r = (array) $r;
+                if (!isset($r['mhz'])) {
+                    continue;
+                }
+                $active = (int) ($r['active_time'] ?? 0);
+                $noise = isset($r['noise']) ? (int) $r['noise'] : null;
+                if (null !== $noise && $noise > 127) {
+                    $noise -= 256;
+                }
+                $byMhz[(int) $r['mhz']] = [
+                    'busy_pct' => $active > 0 ? round((int) ($r['busy_time'] ?? 0) * 100 / $active, 1) : null,
+                    'noise' => $noise,
+                    'active_ms' => $active,
+                ];
+            }
+        }
+
+        foreach ($channels as $ch => $info) {
+            $load = $byMhz[$info['mhz']] ?? ['busy_pct' => null, 'noise' => null, 'active_ms' => 0];
+            $channels[$ch]['busy_pct'] = $load['busy_pct'];
+            $channels[$ch]['noise'] = $load['noise'];
+            $channels[$ch]['measured_ms'] = $load['active_ms'];
+            $channels[$ch]['bss'] = (int) ($neighbours[$ch]['bss'] ?? 0);
+            $channels[$ch]['strongest'] = $neighbours[$ch]['strongest'] ?? null;
+        }
+
+        return $channels;
+    }
+
+    /**
+     * The load of a whole block, for each width.
+     *
+     * An 80 MHz channel inherits the interference of all four 20 MHz channels
+     * it is made of, so the number that matters for choosing one is not the
+     * primary's but the block's — the worst busy time in it and the networks
+     * across all of it. A quiet primary next to three crowded neighbours is the
+     * trap this exists to show.
+     *
+     * @return array width => primary channel => the block's numbers
+     */
+    private function blockLoad(array $channels): array
+    {
+        $out = [];
+        foreach (self::WIDTHS as $w) {
+            foreach ($channels as $ch => $info) {
+                $members = 20 === $w ? [$ch] : $this->block($channels, $ch, $w);
+                if (null === $members) {
+                    continue;
+                }
+                $busy = null;
+                $bss = 0;
+                $strongest = null;
+                foreach ($members as $m) {
+                    $b = $channels[$m]['busy_pct'] ?? null;
+                    if (null !== $b) {
+                        $busy = null === $busy ? $b : max($busy, $b);
+                    }
+                    $bss += (int) ($channels[$m]['bss'] ?? 0);
+                    $sig = $channels[$m]['strongest'] ?? null;
+                    if (null !== $sig && (null === $strongest || $sig > $strongest)) {
+                        $strongest = $sig;
+                    }
+                }
+                $out[$w][$ch] = ['busy_pct' => $busy, 'bss' => $bss, 'strongest' => $strongest,
+                    'members' => $members];
+            }
+        }
+
+        return $out;
     }
 
     /**

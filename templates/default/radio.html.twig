@@ -103,13 +103,15 @@
 
 {% if plan %}
 <div class="card">
-	<h3 class="small" style="margin:0 0 .3em">What this radio may use</h3>
+	<h3 class="small" style="margin:0 0 .3em">What this radio may use, and what is already on it</h3>
 	<p class="small stale">
 		Asked of {{ plan.ifname }} ({{ plan.phy ?: 'phy?' }}) in country {{ plan.country ?: '?' }},
 		{{ plan.channels|length }} channels.
 		A width is offered only where every channel of its block exists on this radio and the
-		regulation covering the block allows it — that is the part a free text field cannot know.
-		Click a cell to put it in the form below; nothing is saved until you do.
+		regulation covering the block allows it. The number in a cell is how busy the whole block
+		is — an 80 MHz channel inherits the interference of all four channels it is made of, so a
+		quiet primary next to three crowded neighbours is worth seeing.
+		{% if plan.own_airtime is not null %}This radio is itself putting {{ plan.own_airtime }}% on the air.{% endif %}
 		<a href="{{ path('radio_detail', {'id': radio.id, 'refresh': 1}) }}">ask again</a>
 	</p>
 	<div class="planwrap">
@@ -119,8 +121,26 @@
 			{% for ch, c in plan.channels %}
 				<th class="{{ c.active ? 'now' : '' }}" title="{{ c.mhz }} MHz{% if c.dfs %}, radar detection{% endif %}{% if c.indoor %}, indoor only{% endif %}{% if c.no_ir %}, may not transmit{% endif %}">
 					{{ ch }}
-					<div class="marks">{% if c.dfs %}<span title="radar detection — up to 10 minutes of listening before it may be used">d</span>{% endif %}{% if c.indoor %}<span title="indoor only">i</span>{% endif %}</div>
+					<div class="marks">{% if c.dfs %}<span title="radar detection — up to ten minutes of listening before it may be used">d</span>{% endif %}{% if c.indoor %}<span title="indoor only">i</span>{% endif %}</div>
 				</th>
+			{% endfor %}
+		</tr>
+		<tr class="load">
+			<th class="w">busy</th>
+			{% for ch, c in plan.channels %}
+				<td title="{% if c.busy_pct is not null %}{{ c.busy_pct }}% of {{ c.measured_ms }} ms measured{% else %}not measured{% endif %}">{{ c.busy_pct is not null ? c.busy_pct|round : '·' }}</td>
+			{% endfor %}
+		</tr>
+		<tr class="load">
+			<th class="w">networks</th>
+			{% for ch, c in plan.channels %}
+				<td title="{% if c.bss %}{{ c.bss }} other networks, strongest {{ c.strongest }} dBm{% else %}none seen{% if plan.scan_age is null %} — no scan has been made{% endif %}{% endif %}">{{ c.bss ?: '·' }}</td>
+			{% endfor %}
+		</tr>
+		<tr class="load">
+			<th class="w">noise</th>
+			{% for ch, c in plan.channels %}
+				<td>{{ c.noise is not null ? c.noise : '·' }}</td>
 			{% endfor %}
 		</tr>
 		{% for w, r in plan.widths %}
@@ -128,8 +148,11 @@
 				<th class="w">{{ w }} MHz</th>
 				{% for ch, c in plan.channels %}
 					{% if ch in r.ok %}
-						<td class="ok{{ c.active ? ' now' : '' }}" data-ch="{{ ch }}" data-w="{{ w }}"
-						    title="channel {{ ch }} at {{ w }} MHz">✓</td>
+						{% set b = plan.blocks[w][ch]|default(null) %}
+						{% set busy = b ? b.busy_pct : null %}
+						<td class="ok{{ c.active ? ' now' : '' }}{% if busy is not null %}{{ busy >= 50 ? ' hot' : (busy >= 20 ? ' warm' : '') }}{% endif %}"
+						    data-ch="{{ ch }}" data-w="{{ w }}"
+						    title="channel {{ ch }} at {{ w }} MHz{% if b %} — block {{ b.members|join(', ') }}{% if b.busy_pct is not null %}, busiest {{ b.busy_pct }}%{% endif %}{% if b.bss %}, {{ b.bss }} other networks{% endif %}{% endif %}">{{ busy is not null ? busy|round : '✓' }}</td>
 					{% else %}
 						<td class="no" title="{{ r.no[ch]|default('not possible') }}">·</td>
 					{% endif %}
@@ -142,8 +165,10 @@
 		<b>d</b> radar detection — choosing it costs a listening period before the radio may
 		transmit, and it may be moved off again later ·
 		<b>i</b> indoor only ·
-		highlighted column is the channel in use ·
-		hover a <b>·</b> for the reason
+		the highlighted column is the channel in use ·
+		hover a <b>·</b> for the reason, a number for the block it stands for ·
+		busy and noise come from the radio's own survey, the network count from the last neighbour
+		scan{% if plan.scan_age is not null %} ({{ (plan.scan_age / 3600)|round }} h ago){% else %}, which has never run for this radio{% endif %}
 	</p>
 </div>
 {% endif %}
@@ -293,6 +318,10 @@ document.querySelectorAll('table.plan td.ok').forEach(function (cell) {
 	table.plan td.ok { color: var(--good); cursor: pointer; }
 	table.plan td.ok:hover { background: var(--good-bg); }
 	table.plan td.no { color: var(--line-strong); cursor: help; }
+	table.plan td.ok.warm { background: var(--warn-bg); color: var(--warn); }
+	table.plan td.ok.hot { background: var(--bad-bg); color: var(--bad); }
+	table.plan tr.load td { color: var(--ink-mute); background: var(--bg-sunken); font-size: .95em; }
+	table.plan tr.load th.w { color: var(--ink-mute); font-weight: 400; }
 	table.plan td.picked { background: var(--good); color: #fff; }
 
 	table.hist { border-collapse: collapse; margin: .5em 0; }

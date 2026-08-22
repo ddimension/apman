@@ -872,10 +872,27 @@ class AccessPointService
                 $errors[] = $radioName.'/'.$ifname;
                 continue;
             }
+            // Per channel, so the channel planner can ask "how crowded is it
+            // here" without scanning again. The per bssid entries below cannot
+            // be enumerated — a cache has no key listing — so a scan that found
+            // forty networks left nothing behind that could answer that.
+            $summary = [];
             foreach ($result->results as $entry) {
                 $entry = (array) $entry;
                 if (empty($entry['bssid'])) {
                     continue;
+                }
+                $channel = $entry['channel'] ?? null;
+                if (null !== $channel) {
+                    $signal = $entry['signal'] ?? null;
+                    if (!isset($summary[$channel])) {
+                        $summary[$channel] = ['bss' => 0, 'strongest' => null];
+                    }
+                    ++$summary[$channel]['bss'];
+                    if (null !== $signal && (null === $summary[$channel]['strongest']
+                        || $signal > $summary[$channel]['strongest'])) {
+                        $summary[$channel]['strongest'] = $signal;
+                    }
                 }
                 $bssid = strtolower($entry['bssid']);
                 $this->cacheFactory->addCacheItem('neighbour.'.str_replace(':', '', $bssid), [
@@ -888,6 +905,12 @@ class AccessPointService
                     'ts' => time(),
                 ], $ttl);
                 ++$found;
+            }
+            foreach ($ap->getRadios() as $radio) {
+                if ($radio->getName() === $radioName) {
+                    $this->cacheFactory->addCacheItem('neighbour.summary.radio.'.$radio->getId(),
+                        ['ts' => time(), 'ifname' => $ifname, 'channels' => $summary], $ttl);
+                }
             }
         }
         $this->logger->notice('scanNeighbours(): '.$ap->getName().' found '.$found.' bss on '.count($perRadio).' radio(s)');

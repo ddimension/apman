@@ -68,7 +68,18 @@ class ChannelPlanCommand extends Command
             }
             $output->writeln('  '.$plan['ifname'].' / '.($plan['phy'] ?? '?')
                 .'  country '.($plan['country'] ?? '?')
-                .'  '.count($plan['channels']).' channels');
+                .'  '.count($plan['channels']).' channels'
+                .(null !== ($plan['own_airtime'] ?? null) ? '  own airtime '.$plan['own_airtime'].'%' : ''));
+            $busy = [];
+            foreach ($plan['channels'] as $ch => $c) {
+                if (null !== $c['busy_pct'] || $c['bss']) {
+                    $busy[] = $ch.':'.(null !== $c['busy_pct'] ? $c['busy_pct'].'%' : '?')
+                        .($c['bss'] ? '/'.$c['bss'].'bss' : '');
+                }
+            }
+            if ($busy) {
+                $output->writeln('  busy      '.implode('  ', $busy));
+            }
             foreach ($plan['widths'] as $w => $r) {
                 if (!$r['ok'] && 20 !== $w) {
                     continue;
