@@ -114,7 +114,7 @@ class SubscriptionService
         // false: keep the session, so the subscriptions and any in flight QoS 1
         // messages survive a short disconnect — same as before.
         [$host, $port, $connection] = $this->mqttFactory->getReactConnection('apmanserver', false);
-        $this->client = new \ApManBundle\Mqtt\ReactPublisher($client, $this->logger);
+        $this->client = new \ApManBundle\Mqtt\ReactPublisher($client, $this->logger, $loop);
         // Everything this process publishes goes through the one connection the
         // loop services — a service that opens its own would have nobody to
         // read its socket, and its next publish would throw into the middle of

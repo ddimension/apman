@@ -8,9 +8,78 @@ use Symfony\Component\Stopwatch\Stopwatch;
 
 class wrtJsonRpc
 {
-    public function __construct(\Psr\Log\LoggerInterface $logger)
+    private $cacheFactory;
+
+    public function __construct(\Psr\Log\LoggerInterface $logger, \ApManBundle\Factory\CacheFactory $cacheFactory)
     {
         $this->logger = $logger;
+        $this->cacheFactory = $cacheFactory;
+    }
+
+    /**
+     * What the agent on this access point says it can do.
+     *
+     * The list travels on properties/agent and the subscriber keeps the last
+     * one it saw; an access point that has never talked to this controller has
+     * no list at all, which is not the same as an empty one — but for the only
+     * question asked of it here, "can it do this", both mean no.
+     */
+    public function agentHasFeature(\ApManBundle\Entity\AccessPoint $ap, $feature)
+    {
+        $agent = $this->cacheFactory->getCacheItemValue('status.ap.'.$ap->getId().'.agent');
+
+        return is_array($agent) && in_array($feature, $agent['features'] ?? [], true);
+    }
+
+    /**
+     * The method name to address this access point's ubus with.
+     *
+     * "call" blocks the agent: the lua ubus binding turns its own event loop
+     * until the answer is there, and that is the loop that also serves mqtt,
+     * the hostapd control channel monitors and the radius server. A call that
+     * takes five seconds — a beacon request waiting for a station that will
+     * never answer, say — makes the access point deaf for five seconds, and
+     * with macaddr_acl=2 every station that wants to associate in that window
+     * is turned away.
+     *
+     * "call_async" hands the answer back through a callback instead, so the
+     * agent keeps working while ubus does. What it does not give is order:
+     * nothing may be sent async that another command in the same batch builds
+     * on. Provisioning — uci add, uci commit, reload — therefore stays on
+     * "call" everywhere, deliberately.
+     *
+     * The capability is not the agent's: it comes from libubus-lua-async, a
+     * package of its own, so the agent version says nothing about it and the
+     * feature has to be asked for by name. Where it is missing, this returns
+     * "call" and everything behaves as it always did.
+     */
+    public function asyncMethod(\ApManBundle\Entity\AccessPoint $ap)
+    {
+        return $this->agentHasFeature($ap, 'ubus_async') ? 'call_async' : 'call';
+    }
+
+    /**
+     * Give a deferred command the same deadline its caller works to.
+     *
+     * Without one it runs on the agent's own, thirty seconds. A caller that
+     * gives up after five and a command that keeps going for another
+     * twenty five do not disagree about anything important — but the answer
+     * still arrives, on command_result/<id>, long after anybody was listening
+     * for it, and whoever is subscribed then sees a reply to a question that
+     * was written off. Saying how long we care makes that case not exist.
+     *
+     * Only for "call_async": a synchronous call has no deadline of its own to
+     * set, and the field would be noise on the wire.
+     *
+     * @param float $seconds the agent clamps this to 1..300
+     */
+    public function setTimeout(\stdClass $cmd, $seconds)
+    {
+        if ('call_async' === $cmd->method) {
+            $cmd->timeout = max(1, min(300, (int) ceil($seconds)));
+        }
+
+        return $cmd;
     }
 
     public static function checkResult($result)

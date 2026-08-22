@@ -68,6 +68,25 @@ class SyncPublisher implements Publisher
     }
 
     /**
+     * A synchronous publisher has no later: it waits.
+     *
+     * The loop is run for the delay rather than slept through, so the client
+     * keeps its connection alive and any subscription set up beforehand keeps
+     * receiving. The caller pays the delay in wall clock time — which is the
+     * honest price here, and the reason the staggered sends live in the
+     * daemon, where the loop is already turning.
+     */
+    public function publishDelayed($topic, $payload, $delay, $qos = 0, $retain = false)
+    {
+        if (!$this->connect()) {
+            return false;
+        }
+        $this->wait((float) $delay);
+
+        return $this->publish($topic, $payload, $qos, $retain);
+    }
+
+    /**
      * Subscribe and hand every message to the callback.
      *
      * Nothing is delivered until wait() runs the loop — which is what lets a
