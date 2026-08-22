@@ -267,6 +267,29 @@ class WirelessSchemaService
         // The radio side. All three come from reading hostapd.uc on the access
         // points rather than from the schema, which does not describe the
         // conditions under which it writes a line.
+        ['when' => ['beacon_prot' => '/^[1-9]/'], 'always' => true,
+            'text' => 'Nothing to switch on: ap.uc does set_default(beacon_prot, 1) inside the '.
+                'encryption block, so every bss whose encryption reaches that point already has '.
+                'it. Measured 2026-08-22 on ap-av-attic — nine of eleven bsses carry '.
+                'beacon_prot=1, and the two that do not are the open ones, which have no '.
+                'protected management frames to sign.'],
+        ['when' => ['ocv' => '/^[1-9]/'], 'need' => ['ieee80211w'],
+            'text' => 'Operating Channel Validation ties the handshake to the channel it happens '.
+                'on, and it needs protected management frames. Without ieee80211w it does '.
+                'nothing.'],
+        ['when' => ['ocv' => '/^[1-9]/'], 'always' => true,
+            'text' => 'A station that gets OCV wrong is refused, and hostapd says so as '.
+                'OCV-FAILURE with the frame and the reason — counted per bss on the radio page. '.
+                'Old clients negotiate it away rather than failing, but that is worth watching '.
+                'on a network with devices nobody chose.'],
+        ['when' => ['rnr' => '/^[1-9]/'], 'always' => true,
+            'text' => 'Reduced Neighbor Report advertises the other bands of this access point, '.
+                'which is how a 6 GHz bss is found at all. It belongs with mbssid rather than on '.
+                'its own.'],
+        ['when' => ['wnm_sleep_mode_no_keys' => '/^[1-9]/'], 'always' => true,
+            'text' => 'A workaround for clients that lose their keys coming out of WNM sleep. '.
+                'wnm_sleep_mode is already set here, so the affected clients would be ours — set '.
+                'this when somebody reports a device that drops after idling, not before.'],
         ['when' => ['start_disabled' => '/^[1-9]/'], 'always' => true,
             'text' => 'start_disabled reaches no access point: ap.uc writes its own value over it '.
                 'on every run. Use disabled, or the rollout page, to keep a bss off the air.'],
