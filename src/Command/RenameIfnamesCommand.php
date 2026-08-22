@@ -110,7 +110,7 @@ class RenameIfnamesCommand extends Command
         $rows = [];
         $problems = [];
         $taken = [];
-        $proposals = [];
+        $needSlug = [];
         foreach ($radios as $radio) {
             foreach ($radio->getDevices() as $device) {
                 $ssidName = $device->getSsid() ? $device->getSsid()->getName() : '';
@@ -127,12 +127,8 @@ class RenameIfnamesCommand extends Command
                 ];
                 if (null === $result['name']) {
                     $problems[] = $row['section'].': '.$result['why'];
-                    // what the name it already has would suggest, so the person
-                    // deciding has somewhere to start
-                    $proposal = IfnameScheme::slugFrom($device->getIfname())
-                        ?? IfnameScheme::slugFrom($device->getIfnameSeen());
-                    if ($proposal && $ssidName) {
-                        $proposals[$ssidName][$proposal] = ($proposals[$ssidName][$proposal] ?? 0) + 1;
+                    if ($device->getSsid()) {
+                        $needSlug[$ssidName] = $device->getSsid();
                     }
                 } elseif (isset($taken[$result['name']])) {
                     $problems[] = $result['name'].': wanted by '.$taken[$result['name']].' and '.$row['section'];
@@ -174,21 +170,37 @@ class RenameIfnamesCommand extends Command
             foreach ($problems as $problem) {
                 $output->writeln('  '.$problem);
             }
-            if ($proposals) {
+            if ($needSlug) {
                 $output->writeln('');
-                $output->writeln('The names these bsses already carry suggest:');
-                foreach ($proposals as $ssidName => $counts) {
+                $output->writeln('What the network is called on the whole fleet today:');
+                foreach ($needSlug as $ssidName => $ssid) {
+                    // every bss of this network, not just the ones on this
+                    // access point: the short name is one value for all of
+                    // them, so counting one machine's names would repeat the
+                    // mistake this column exists to fix
+                    $counts = [];
+                    foreach ($ssid->getDevices() as $other) {
+                        $slug = IfnameScheme::slugFrom($other->getIfname())
+                            ?? IfnameScheme::slugFrom($other->getIfnameSeen());
+                        if ($slug) {
+                            $counts[$slug] = ($counts[$slug] ?? 0) + 1;
+                        }
+                    }
+                    if (!$counts) {
+                        $output->writeln(sprintf('  --slug "%s=?"   # nothing to read out of any interface name', $ssidName));
+                        continue;
+                    }
                     arsort($counts);
                     $shown = [];
                     foreach ($counts as $slug => $n) {
-                        $shown[] = $slug.($n > 1 ? ' ('.$n.'x)' : '');
+                        $shown[] = $slug.' ('.$n.'x)';
                     }
-                    $output->writeln(sprintf('  --slug %-18s   # from %s',
+                    $output->writeln(sprintf('  --slug %-26s # %s',
                         '"'.$ssidName.'='.array_key_first($counts).'"', implode(', ', $shown)));
                 }
                 $output->writeln('');
-                $output->writeln('Check them against the other access points before deciding — the names');
-                $output->writeln('disagree today, which is the reason the short name lives on the network.');
+                $output->writeln('Where more than one abbreviation is listed the access points disagree,');
+                $output->writeln('which is why this is one value on the network and not one per bss.');
             }
 
             return 1;
