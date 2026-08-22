@@ -70,8 +70,10 @@ class MonitorCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $cacAge = (int) $input->getOption('cac-age');
-        $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')
-            ->findBy($input->getOption('all') ? [] : ['IsProductive' => true]);
+        $all = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findAll();
+        $aps = $input->getOption('all')
+            ? $all
+            : array_values(array_filter($all, function ($ap) { return $ap->getIsProductive(); }));
         if (!$aps) {
             $output->writeln('UNKNOWN - no access points to check');
 
@@ -155,6 +157,28 @@ class MonitorCommand extends Command
         // whole day behind a summary that only counted.
         if ($offline) {
             $summary .= ' — offline: '.implode(', ', $offline);
+        }
+
+        // Access points that are not marked productive do not decide the exit
+        // code — a lab device being off must not page anybody — but they are
+        // still devices standing somewhere, and one that has been unreachable
+        // for a day should not be invisible just because of a flag.
+        // ap-hv-klwz was exactly that.
+        if (!$input->getOption('all')) {
+            $others = [];
+            foreach ($all as $ap) {
+                if ($ap->getIsProductive()) {
+                    continue;
+                }
+                $node = $this->stateTree->ap($ap);
+                if (in_array($node['state'], [NodeState::AP_OFFLINE, NodeState::AP_UNKNOWN], true)) {
+                    $others[] = $ap->getName().($node['since'] ? ' ('.$this->age($node['since']).')' : '');
+                }
+            }
+            if ($others) {
+                $summary .= ($offline ? '; ' : ' — ').'not productive and offline: '.implode(', ', $others);
+                $perf .= ' offline_nonproductive='.count($others);
+            }
         }
 
         $output->writeln($word.' - '.$summary.'|'.$perf);

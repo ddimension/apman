@@ -1438,7 +1438,26 @@ class AccessPointService
     public function lifetimeHouseKeeping(array $aps, array $devicesByAp)
     {
         $em = $this->doctrine->getManager();
-        if (is_null($aps) || !is_array($aps) || !count($aps)) {
+        // The caller passes what the subscriber has heard from, which is built
+        // lazily as messages arrive. An access point that says nothing at all
+        // never enters that list — so the one case this tick exists for, a
+        // device that is simply gone, was the one case it could not see.
+        // ap-hv-klwz was missing from it for a whole day. Take the productive
+        // ones from the database and use the caller's list only to know which
+        // of them have been talking.
+        // All of them, not only the productive ones. An access point that is
+        // not marked productive is still a device standing somewhere, and
+        // being unreachable is worth a line about it either way — ap-hv-klwz
+        // fell through exactly this gap and was silently gone for a day. What
+        // the flag decides is how loud, not whether.
+        $known = is_array($aps) ? $aps : [];
+        $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findAll();
+        foreach ($known as $ap) {
+            if (!in_array($ap, $aps, true)) {
+                $aps[] = $ap;
+            }
+        }
+        if (!$aps) {
             $this->logger->warning('No productive Accesspoints found.');
 
             return false;
@@ -1454,12 +1473,13 @@ class AccessPointService
             // once their facts are stale, and that is what gets stored.
             $tree = $this->stateTree->refresh($ap);
 
+            $this->escalate($ap, $tree);
             if (!$ap->getIsProductive()) {
-                // ignore others;
+                // it is escalated, it is just not part of the health count —
+                // a lab device being off is not the fleet being unwell
                 continue;
             }
             ++$total;
-            $this->escalate($ap, $tree);
             if (!in_array($tree['state'], [NodeState::AP_ACTIVE, NodeState::AP_READY,
                 NodeState::AP_CAC], true)) {
                 $notHealthy[] = $ap->getName().' '.$tree['state_name'];
@@ -1501,8 +1521,9 @@ class AccessPointService
 
         if (in_array($tree['state'], [NodeState::AP_OFFLINE, NodeState::AP_UNKNOWN], true)) {
             $fire(NodeState::TYPE_AP, $ap->getId(), $ap->getName(), $tree['state'],
-                $tree['state_name'], $tree['since'], \Psr\Log\LogLevel::CRITICAL,
-                'access point unreachable');
+                $tree['state_name'], $tree['since'],
+                $ap->getIsProductive() ? \Psr\Log\LogLevel::CRITICAL : \Psr\Log\LogLevel::WARNING,
+                'access point unreachable'.($ap->getIsProductive() ? '' : ' (not productive)'));
 
             // Its radios are unknown because it is, not on their own account.
             // Escalating them too would turn one outage into five lines.
