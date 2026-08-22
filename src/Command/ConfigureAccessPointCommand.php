@@ -6,6 +6,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'apman:config-ap')]
@@ -15,13 +16,15 @@ class ConfigureAccessPointCommand extends Command
     private $doctrine;
     private $logger;
     private $apservice;
+    private $provisioning;
 
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
+    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\ProvisioningService $provisioning, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
         $this->logger = $logger;
         $this->apservice = $apservice;
+        $this->provisioning = $provisioning;
     }
 
     protected function configure(): void
@@ -29,6 +32,10 @@ class ConfigureAccessPointCommand extends Command
         $this
             ->setDescription('Configure all SSIDs on an accesspoint')
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
+            ->addOption('restart', null, InputOption::VALUE_NONE,
+                'take the radios down first and wait until they are down, then bring them back')
+            ->addOption('dry-run', null, InputOption::VALUE_NONE,
+                'stage the configuration and report the diff without applying it')
             ;
     }
 
@@ -64,7 +71,30 @@ class ConfigureAccessPointCommand extends Command
         // and fixed in the admin batch action (CustomActionsController::
         // batchActionConfigure) and in apman:ipsk-migrate; this was the copy
         // nobody came back to.
-        $report = $this->apservice->applyConfig($ap);
+        $dry = (bool) $input->getOption('dry-run');
+        if ($input->getOption('restart')) {
+            // The order matters: down, wait for the netdevs to be gone, settle,
+            // configure, up. Without --restart the configuration is applied
+            // underneath running interfaces, which is fine for most changes and
+            // races for the ones that rebuild a bss.
+            $report = $this->provisioning->restart($ap, $dry);
+            foreach ($report['steps'] ?? [] as $step) {
+                $output->writeln(sprintf('  %-20s %6d ms  %s%s', $step['step'], $step['ms'],
+                    $step['ok'] ? 'ok' : '<error>failed</error>',
+                    isset($step['detail']) ? '  '.$step['detail'] : ''));
+            }
+            if ($report['ok'] ?? false) {
+                $output->writeln('<info>'.$ap->getName().': '
+                    .($dry ? 'nothing applied, this was a dry run' : 'radios restarted with the new configuration').'</info>');
+
+                return 0;
+            }
+            $output->writeln('<error>'.$ap->getName().': '.($report['error'] ?? 'provisioning failed').'</error>');
+
+            return 1;
+        }
+
+        $report = $this->apservice->applyConfig($ap, $dry);
         if ($report['ok'] ?? false) {
             $output->writeln($ap->getName().': '.($report['note'] ?? (($report['change_count'] ?? 0).' change(s) applied')));
 

@@ -366,6 +366,44 @@ class DefaultController extends AbstractController
     }
 
     /**
+     * Provisioning with a restart, the way it is meant to go.
+     *
+     * Radios down, wait until the netdevs are actually gone, a second, the
+     * configuration, radios up. The answer carries what each step cost, which
+     * is the point of having it as an endpoint rather than a button that says
+     * "done" — a step 2 that took nineteen seconds is worth knowing about.
+     */
+    #[Route(path: '/api/ap/{name}/provision', name: 'api_ap_provision', methods: ['POST'])]
+    public function apiProvisionAction($name, \ApManBundle\Service\ProvisioningService $provisioning)
+    {
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
+        if (!$ap) {
+            return $this->json(['ok' => false, 'error' => 'no such access point'], 404);
+        }
+        $report = $provisioning->restart($ap);
+
+        return $this->json($report, $report['ok'] ? 200 : 500);
+    }
+
+    /**
+     * The same, up to the point where anything would happen.
+     *
+     * Stages the configuration, asks the access point what would change and
+     * reverts. The radios stay up, because the reason to ask is to find out
+     * whether taking them down is worth it.
+     */
+    #[Route(path: '/api/ap/{name}/provision/dry', name: 'api_ap_provision_dry', methods: ['POST', 'GET'])]
+    public function apiProvisionDryAction($name, \ApManBundle\Service\ProvisioningService $provisioning)
+    {
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
+        if (!$ap) {
+            return $this->json(['ok' => false, 'error' => 'no such access point'], 404);
+        }
+
+        return $this->json($provisioning->restart($ap, true));
+    }
+
+    /**
      * Runs one ubus call on an ap and waits briefly for the agent's answer,
      * which command channel v2 now delivers on command_result/<id>.
      */
@@ -620,15 +658,23 @@ class DefaultController extends AbstractController
     /**
      * Provision one access point: staged transaction, diff, apply with
      * rollback, confirm. ?dry=1 only reports what would change.
+     *
+     * `restart=1` takes the radios down first and waits until they are down —
+     * the flow in ProvisioningService. Without it the configuration is applied
+     * underneath running interfaces, which works for most changes and races for
+     * the ones that rebuild a bss.
      */
     #[Route(path: '/ap/{name}/provision', name: 'ap_provision', methods: ['POST'])]
-    public function apProvisionAction(Request $request, $name)
+    public function apProvisionAction(Request $request, $name, \ApManBundle\Service\ProvisioningService $provisioning)
     {
         $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
         if (!$ap) {
             return $this->json(['ok' => false, 'error' => 'unknown access point'], 404);
         }
         $dry = (bool) $request->request->get('dry', false);
+        if ($request->request->getBoolean('restart')) {
+            return $this->json($provisioning->restart($ap, $dry));
+        }
 
         return $this->json($this->apservice->applyConfig($ap, $dry));
     }
