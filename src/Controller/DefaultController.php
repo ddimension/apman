@@ -1099,7 +1099,7 @@ class DefaultController extends AbstractController
      * was in the repository the whole time and nothing opened it.
      */
     #[Route(path: '/radio/{id}', name: 'radio_detail')]
-    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\ChannelPlanService $planner, \Symfony\Component\HttpFoundation\Request $request, $id)
+    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\ChannelPlanService $planner, \ApManBundle\Service\DfsService $dfsService, \Symfony\Component\HttpFoundation\Request $request, $id)
     {
         $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->find($id);
         if (!$radio) {
@@ -1163,6 +1163,23 @@ class DefaultController extends AbstractController
                 }
             }
         }
+        // A radio whose bsses are all down cannot be asked through ubus — the
+        // hostapd object only exists once the interface is enabled. The control
+        // socket answers throughout, so that is where the present tense comes
+        // from, and only in the case that needs it.
+        $dfs = $dfsService->state($radio);
+        if (!isset($running['freq']) && $radio->getAccessPoint()) {
+            foreach ($radio->getDevices() as $device) {
+                if ($device->ifname()) {
+                    $probe = $dfsService->probe($radio->getAccessPoint(), (string) $device->ifname());
+                    if ($probe) {
+                        $dfs = ($dfs ?: []) + ['probe' => $probe];
+                    }
+                    break;
+                }
+            }
+        }
+
         // The channel the radio was told to use. 'auto' and an empty value are
         // both "we did not say", and neither is a disagreement.
         $wantedChannel = (string) $radio->getConfigChannel();
@@ -1185,6 +1202,12 @@ class DefaultController extends AbstractController
             // the numbers behind rssi_ignore_probe_request and
             // rssi_reject_assoc_rssi, which are otherwise guessed
             'hints' => $schema->hints($values),
+            // the channel check as an episode: when it started, what it is
+            // waiting for, and whether it has run past that
+            'dfs' => $dfs,
+            // and what it needs on the channel it is on, whether or not it is
+            // checking — the number a timeout has to be measured against
+            'dfs_expect' => $dfsService->expectFor($radio),
             'probes' => $this->probeHistogram($heard),
             'ctrlcounts' => $this->mergedCtrlCounts($bss),
         ]);
@@ -2509,7 +2532,7 @@ class DefaultController extends AbstractController
      * channel survey.
      */
     #[Route(path: '/aps', name: 'aps')]
-    public function apsAction(\ApManBundle\Service\StateTreeService $stateTree)
+    public function apsAction(\ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\DfsService $dfs)
     {
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
@@ -2587,7 +2610,7 @@ class DefaultController extends AbstractController
                                     ? $apStatus['bss_color'] : null,
                                 'op_class' => $apStatus['op_class'] ?? null,
                                 'airtime' => $apStatus['airtime']['utilization'] ?? null,
-                                'cac' => !empty($apStatus['dfs']['cac_active']),
+                                'cac' => $dfs->state($radio),
                                 'htmode' => $radio->getConfigHtmode(),
                                 'wanted' => $radio->getConfigChannel(),
                                 'bss' => 0,

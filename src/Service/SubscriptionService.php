@@ -23,6 +23,7 @@ class SubscriptionService
     private $stateTree;
     /** the AP the message currently being handled came from */
     private $apContext;
+    private $dfs;
     /** ssid ids whose keys changed and have to go out again */
     private $ppskPending = [];
     private const CACHE_REFRESH_INTERVAL = 60;
@@ -41,12 +42,14 @@ class SubscriptionService
         PpskService $ppskService,
         RadiusAuthService $radiusAuthService,
         ApContextService $apContext,
-        StateTreeService $stateTree
+        StateTreeService $stateTree,
+        DfsService $dfs
     ) {
         $this->ppskService = $ppskService;
         $this->radiusAuthService = $radiusAuthService;
         $this->apContext = $apContext;
         $this->stateTree = $stateTree;
+        $this->dfs = $dfs;
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
@@ -1017,6 +1020,11 @@ class SubscriptionService
             'cac' => isset($data['ap_status']['dfs']['cac_active'])
                 ? (bool) $data['ap_status']['dfs']['cac_active'] : null,
         ]);
+        // and the same check as an episode with a start, an expectation and a
+        // deadline, so a radio stuck in it can be told from one two seconds in
+        if (is_array($data['ap_status'] ?? null)) {
+            $this->dfs->observe($device, $data['ap_status']);
+        }
         $this->recordIpskUse($data, $ap->getName());
         $updated[] = $ap->getName().' '.$device->ifname();
         $this->logger->info('Updated status.', ['status' => 0, 'devices_updated' => $updated]);

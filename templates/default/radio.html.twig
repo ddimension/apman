@@ -56,11 +56,37 @@
 			<span class="stale">{{ running.airtime.utilization }} of 255</span>
 		</div>
 		{% endif %}
+		{% if running.dfs is not defined and dfs and dfs.probe is defined %}
+		<div class="stat{{ dfs.probe.checking ? ' warn' : '' }}">
+			<b>{% if dfs.probe.checking %}{{ dfs.probe.left is not null ? dfs.probe.left ~ 's' : 'listening' }}{% else %}{{ dfs.probe.state|lower }}{% endif %}</b>
+			<span>dfs · asked just now</span>
+			<span class="stale">
+				{% if dfs.probe.checking %}the radio is listening on {{ dfs.probe.freq }} MHz and needs
+					{{ dfs.probe.expected }}s before it may transmit — no bss exists until it is done,
+					which is why nothing else on this page knows about it
+				{% else %}hostapd says {{ dfs.probe.state }} on {{ dfs.probe.freq }} MHz{% endif %}
+			</span>
+		</div>
+		{% endif %}
 		{% if running.dfs is defined %}
-		<div class="stat{{ running.dfs.cac_active ? ' warn' : '' }}">
-			<b>{% if running.dfs.cac_active %}{{ running.dfs.cac_seconds_left|default('?') }}s{% else %}clear{% endif %}</b>
-			<span>dfs</span>
-			<span class="stale">{% if running.dfs.cac_active %}channel availability check running, no traffic until it ends{% else %}not listening{% if running.dfs.cac_seconds %}, {{ running.dfs.cac_seconds }}s would be needed{% endif %}{% endif %}</span>
+		<div class="stat{{ dfs and dfs.active ? (dfs.overdue ? ' bad' : ' warn') : '' }}">
+			<b>{% if dfs and dfs.active %}{{ dfs.left is not null ? dfs.left ~ 's' : (dfs.elapsed ~ 's') }}{% else %}clear{% endif %}</b>
+			<span>dfs{% if running.dfs.cac_seconds %} · {{ running.dfs.cac_seconds }}s expected{% endif %}</span>
+			{% if dfs and dfs.active %}
+				<span class="cacbar{{ dfs.overdue ? ' over' : '' }}"><span
+					style="width: {{ dfs.expected ? min(100, (dfs.elapsed * 100 / dfs.expected)|round) : 0 }}%"></span></span>
+				<span class="{{ dfs.overdue ? 'warn' : 'stale' }}">
+					listening for {{ dfs.elapsed }}s of {{ dfs.expected }}, no traffic until it ends{% if dfs.overdue %} —
+					past the {{ dfs.deadline }}s this radio is allowed{% endif %}
+				</span>
+			{% elseif dfs and dfs.ended %}
+				<span class="stale">last check {{ dfs.took|default(dfs.elapsed) }}s of {{ dfs.expected }},
+					{{ dfs.outcome }}{% if dfs.age is not null %}, {{ (dfs.age / 60)|round }} min ago{% endif %}</span>
+			{% else %}
+				<span class="stale">not listening{% if dfs_expect %}; this radio would need
+					{{ dfs_expect }}s on this channel, which is the deadline a timeout is measured
+					against{% endif %}</span>
+			{% endif %}
 		</div>
 		{% endif %}
 		{% if running.beacon_interval is defined %}
@@ -302,6 +328,11 @@ document.querySelectorAll('table.plan td.ok').forEach(function (cell) {
 	.stat span { display: block; font-size: .8em; }
 	.stat span + span { color: var(--ink-mute); }
 	.stat.warn b, .stat span.warn { color: var(--warn-strong); }
+	.stat.bad b { color: var(--bad); }
+	.cacbar { display: block; height: .35em; background: var(--bar-bg); border-radius: 2px;
+	          overflow: hidden; margin-top: .3em; max-width: 14em; }
+	.cacbar > span { display: block; height: 100%; background: var(--bar-weak); }
+	.cacbar.over > span { background: var(--bar-bad); }
 
 	table.counters { border-collapse: collapse; margin-top: 1em; }
 	table.counters th, table.counters td { padding: .25em .8em .25em 0; text-align: left;

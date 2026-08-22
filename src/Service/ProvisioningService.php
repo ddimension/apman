@@ -47,6 +47,7 @@ class ProvisioningService
         private readonly ApUbusService $ubus,
         private readonly AccessPointService $aps,
         private readonly \Doctrine\Persistence\ManagerRegistry $doctrine,
+        private readonly DfsService $dfs,
     ) {
     }
 
@@ -138,11 +139,42 @@ class ProvisioningService
         }
 
         // 6 — and back, which is the only proof that step 4 produced something
-        // an access point can run
+        // an access point can run.
+        //
+        // A radio on a dfs channel listens before it transmits, and on the
+        // weather radar range that is ten minutes. ap-outdoor reports
+        // cac_seconds 600 on channel 116 while ap-outdoor2 reports 60 on the
+        // same channel, because their phys carry different regulatory rules —
+        // so the wait cannot be a constant, and it is taken from the radio.
         $started = microtime(true);
-        $back = $this->waitForInterfaces($ap, true, self::UP_TIMEOUT);
+        $budget = $this->waitBudget($ap);
+        $back = $this->waitForInterfaces($ap, true, $budget);
+        $checking = $this->radiosChecking($ap);
+        // and ask the radios themselves, because the status cycle cannot see a
+        // check that is running while the bss is down — the control socket can
+        if (!$back['ok']) {
+            foreach ($this->probeChecking($ap) as $name => $detail) {
+                $checking[$name] = $detail;
+            }
+        }
+        if (!$back['ok'] && $checking) {
+            // Still listening when the budget ran out: that is the regulation
+            // working, not a failed provisioning run, and calling it a failure
+            // would train people to ignore the report.
+            $report['steps'][] = $this->step('interfaces back', $started, true,
+                'still listening: '.implode('; ', $this->describe($checking))
+                .' — a channel availability check is not a failure, and no traffic passes '
+                .'until it ends');
+            $report['ok'] = true;
+            $report['cac'] = $checking;
+            $report['waiting_for'] = $back['left'];
+
+            return $report;
+        }
         $report['steps'][] = $this->step('interfaces back', $started, $back['ok'],
-            $back['ok'] ? count($back['expected']).' interfaces up' : 'missing: '.implode(', ', $back['left']));
+            $back['ok'] ? count($back['expected']).' interfaces up'
+                : 'missing: '.implode(', ', $back['left']).' after '.(int) $budget.'s'
+                    .($budget > self::UP_TIMEOUT ? ' — a channel availability check was allowed for' : ''));
         $report['ok'] = $back['ok'];
         if (!$back['ok']) {
             $report['missing'] = $back['left'];
@@ -233,6 +265,105 @@ class ProvisioningService
 
         return ['ok' => false, 'expected' => $expected, 'left' => $left, 'polls' => $polls,
             'last_error' => $lastWhy];
+    }
+
+    /**
+     * How long to wait for the interfaces, given what the radios are doing.
+     *
+     * The floor is UP_TIMEOUT. A radio in the middle of a check raises it to
+     * what that check still needs, because waiting less and calling the result
+     * a failure is worse than waiting.
+     */
+    private function waitBudget(AccessPoint $ap): float
+    {
+        $budget = self::UP_TIMEOUT;
+        $why = [];
+        foreach ($ap->getRadios() as $radio) {
+            if ('1' === (string) $radio->getConfigDisabled()) {
+                continue;
+            }
+            $forRadio = $this->dfs->waitBudget($radio, (int) self::UP_TIMEOUT);
+            if ($forRadio > $budget) {
+                $budget = $forRadio;
+                $why[] = $radio->getName().' needs up to '.$this->dfs->expectFor($radio).'s to listen';
+            }
+        }
+        if ($why) {
+            $this->logger->info('ProvisioningService: waiting up to '.(int) $budget.'s — '
+                .implode(', ', $why));
+        }
+
+        return $budget;
+    }
+
+    /**
+     * The radios that are listening rather than transmitting, from what the
+     * status cycle last saw.
+     *
+     * @return array<string,string> radio name => what is known
+     */
+    private function radiosChecking(AccessPoint $ap): array
+    {
+        $out = [];
+        foreach ($ap->getRadios() as $radio) {
+            $state = $this->dfs->state($radio);
+            if ($state['active'] ?? false) {
+                $out[$radio->getName()] = $state['elapsed'].'s of '.$state['expected'];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The same question asked of the radios directly.
+     *
+     * hostapd registers its ubus object when the interface is enabled, so
+     * during a check there is nothing there to ask — but the control socket is,
+     * and it answers `state=DFS` with the time left. Measured on ap-av-attic:
+     * `hostapd.wap-kc1 get_status` was "not found" for the whole check while
+     * `hostapd_cli -i wap-kc1 status` answered throughout.
+     *
+     * @return array<string,string>
+     */
+    private function probeChecking(AccessPoint $ap): array
+    {
+        $out = [];
+        foreach ($ap->getRadios() as $radio) {
+            if ('1' === (string) $radio->getConfigDisabled()) {
+                continue;
+            }
+            foreach ($radio->getDevices() as $device) {
+                $ifname = (string) $device->ifname();
+                if ('' === $ifname) {
+                    continue;
+                }
+                $probe = $this->dfs->probe($ap, $ifname);
+                if (null === $probe) {
+                    continue;
+                }
+                if ($probe['checking']) {
+                    $out[$radio->getName()] = 'on '.$probe['freq'].' MHz, '
+                        .(null !== $probe['left'] ? $probe['left'].'s left of ' : '')
+                        .$probe['expected'].'s';
+                }
+                // one bss per radio is enough: the socket answers for the phy
+                break 1;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param array<string,string> $checking */
+    private function describe(array $checking): array
+    {
+        $out = [];
+        foreach ($checking as $radio => $detail) {
+            $out[] = $radio.' ('.$detail.')';
+        }
+
+        return $out;
     }
 
     private function step(string $name, float $started, bool $ok, ?string $detail = null): array

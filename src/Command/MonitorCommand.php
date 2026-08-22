@@ -48,21 +48,38 @@ class MonitorCommand extends Command
     private $doctrine;
     private $stateTree;
 
+    private $dfs;
+
     public function __construct(
         \Doctrine\Persistence\ManagerRegistry $doctrine,
         \ApManBundle\Service\StateTreeService $stateTree,
+        \ApManBundle\Service\DfsService $dfs,
         $name = null
     ) {
         parent::__construct($name);
         $this->doctrine = $doctrine;
         $this->stateTree = $stateTree;
+        $this->dfs = $dfs;
+    }
+
+    /** the entity behind a tree node, which carries only the name */
+    private function radioByName($ap, $name)
+    {
+        foreach ($ap->getRadios() as $radio) {
+            if ($radio->getName() === $name) {
+                return $radio;
+            }
+        }
+
+        return null;
     }
 
     protected function configure(): void
     {
         $this->setDescription('Nagios check: the access point / radio / bss state tree')
             ->addOption('cac-age', null, InputOption::VALUE_REQUIRED,
-                'seconds a radio may sit in CAC before it is reported', 300)
+                'seconds a radio may sit in CAC before it is reported, when the radio itself '
+                .'names no expectation (it usually does)', 300)
             ->addOption('all', null, InputOption::VALUE_NONE,
                 'include access points that are not productive');
     }
@@ -95,11 +112,27 @@ class MonitorCommand extends Command
             // too little: sixty seconds of it is the channel doing its job,
             // an hour of it is a radio that never came back.
             foreach ($tree['children'] as $radio) {
-                if (NodeState::RADIO_CAC === $radio['state']
-                    && $radio['since'] && (time() - (int) $radio['since']) > $cacAge) {
-                    $sev = max($sev, self::WARNING);
-                    $detail[] = sprintf('%s/%s in CAC for %s',
-                        $ap->getName(), $radio['name'], $this->age($radio['since']));
+                if (NodeState::RADIO_CAC === $radio['state']) {
+                    // The radio names its own expectation, and it is not a
+                    // constant: ap-outdoor wants 600 seconds on channel 116 and
+                    // ap-outdoor2 wants 60 on the same channel, because their
+                    // phys carry different regulatory rules. A flat threshold
+                    // either cries at the first and misses the second, or the
+                    // other way round.
+                    $entity = $this->radioByName($ap, $radio['name']);
+                    $dfs = $entity ? $this->dfs->state($entity) : null;
+                    if ($dfs && ($dfs['active'] ?? false)) {
+                        if ($dfs['overdue'] ?? false) {
+                            $sev = max($sev, self::WARNING);
+                            $detail[] = sprintf('%s/%s in CAC for %ds, %ds expected',
+                                $ap->getName(), $radio['name'], $dfs['elapsed'], $dfs['expected']);
+                        }
+                    } elseif ($radio['since'] && (time() - (int) $radio['since']) > $cacAge) {
+                        // no expectation from the radio: the flat threshold
+                        $sev = max($sev, self::WARNING);
+                        $detail[] = sprintf('%s/%s in CAC for %s',
+                            $ap->getName(), $radio['name'], $this->age($radio['since']));
+                    }
                 }
                 if (in_array($radio['state'], [NodeState::RADIO_FAILED,
                     NodeState::RADIO_DEGRADED, NodeState::RADIO_UNKNOWN], true)) {

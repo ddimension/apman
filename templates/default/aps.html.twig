@@ -25,7 +25,14 @@
 				{% endif %}
 				<td>
 					<a href="{{ path('radio_detail', {'id': r.radio_id}) }}">{{ r.ap }}/{{ r.radio }}</a>
-					{% if r.cac %}<span class="pill">CAC</span>{% endif %}
+					{% if r.cac and r.cac.active %}
+						<span class="pill {{ r.cac.overdue ? 'down' : '' }}"
+						      title="listening for {{ r.cac.elapsed }}s of {{ r.cac.expected }} expected{% if r.cac.overdue %}, past the {{ r.cac.deadline }}s allowed{% endif %}">
+							CAC {{ r.cac.left is not null ? r.cac.left ~ 's' : r.cac.elapsed ~ 's' }}{{ r.cac.overdue ? ' overdue' : '' }}
+						</span>
+					{% elseif r.cac and r.cac.outcome == 'moved' %}
+						<div class="warn small" title="a check finished on another frequency, so radar moved it">radar moved it</div>
+					{% endif %}
 					{% if r.wanted and r.wanted != 'auto' and r.wanted != r.channel~'' %}
 						<div class="warn small">configured {{ r.wanted }}</div>
 					{% endif %}
