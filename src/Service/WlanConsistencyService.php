@@ -373,6 +373,26 @@ class WlanConsistencyService
                 if (!in_array($list->getName(), ['hostapd_bss_options', 'custom_cfg'], true)) {
                     continue;
                 }
+                // custom_cfg is not a uci option and is in neither schema, so
+                // ap.uc does not know it and none of it is written into the
+                // generated configuration. Whatever is in it has never had an
+                // effect — which is worse than a wrong value, because it looks
+                // like a setting. hostapd_bss_options is the one that works.
+                if ('custom_cfg' === $list->getName() && count($list->getOptions())) {
+                    $lines = [];
+                    foreach ($list->getOptions() as $option) {
+                        $lines[] = trim((string) $option->getValue());
+                    }
+                    $out[] = [
+                        'group' => $ssid->getName().' / raw options',
+                        'option' => 'custom_cfg',
+                        'values' => [implode(', ', $lines) => [
+                            'custom_cfg reaches no access point — ap.uc does not know the option. '
+                            .'Use hostapd_bss_options, or the schema option where there is one']],
+                        'roaming' => false,
+                    ];
+                    continue;
+                }
                 foreach ($list->getOptions() as $option) {
                     $raw = trim((string) $option->getValue());
                     $name = trim(explode('=', $raw, 2)[0]);

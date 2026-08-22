@@ -169,8 +169,11 @@ class WirelessSchemaService
         'macfilter' => 'How the MAC list is used: disable, allow (only those listed) or deny '.
             '(everyone but those listed).',
         'maclist' => 'The MAC addresses macfilter refers to.',
-        'custom_cfg' => 'Raw hostapd configuration lines, appended verbatim. The last resort '.
-            'for options uci does not model.',
+        'custom_cfg' => 'Does nothing. Not a uci option and not in either schema, so ap.uc '.
+            'does not know it and writes none of it into the generated configuration — '.
+            'verified 2026-08-22: kalinfra carries wpa_strict_rekey=0 here and the line '.
+            'appears in no hostapd.conf on either access point that runs it. '.
+            'The raw passthrough that works is hostapd_bss_options.',
         'domain_name' => 'Passpoint: the domain names this network belongs to, comma separated. '.
             'A client matching one of them treats the network as its home network.',
         'basic_rate' => 'Rates a client must support to associate at all, in kbit/s. Raising '.
