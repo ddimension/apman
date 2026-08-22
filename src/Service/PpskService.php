@@ -773,8 +773,11 @@ class PpskService
             // was just taken away (measured 2026-08-21). Keeping it out until
             // that cache has expired forces a fresh question.
             $opts->ban_time = (int) $banMs;
+            // Sent to every bss of the network when the status cache does not
+            // know where the station is, so most of these find nothing. Not
+            // worth stopping an access point over.
             $cmd = $this->rpcService->createRpcRequest('ppsk-deauth-'.$device->getIfname(),
-                'call', null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
+                $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
             $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
             $sent[] = ['ap' => $ap->getName(), 'ifname' => $device->getIfname()];
         }

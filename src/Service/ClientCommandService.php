@@ -139,17 +139,24 @@ class ClientCommandService
         if (!$ids || !$client) {
             return;
         }
+        $budget = 3;
         $wait = [];
         foreach ($ids as $id) {
             $where = $expect[$id];
             $rid = 'refresh-'.$where['device'].'-'.bin2hex(random_bytes(3));
-            $cmd = $this->rpcService->createRpcRequest($rid, 'call', null,
-                'iwinfo', 'assoclist', (object) ['device' => $where['ifname']]);
-            $client->publish('apman/ap/'.$where['ap'].'/command', json_encode($cmd), 1);
+            // A driver query, so usually quick — but it goes out to every
+            // access point that just carried the command out, and this runs
+            // while somebody is waiting for a page to finish loading. There is
+            // nothing for it to be in order with.
+            $cmd = $this->rpcService->createRpcRequest($rid,
+                $this->rpcService->asyncMethod($where['bss']->getRadio()->getAccessPoint()),
+                null, 'iwinfo', 'assoclist', (object) ['device' => $where['ifname']]);
+            $client->publish('apman/ap/'.$where['ap'].'/command',
+                json_encode($this->rpcService->setTimeout($cmd, $budget)), 1);
             $wait[$rid] = ['ap' => $where['ap'], 'device' => $where['device']];
         }
 
-        $deadline = microtime(true) + 3;
+        $deadline = microtime(true) + $budget;
         while ($wait && microtime(true) < $deadline) {
             $ids2 = [];
             foreach ($wait as $rid => $w) {
@@ -218,13 +225,28 @@ class ClientCommandService
             $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
             foreach ($devices as $device) {
                 $id = 'cc-'.$method.'-'.$device->getId().'-'.$run;
-                $commands['list'][] = $this->rpcService->createRpcRequest(
-                    $id, 'call', null, 'hostapd.'.$device->getIfname(), $method, $args
+                // The whole point of this class is to ask several bsses at
+                // once, and most of them do not have the station: they answer
+                // "not found" and are done. The one that does have it may sit
+                // there for seconds — a beacon request waits for the station's
+                // report — and a synchronous call would take the access point
+                // off the air for that long. Nothing here depends on the order
+                // the answers come back in; they are collected by id.
+                $cmd = $this->rpcService->createRpcRequest(
+                    $id,
+                    $this->rpcService->asyncMethod($device->getRadio()->getAccessPoint()),
+                    null, 'hostapd.'.$device->getIfname(), $method, $args
                 );
+                // and it should stop caring when we do, rather than answering
+                // into an empty room half a minute later
+                $commands['list'][] = $this->rpcService->setTimeout($cmd, $wait);
                 $expect[$id] = [
                     'ap' => $apName,
                     'ifname' => $device->getIfname(),
                     'device' => $device->getId(),
+                    // kept so an answer can be reported back to the tree, which
+                    // wants the bss itself and not its id
+                    'bss' => $device,
                 ];
             }
             $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);
@@ -237,6 +259,9 @@ class ClientCommandService
             'addressed' => count($expect),
             'executed' => [],
             'absent' => [],
+            // the bss is not on the air there at all, which is a different
+            // answer from "the client is not on it"
+            'missing' => [],
             'failed' => [],
             'silent' => [],
         ];
@@ -267,8 +292,26 @@ class ClientCommandService
                 // absence, so do not wait out the full budget for it
                 $deadline = min($deadline, microtime(true) + 1.5);
             } elseif (4 === ($res['error']['code'] ?? null)) {
-                // not found: the station is simply not on this bss
-                $result['absent'][] = $label;
+                // Status 4 says two different things. hostapd answering "I do
+                // not have this station" is the ordinary case and the reason
+                // this class fans out at all. But the same code comes back
+                // when the ubus object hostapd.<ifname> does not exist, because
+                // the bss is not running there — and reading that as "the
+                // client is elsewhere" hides a bss that is simply gone behind
+                // a perfectly normal looking search result.
+                //
+                // The agent marks the second case with stage=lookup: the call
+                // never reached an object. Only on the deferred path — the
+                // synchronous binding cannot tell the two apart, so where the
+                // field is absent the old reading is the only one available
+                // and also the right one.
+                if ('lookup' === ($res['error']['stage'] ?? null)) {
+                    $result['missing'][] = $label;
+                    $this->stateTree->observeBss($where['bss'], ['present' => false]);
+                } else {
+                    // not found: the station is simply not on this bss
+                    $result['absent'][] = $label;
+                }
             } else {
                 $result['failed'][$label] = ($res['error']['message'] ?? 'failed').
                     ' ('.($res['error']['code'] ?? '?').')';
@@ -291,6 +334,7 @@ class ClientCommandService
         $client->disconnect();
         $this->logger->notice('clientCommand(): '.$method.' for '.$mac.' — '.
             count($result['executed']).' executed, '.count($result['absent']).' absent, '.
+            count($result['missing']).' bss gone, '.
             count($result['failed']).' failed, '.count($result['silent']).' silent');
 
         return $result;

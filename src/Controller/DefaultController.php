@@ -390,6 +390,9 @@ class DefaultController extends AbstractController
                 'executed_on' => $sent['executed'],
                 'addressed' => $sent['addressed'],
                 'absent' => count($sent['absent']),
+                // a bss that is not running there is not the same answer as a
+                // bss that simply does not hold the client
+                'missing' => count($sent['missing']),
                 'error' => $sent['ok'] ? null : 'no access point executed it (client not present anywhere)',
             ]);
         }
@@ -2498,7 +2501,7 @@ class DefaultController extends AbstractController
         }
 
         $topic = 'apman/ap/'.$ap->getName().'/command';
-        $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
+        $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device, 'del_client', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
         $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
@@ -2530,7 +2533,7 @@ class DefaultController extends AbstractController
         }
 
         $topic = 'apman/ap/'.$ap->getName().'/command';
-        $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device, 'del_client', $opts);
+        $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device, 'del_client', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
         $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
@@ -2639,7 +2642,7 @@ class DefaultController extends AbstractController
         }
 
         $topic = 'apman/ap/'.$ap->getName().'/command';
-        $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'wnm_disassoc_imminent', $opts);
+        $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$request->get('device'), 'wnm_disassoc_imminent', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
         $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
@@ -2883,7 +2886,7 @@ class DefaultController extends AbstractController
         }
 
         $topic = 'apman/ap/'.$ap->getName().'/command';
-        $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'bss_transition_request', $opts);
+        $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$request->get('device'), 'bss_transition_request', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
         $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();
@@ -2937,7 +2940,7 @@ class DefaultController extends AbstractController
         }
 
         $topic = 'apman/ap/'.$ap->getName().'/command';
-        $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$request->get('device'), 'rrm_beacon_req', $opts);
+        $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$request->get('device'), 'rrm_beacon_req', $opts);
         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
         $res = $client->publish($topic, json_encode($cmd), 1);
         $client->disconnect();

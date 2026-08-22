@@ -11,6 +11,15 @@ class AccessPointService
     /** ubus answers this when the object or the section does not exist */
     private const UBUS_NOT_FOUND = 4;
 
+    /**
+     * Seconds between switching bss management on for 5 GHz and for 2.4 GHz.
+     *
+     * The staggering is what the removed "sleep 5" was for: give the band a
+     * client should prefer a head start at announcing itself before the other
+     * one starts advertising the same neighbours.
+     */
+    private const MGMT_STAGGER_SECONDS = 5;
+
     private $ppskService;
     private $steering;
     private $stateTree;
@@ -1369,12 +1378,6 @@ class AccessPointService
                 // Enable Beacons and BSS management
                 $this->logger->info("ApLifetimeHandler(): state $state on ap ".$ap->getName().' detected, updating beacon.');
                 $topic = 'apman/ap/'.$ap->getName().'/command/bulk';
-                $commands = [
-                'list' => [],
-                'options' => [
-                    'cancel_on_error' => false,
-                ],
-            ];
                 // At first 5g, then 2g
                 $dev2G = [];
                 $dev5G = [];
@@ -1394,26 +1397,47 @@ class AccessPointService
                 $opts->neighbor_report = true;
                 $opts->beacon_report = true;
                 $opts->bss_transition = true;
-                foreach ($dev5G as $device) {
-                    $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
-                    $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
+                // bss_mgmt_enable then update_beacon, in that order, per bss:
+                // the beacon is regenerated from the flags the first call set,
+                // so neither of these may be sent asynchronously.
+                $batch = function (array $devices) use ($opts) {
+                    $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+                    foreach ($devices as $device) {
+                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
+                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
+                    }
+
+                    return $commands;
+                };
+                $first = $batch($dev5G);
+                if (count($first['list'])) {
+                    $client->publish($topic, json_encode($first));
                     // stage one: this is the only place management is switched
                     // on today, so it is the only place the tree can learn it
-                    $this->stateTree->observeBss($device, ['managed' => true]);
+                    foreach ($dev5G as $device) {
+                        $this->stateTree->observeBss($device, ['managed' => true]);
+                    }
                 }
-                if (count($commands['list'])) {
-                    $eopts = new \stdclass();
-                    $eopts->command = 'sleep';
-                    $eopts->params = ['5'];
-                    $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'file', 'exec', $eopts);
-                }
-                foreach ($dev2G as $device) {
-                    $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
-                    $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
-                    $this->stateTree->observeBss($device, ['managed' => true]);
-                }
-                if (count($commands['list'])) {
-                    $client->publish($topic, json_encode($commands));
+                $second = $batch($dev2G);
+                if (count($second['list'])) {
+                    // The gap between the two bands used to be a "file exec
+                    // sleep 5" at the end of the first batch. It bought the
+                    // delay at the access point's expense: the agent's ubus
+                    // call turns its own event loop until the answer is there,
+                    // so for those five seconds it served no mqtt, no hostapd
+                    // control channel and no radius — and with macaddr_acl=2
+                    // every station that tried to associate in the window was
+                    // turned away (seen on ap-av-attic, 03:58:12 to 03:58:17).
+                    // Waiting is the controller's job; the access point should
+                    // be doing something else meanwhile.
+                    if (count($first['list'])) {
+                        $client->publishDelayed($topic, json_encode($second), self::MGMT_STAGGER_SECONDS);
+                    } else {
+                        $client->publish($topic, json_encode($second));
+                    }
+                    foreach ($dev2G as $device) {
+                        $this->stateTree->observeBss($device, ['managed' => true]);
+                    }
                 }
 
                 // Assign Neighbors, enable reports
@@ -1656,11 +1680,14 @@ class AccessPointService
                 $opts = new \stdClass();
                 $opts->list = $own_neighbors;
 
-                $ap = $device->getRadio()->getAccessPoint()->getName();
-                if (!isset($cmds[$ap])) {
-                    $cmds[$ap] = [];
+                $apname = $ap->getName();
+                if (!isset($cmds[$apname])) {
+                    $cmds[$apname] = [];
                 }
-                $cmds[$ap][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'rrm_nr_set', $opts);
+                // One neighbour list per bss, and no command in the batch is
+                // built on another: an access point with a dozen bsses has no
+                // reason to stop answering for the length of all of them.
+                $cmds[$apname][] = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'rrm_nr_set', $opts);
             }
             //print_r($neighbors);
         }
@@ -1884,7 +1911,10 @@ class AccessPointService
             $opts->ban_time = 10;
 
             $topic = 'apman/ap/'.$ap->getName().'/command';
-            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
+            // Nothing waits on the answer but this line of code, and a station
+            // that has already wandered off keeps hostapd busy until it gives
+            // up on it.
+            $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
             $this->logger->warning('steerClient('.$mac.'): Sending del_client message to topic '.$topic.': '.json_encode($cmd), ['wnm_capable' => $wnm_capable]);
             $res = $mclient->publish($topic, json_encode($cmd));
             $this->steeringState['state'][$mac] = ['client' => $client, 'last_sent' => time(), 'timeout' => time() + $opts->ban_time, 'try' => $try];
@@ -1926,7 +1956,10 @@ class AccessPointService
             $this->steering->markPending($mac, $target['bssid']);
 
             $topic = 'apman/ap/'.$ap->getName().'/command';
-            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
+            // A transition request runs until the station answers it or the
+            // disassociation timer expires — seconds, for a station that has
+            // stopped listening. The access point has better things to do.
+            $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
             $this->logger->warning('steerClient('.$mac.'): Sending bss_transition_request message to topic '.$topic.': '.json_encode($cmd), ['wnm_capable' => $wnm_capable]);
             $res = $mclient->publish($topic, json_encode($cmd));
             $this->steeringState['state'][$mac] = ['client' => $client, 'last_sent' => time(), 'timeout' => time() + $opts->disassociation_timer / 10, 'try' => $try];

@@ -96,7 +96,12 @@ class CustomActionsController extends CRUDController
                             }
                         }
                         $topic = 'apman/ap/'.$ap->getName().'/command';
-                        $cmd = $this->rpcService->createRpcRequest('evacuate-'.$device->getIfname(), 'call', null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
+                        // One of these per associated client, all to the same
+                        // access point, each running until the station answers
+                        // or the disassociation timer runs out. Sent
+                        // synchronously they add up to the whole evacuation
+                        // spent with the agent unable to do anything else.
+                        $cmd = $this->rpcService->createRpcRequest('evacuate-'.$device->getIfname(), $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
                         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
                         $client->publish($topic, json_encode($cmd));
                     }
