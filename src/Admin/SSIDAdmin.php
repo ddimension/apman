@@ -15,6 +15,14 @@ class SSIDAdmin extends AbstractAdmin
     {
         $formMapper->with('Basics')
         ->add('name')
+        ->add('short_name', null, [
+            'required' => false,
+            'label' => 'Short name',
+            'help' => 'The abbreviation that goes into every interface name of this network — '
+                .'wap-<short name>-5g. At most '.\ApManBundle\Library\IfnameScheme::slugBudget('60g', 2)
+                .' characters, a-z and 0-9. It lives here and not on a bss so that the same '
+                .'network has the same name on every access point.',
+        ])
         ->add('setup_order')
         ->add('config_options', CollectionType::class, [
                 // Prevents the "Delete" option from being displayed

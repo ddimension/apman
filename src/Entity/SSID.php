@@ -108,6 +108,23 @@ class SSID
     #[ORM\OneToMany(targetEntity: \ApManBundle\Entity\SSIDFeatureMap::class, mappedBy: 'ssid', cascade: ['persist'])]
     private $feature_maps;
 
+    /**
+     * The abbreviation that goes into every interface name of this network.
+     *
+     * It has to live here and not be read off an interface name, because the
+     * names in the field disagree: OpenNet is wap-onet1 on six access points,
+     * wap-opn1 on ap-av-klwz and wap-prv2 on ap-av-grwz. Deriving the
+     * abbreviation per device would carry that disagreement into the new
+     * scheme and call it a naming convention.
+     *
+     * Bounded by IfnameScheme::slugBudget(): eight characters for a 2.4, 5 or
+     * 6 GHz name, seven if 60 GHz ever appears.
+     *
+     * @var string|null
+     */
+    #[ORM\Column(name: 'short_name', type: 'string', length: 16, nullable: true)]
+    private $short_name;
+
     #[ORM\Column(type: 'integer', nullable: true)]
     private $setup_order;
 
@@ -259,6 +276,19 @@ class SSID
      *
      * @return \object
      */
+    public function getShortName(): ?string
+    {
+        return $this->short_name;
+    }
+
+    public function setShortName(?string $shortName): self
+    {
+        $shortName = strtolower(trim((string) $shortName));
+        $this->short_name = '' === $shortName ? null : $shortName;
+
+        return $this;
+    }
+
     public function exportConfig()
     {
         $res = new \stdClass();

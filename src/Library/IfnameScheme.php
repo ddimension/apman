@@ -89,13 +89,15 @@ final class IfnameScheme
     }
 
     /**
-     * A slug proposal, read out of the name a bss already has.
+     * A slug *proposal*, read out of the name a bss already has.
      *
      * The abbreviations in the field were chosen by somebody and are the part
      * worth keeping: wap-onets0 was meant to say "OpenNet Secure" and does.
-     * Only the prefix and the radio index come off. Returns null when there is
-     * nothing to read, which is the honest answer for a bss that has never had
-     * a name.
+     * Only the prefix and the radio index come off.
+     *
+     * This proposes and never decides. The names disagree across access points
+     * for the same network, so a value read here is a suggestion to put in
+     * front of a person, not an answer.
      */
     public static function slugFrom(?string $existing): ?string
     {
@@ -134,11 +136,19 @@ final class IfnameScheme
         if ('' === $band) {
             return ['name' => null, 'why' => 'the radio has no band'];
         }
-        $slug = $slug ?? self::slugFrom($device->getIfname()) ?? self::slugFrom($device->getIfnameSeen());
-        if (null === $slug) {
-            return ['name' => null, 'why' => 'no short name for '
-                .($device->getSsid() ? $device->getSsid()->getName() : 'this network')
-                .', and none to read out of an existing interface name'];
+        // The network's short name, and nothing else. Reading it off the
+        // interface a bss already has would look convenient and would carry
+        // the disagreement forward: OpenNet is wap-onet1 on six access points,
+        // wap-opn1 on ap-av-klwz and wap-prv2 on ap-av-grwz, so the same
+        // network would end up with three different names under a scheme whose
+        // whole purpose is that it has one. slugFrom() proposes; the ssid
+        // decides.
+        $ssid = $device->getSsid();
+        $slug = $slug ?? ($ssid ? $ssid->getShortName() : null);
+        if (null === $slug || '' === $slug) {
+            return ['name' => null, 'why' => 'no short name on the network '
+                .($ssid ? $ssid->getName() : '(none)')
+                .' — set one before renaming anything'];
         }
 
         $name = self::build($slug, $band, self::ordinalOf($radio, $radiosOfAp));

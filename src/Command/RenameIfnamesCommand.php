@@ -48,7 +48,7 @@ class RenameIfnamesCommand extends Command
             ->addOption('write', null, InputOption::VALUE_NONE, 'Actually write the names (default: only say what would change)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Explicit no-op; this is the default anyway')
             ->addOption('slug', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
-                'Short name for one network, as ssid=slug. Repeatable. Without it the slug is read out of the interface name a bss already has.');
+                'Set a network\'s short name, as "SSID=abbrev". Repeatable. Stored on the network, so every access point uses it.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -67,15 +67,39 @@ class RenameIfnamesCommand extends Command
             return 1;
         }
 
-        $slugs = [];
+        // --slug writes the network's short name, and it writes it once for the
+        // whole fleet: the abbreviation belongs to the network, not to a bss.
+        $write = $input->getOption('write') && !$input->getOption('dry-run');
         foreach ($input->getOption('slug') as $pair) {
             $parts = explode('=', $pair, 2);
             if (2 !== count($parts)) {
-                $output->writeln('<error>--slug wants ssid=slug, got: '.$pair.'</error>');
+                $output->writeln('<error>--slug wants "SSID=abbrev", got: '.$pair.'</error>');
 
                 return 1;
             }
-            $slugs[$parts[0]] = strtolower(trim($parts[1]));
+            $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')
+                ->findOneBy(['name' => $parts[0]]);
+            if (!$ssid) {
+                $output->writeln('<error>no such network: '.$parts[0].'</error>');
+
+                return 1;
+            }
+            $slug = strtolower(trim($parts[1]));
+            $why = IfnameScheme::reject(IfnameScheme::build($slug, '60g', 2));
+            if ($why) {
+                $output->writeln('<error>'.$slug.': '.$why.' — a short name has to fit the longest '
+                    .'name it could end up in ('.IfnameScheme::slugBudget('60g', 2).' characters)</error>');
+
+                return 1;
+            }
+            if (!$write) {
+                $output->writeln('would set the short name of '.$ssid->getName().' to '.$slug.' (add --write)');
+                continue;
+            }
+            $ssid->setShortName($slug);
+            $em->persist($ssid);
+            $em->flush();
+            $output->writeln('<info>short name of '.$ssid->getName().' is now '.$slug.'</info>');
         }
 
         $radios = [];
@@ -86,10 +110,11 @@ class RenameIfnamesCommand extends Command
         $rows = [];
         $problems = [];
         $taken = [];
+        $proposals = [];
         foreach ($radios as $radio) {
             foreach ($radio->getDevices() as $device) {
                 $ssidName = $device->getSsid() ? $device->getSsid()->getName() : '';
-                $result = IfnameScheme::forDevice($device, $radios, $slugs[$ssidName] ?? null);
+                $result = IfnameScheme::forDevice($device, $radios);
                 $row = [
                     'device' => $device,
                     'section' => $device->getName(),
@@ -102,6 +127,13 @@ class RenameIfnamesCommand extends Command
                 ];
                 if (null === $result['name']) {
                     $problems[] = $row['section'].': '.$result['why'];
+                    // what the name it already has would suggest, so the person
+                    // deciding has somewhere to start
+                    $proposal = IfnameScheme::slugFrom($device->getIfname())
+                        ?? IfnameScheme::slugFrom($device->getIfnameSeen());
+                    if ($proposal && $ssidName) {
+                        $proposals[$ssidName][$proposal] = ($proposals[$ssidName][$proposal] ?? 0) + 1;
+                    }
                 } elseif (isset($taken[$result['name']])) {
                     $problems[] = $result['name'].': wanted by '.$taken[$result['name']].' and '.$row['section'];
                 } else {
@@ -142,7 +174,22 @@ class RenameIfnamesCommand extends Command
             foreach ($problems as $problem) {
                 $output->writeln('  '.$problem);
             }
-            $output->writeln('Give the missing ones a short name with --slug "SSID=abbrev" and run it again.');
+            if ($proposals) {
+                $output->writeln('');
+                $output->writeln('The names these bsses already carry suggest:');
+                foreach ($proposals as $ssidName => $counts) {
+                    arsort($counts);
+                    $shown = [];
+                    foreach ($counts as $slug => $n) {
+                        $shown[] = $slug.($n > 1 ? ' ('.$n.'x)' : '');
+                    }
+                    $output->writeln(sprintf('  --slug %-18s   # from %s',
+                        '"'.$ssidName.'='.array_key_first($counts).'"', implode(', ', $shown)));
+                }
+                $output->writeln('');
+                $output->writeln('Check them against the other access points before deciding — the names');
+                $output->writeln('disagree today, which is the reason the short name lives on the network.');
+            }
 
             return 1;
         }
@@ -154,7 +201,7 @@ class RenameIfnamesCommand extends Command
             return 0;
         }
 
-        if (!$input->getOption('write') || $input->getOption('dry-run')) {
+        if (!$write) {
             $output->writeln('');
             $output->writeln($changing.' name(s) would change. Nothing written — add --write.');
             $output->writeln('After writing, '.$apName.' has to be provisioned for the names to reach it,');
