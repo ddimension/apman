@@ -47,6 +47,34 @@ class WlanConsistencyService
         'auth_server_shared_secret', 'acct_server_shared_secret',
     ];
 
+    /**
+     * Options ucode writes for itself, whatever we set.
+     *
+     * `ap.uc` assigns these outright rather than reading what uci says, so a
+     * value set here is discarded on every provisioning run and the option
+     * looks like a setting for as long as nobody checks. Measured on OpenWrt
+     * 25.12.5, ap.uc md5 c799af52a701, the same file on all seven access
+     * points.
+     *
+     * `start_disabled` is the one that matters in the field: every bss in the
+     * fleet carries it — eleven to fifteen uci sections per access point — and
+     * it reaches none of the twenty-one generated hostapd configurations. It
+     * was set to keep a network from coming up, and the network has been up the
+     * whole time.
+     *
+     * option => [the ap.uc line, what it does instead]
+     */
+    public const CLOBBERED = [
+        'start_disabled' => ['generate():540',
+            'ap.uc sets it from the staging flag wifi-scripts computes for a reload, so a value '
+            .'from uci is always overwritten. To keep a bss off the air use disabled, or take the '
+            .'network off that radio on its rollout page.'],
+        'wmm_enabled' => ['iface_setup():51', 'ap.uc writes 1 unconditionally.'],
+        'ssid2' => ['iface_setup():50', 'ap.uc writes the ssid into it unconditionally.'],
+        'group_mgmt_cipher' => ['iface_encryption():438',
+            'ap.uc takes it from ieee80211w_mgmt_cipher, or its own default when that is unset.'],
+    ];
+
     /** these carry key material, show the tail only */
     public const MASKED = ['r0kh', 'r1kh'];
 
@@ -191,6 +219,9 @@ class WlanConsistencyService
             $findings[] = $f;
         }
         foreach ($this->runningRadioRules() as $f) {
+            $findings[] = $f;
+        }
+        foreach ($this->clobberedOptionRules() as $f) {
             $findings[] = $f;
         }
         foreach ($this->ifnameRules() as $f) {
@@ -456,6 +487,52 @@ class WlanConsistencyService
                     'roaming' => false,
                 ];
             }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Options we set that never arrive, because ucode writes its own value.
+     *
+     * The counterpart of the custom_cfg finding: there the container was wrong,
+     * here the option is right and something downstream overwrites it. Both
+     * fail in the same silent way — the configuration says one thing, the
+     * access point does another, and nothing complains.
+     */
+    private function clobberedOptionRules()
+    {
+        $where = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\\Entity\\SSID')->findAll() as $ssid) {
+            foreach ((array) $ssid->exportConfig() as $name => $value) {
+                if (isset(self::CLOBBERED[$name]) && '' !== (string) $value) {
+                    $where[$name]['network '.$ssid->getName()] = true;
+                }
+            }
+        }
+        foreach ($this->doctrine->getRepository('ApManBundle\\Entity\\Device')->findAll() as $device) {
+            $config = $device->getConfig();
+            if (!is_array($config)) {
+                continue;
+            }
+            $radio = $device->getRadio();
+            $ap = $radio ? $radio->getAccessPoint() : null;
+            foreach ($config as $name => $value) {
+                if (isset(self::CLOBBERED[$name]) && '' !== (string) $value) {
+                    $where[$name][($ap ? $ap->getName().'/' : '').$device->getName()] = true;
+                }
+            }
+        }
+
+        $out = [];
+        foreach ($where as $name => $places) {
+            [$line, $what] = self::CLOBBERED[$name];
+            $out[] = [
+                'group' => 'set, and overwritten',
+                'option' => $name,
+                'values' => [$what.' ('.$line.')' => array_keys($places)],
+                'roaming' => false,
+            ];
         }
 
         return $out;

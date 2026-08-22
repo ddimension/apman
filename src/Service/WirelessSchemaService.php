@@ -182,7 +182,7 @@ class WirelessSchemaService
         'iw_enabled' => 'Switches Interworking (802.11u) on. Prerequisite for Passpoint.',
         'ssid' => 'The name broadcast over the air, up to 32 characters. The name of this entry in the controller may differ — this is what clients see.',
         'mode' => 'What role the interface plays: ap (offers a network), sta (joins one), adhoc, mesh, monitor or wds.',
-        'start_disabled' => 'The interface is created but stays down until something brings it up. For networks that are only switched on when they are needed.',
+        'start_disabled' => 'Does nothing here. ap.uc assigns this from the staging flag wifi-scripts computes for a reload, so a value set in uci is overwritten on every provisioning run — measured 2026-08-22: every bss in the fleet carries it, none of the twenty-one generated hostapd configurations does. To keep a bss off the air use disabled, or take the network off that radio on its rollout page.',
         'wds' => 'Four address mode: lets a connected device bridge a whole network behind it instead of only itself. Both sides have to agree.',
         'radios' => 'Which radios of the access point carry this network. Empty means all of them.',
         'powersave' => 'Client mode: allow the radio to sleep between beacons.',
@@ -267,6 +267,12 @@ class WirelessSchemaService
         // The radio side. All three come from reading hostapd.uc on the access
         // points rather than from the schema, which does not describe the
         // conditions under which it writes a line.
+        ['when' => ['start_disabled' => '/^[1-9]/'], 'always' => true,
+            'text' => 'start_disabled reaches no access point: ap.uc writes its own value over it '.
+                'on every run. Use disabled, or the rollout page, to keep a bss off the air.'],
+        ['when' => ['wmm_enabled' => '/^0$/'], 'always' => true,
+            'text' => 'ap.uc writes wmm_enabled=1 unconditionally, so switching it off here has '.
+                'no effect on the access point.'],
         ['when' => ['he_bss_color_enabled' => '/^(0|false|off)$/'], 'always' => true,
             'text' => 'That switch is the gate on the whole block: with it off hostapd.uc writes '.
                 'neither he_bss_color nor he_spr_non_srg_obss_pd_max_offset nor he_spr_sr_control, '.

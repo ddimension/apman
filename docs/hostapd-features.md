@@ -129,11 +129,19 @@ Cheap to try, and old clients that do not know it negotiate it away rather than
 failing — but that is the thing to verify on a network with unknown devices
 before it goes fleet-wide.
 
-### `beacon_prot` — bss
+### `beacon_prot` — bss — **already on**
 
-Signs beacons so a station notices a forged one. Also PMF-based. Same shape of
-risk as `ocv`: a client that does not know it should ignore it, and the ones
-that get it wrong are old.
+Signs beacons so a station notices a forged one. Nothing to switch on: `ap.uc`
+does `set_default(config, 'beacon_prot', 1)` inside the encryption block, so
+every bss whose encryption reaches that point already has it.
+
+Measured 2026-08-22 on ap-av-attic: nine of eleven bsses carry `beacon_prot=1`.
+The two that do not are the open ones, which have no protected management frames
+to sign.
+
+So the work here is not to set it but to know it is set — and that a client that
+gets it wrong will fail in a way that looks like a beacon problem, not a
+configuration one.
 
 ### `wnm_sleep_mode_no_keys` — bss
 
@@ -174,6 +182,37 @@ Not in either schema; `hostapd` knows them, so `hostapd_bss_options` is the way:
   and only sensible once every client can do WPA3.
 - **`sae_track_password`** — tracks SAE password use.
 - **`oce`** — already set here, as a raw line, correctly.
+
+## What is set and does nothing
+
+### `start_disabled` — on six networks, since nobody knows when
+
+`ap.uc` line 540, in `generate()`:
+
+```
+config.start_disabled = data.ap_start_disabled;
+```
+
+Assigned, not read: whatever uci says is replaced by the staging flag
+wifi-scripts computes for a reload. Measured 2026-08-22 across the fleet —
+eleven to fifteen uci sections per access point carry it, and **none of the
+twenty-one generated hostapd configurations does**.
+
+It is set at the network level on kalnet, OpenNet, OpenNet Secure, kalnet6 and
+two more, so it lands on every bss of those networks. It was set to keep a
+network from coming up. Those networks have been up the whole time.
+
+The consistency check reports it now, and the editor says so next to the option.
+To keep a bss off the air there are two mechanisms that do work:
+
+- `disabled` on the bss — `ap.uc` honours it and the bss is not rendered at all.
+  Verified 2026-08-22: kaltest was added to ap-av-attic radio1, provisioned, and
+  arrived in uci as `disabled='1'` with no block in `hostapd-phy1.conf`.
+- the rollout page, which removes the bss and records why.
+
+Three more are overwritten the same way and happen to bite nobody here, because
+nothing in the fleet sets them: `wmm_enabled` (ap.uc writes 1), `ssid2` (written
+from the ssid) and `group_mgmt_cipher` (taken from `ieee80211w_mgmt_cipher`).
 
 ## What must not be set
 
