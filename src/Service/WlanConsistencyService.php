@@ -187,6 +187,9 @@ class WlanConsistencyService
         foreach ($this->fleetRules($blocks) as $f) {
             $findings[] = $f;
         }
+        foreach ($this->runningRadioRules() as $f) {
+            $findings[] = $f;
+        }
         foreach ($this->ifnameRules() as $f) {
             $findings[] = $f;
         }
@@ -314,37 +317,12 @@ class WlanConsistencyService
     {
         $out = [];
 
-        // A bss colour shared by two access points on one channel.
-        //
-        // The colour exists so a receiver can tell overlapping networks on the
-        // same channel apart and decide it may transmit anyway. Two co-channel
-        // access points with the same colour is the one case the mechanism
-        // cannot handle, and it is the case the fleet is in: every radio
-        // carries he_bss_color=128, which is the schema default and the top of
-        // the range, and ap-outdoor and ap-outdoor2 are both on channel 116.
-        $byChannel = [];
-        foreach ($blocks as $b) {
-            $radio = $b['cfg']['_radio'] ?? [];
-            $channel = $radio['channel'] ?? null;
-            $colour = $radio['he_bss_color'] ?? null;
-            if (null === $channel || null === $colour || '0' === $channel) {
-                continue;
-            }
-            $byChannel[$channel][$colour][$b['ap']] = true;
-        }
-        foreach ($byChannel as $channel => $colours) {
-            foreach ($colours as $colour => $aps) {
-                if (count($aps) < 2) {
-                    continue;
-                }
-                $out[] = [
-                    'group' => 'channel '.$channel.' / bss colour',
-                    'option' => 'he_bss_color',
-                    'values' => [$colour => array_keys($aps)],
-                    'roaming' => false,
-                ];
-            }
-        }
+        // The colour rule used to live here and compared the *configured*
+        // value. That was wrong, and it reported collisions that did not
+        // exist: hostapd assigns the colour itself and resolves collisions
+        // itself, so every radio in the fleet runs a distinct one while every
+        // configuration says 128, the schema default. What runs is read from
+        // the status cache instead — see runningRadioRules().
 
         // The other half of an owe transition pair, named and not there. An
         // owe_transition_ifname pointing at nothing turns the encrypted half
@@ -388,6 +366,90 @@ class WlanConsistencyService
                 'values' => ['0 — everything hostapd has to say' => array_keys($aps)],
                 'roaming' => false,
             ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * What the radios are actually doing, as opposed to what they were told.
+     *
+     * Read from `status.device.<id>.ap_status`, which carries hostapd's own
+     * `get_status` — the frequency it settled on and the colour it chose.
+     * Neither is the configured value, and for the colour that is by design:
+     * hostapd picks one and changes it when it sees a collision, so comparing
+     * configurations answers a question nobody asked.
+     *
+     * Grouped by frequency, not by channel number. hostapd reports sometimes
+     * the control and sometimes the centre channel, so the number alone does
+     * not identify a radio's place in the band; the frequency does.
+     */
+    private function runningRadioRules()
+    {
+        $radios = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\\Entity\\Device')->findAll() as $device) {
+            $radio = $device->getRadio();
+            $ap = $radio ? $radio->getAccessPoint() : null;
+            if (!$radio || !$ap) {
+                continue;
+            }
+            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+            $ap_status = is_array($status) ? ($status['ap_status'] ?? null) : null;
+            if (!is_array($ap_status) || !isset($ap_status['freq'])) {
+                continue;
+            }
+            // one entry per radio, not per bss: the colour and the frequency
+            // belong to the radio and every bss on it repeats them
+            $radios[$ap->getName().'/'.$radio->getName()] = [
+                'ap' => $ap->getName(),
+                'radio' => $radio->getName(),
+                'freq' => (int) $ap_status['freq'],
+                'channel' => $ap_status['channel'] ?? null,
+                'colour' => $ap_status['bss_color'] ?? null,
+                'wanted' => $radio->getConfigChannel(),
+            ];
+        }
+
+        $out = [];
+        $byFreq = [];
+        foreach ($radios as $r) {
+            if (null !== $r['colour']) {
+                $byFreq[$r['freq']][$r['colour']][$r['ap'].'/'.$r['radio']] = true;
+            }
+        }
+        foreach ($byFreq as $freq => $colours) {
+            foreach ($colours as $colour => $where) {
+                if (count($where) < 2) {
+                    continue;
+                }
+                $out[] = [
+                    'group' => $freq.' MHz / bss colour',
+                    'option' => 'he_bss_color',
+                    'values' => [$colour.' — two radios on one frequency cannot be told apart'
+                        => array_keys($where)],
+                    'roaming' => false,
+                ];
+            }
+        }
+
+        // A radio that is not where it was told to be. Usually DFS moved it,
+        // which is the system working — but it is worth seeing, because the
+        // configuration and the air disagree and only one of them is checked
+        // anywhere else.
+        foreach ($radios as $r) {
+            $wanted = (string) $r['wanted'];
+            if ('' === $wanted || 'auto' === strtolower($wanted) || null === $r['channel']) {
+                continue;
+            }
+            if ((string) $r['channel'] !== $wanted) {
+                $out[] = [
+                    'group' => 'channel',
+                    'option' => $r['ap'].'/'.$r['radio'],
+                    'values' => ['configured '.$wanted.', running '.$r['channel'].' ('.$r['freq'].' MHz)'
+                        => [$r['ap'].'/'.$r['radio']]],
+                    'roaming' => false,
+                ];
+            }
         }
 
         return $out;
