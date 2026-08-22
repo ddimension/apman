@@ -1105,7 +1105,7 @@ class DefaultController extends AbstractController
      * was in the repository the whole time and nothing opened it.
      */
     #[Route(path: '/radio/{id}', name: 'radio_detail')]
-    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\ChannelPlanService $planner, \ApManBundle\Service\DfsService $dfsService, \Symfony\Component\HttpFoundation\Request $request, $id)
+    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\ChannelPlanService $planner, \ApManBundle\Service\DfsService $dfsService, \ApManBundle\Service\WlanConsistencyService $consistency, \Symfony\Component\HttpFoundation\Request $request, $id)
     {
         $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->find($id);
         if (!$radio) {
@@ -1238,6 +1238,9 @@ class DefaultController extends AbstractController
             // and what it needs on the channel it is on, whether or not it is
             // checking — the number a timeout has to be measured against
             'dfs_expect' => $dfsService->expectFor($radio),
+            // what the radio level options became on the device, so setting
+            // mbssid and checking mbssid are the same page
+            'running_radio' => $consistency->runningRadioConfig($radio),
             // said out loud rather than rendering nothing: a blank where an
             // answer should be is the thing that wasted an hour today
             'dfs_why' => $probeWhy,

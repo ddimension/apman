@@ -109,6 +109,33 @@
 		{{ running.disagree|keys|join(', ') }} — they share one radio, so they should not.</p>
 	{% endif %}
 
+	{% if running_radio %}
+		{% set watch = {'mbssid': 'one beacon set for the whole group', 'rnr': 'advertises the other bands',
+			'he_bss_color': 'chosen by hostapd', 'he_bss_color_enabled': 'the gate on the colour block',
+			'he_spr_psr_enabled': 'spatial reuse', 'he_spr_non_srg_obss_pd_max_offset': 'obss-pd threshold',
+			'he_spr_sr_control': 'ored onto by ucode', 'rssi_ignore_probe_request': 'probes below this are ignored',
+			'rssi_reject_assoc_rssi': 'associations below this are refused', 'ieee80211ax': 'mbssid needs this',
+			'ieee80211be': 'mbssid needs this or ax'} %}
+		<h4 class="small" style="margin:1em 0 .2em">What these options became on the device</h4>
+		<table class="counters small">
+			<tr><th>option</th><th>running</th><th></th></tr>
+			{% for name, why in watch %}
+				{% if running_radio[name] is defined %}
+					<tr>
+						<td class="mono">{{ name }}</td>
+						<td><b>{{ running_radio[name] }}</b></td>
+						<td class="stale">{{ why }}</td>
+					</tr>
+				{% endif %}
+			{% endfor %}
+		</table>
+		<p class="small stale">
+			Read out of the configuration the access point is running, as the consistency check last
+			fetched it — so it changes at a provisioning run, not while you type. An option you set
+			that is missing here did not arrive.
+		</p>
+	{% endif %}
+
 	<table class="counters small">
 		<tr><th>bss</th><th>bssid</th><th>state</th><th title="neighbour reports sent">rrm nr_tx</th>
 			<th title="bss transition requests we sent">wnm req</th>

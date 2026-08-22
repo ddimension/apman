@@ -122,6 +122,36 @@ class WlanConsistencyService
         return $result;
     }
 
+    /**
+     * What a radio's own lines say in the configuration it is running.
+     *
+     * The radio page can set mbssid, the spatial reuse block and the rssi
+     * thresholds, and could not show what any of them actually became. For an
+     * option whose whole risk is "does this driver do it" — and the fleet has
+     * five driver families, ath11k, ath11k_pci, ath10k_pci, mt7915e and
+     * mt798x-wmac — setting it and checking it belong in the same place.
+     *
+     * Read from what the consistency run already parsed and cached. Never
+     * fetched here: a page load must not wait on eight access points, and a
+     * value from ten minutes ago is the right answer for a line that only
+     * changes on a provisioning run.
+     *
+     * @return array|null the radio level preamble, or null if nothing is cached
+     */
+    public function runningRadioConfig(\ApManBundle\Entity\Radio $radio): ?array
+    {
+        $ap = $radio->getAccessPoint();
+        if (!$ap) {
+            return null;
+        }
+        $cached = $this->cacheFactory->getCacheItemValue('wlan.radioconf');
+        if (!is_array($cached)) {
+            return null;
+        }
+
+        return $cached[$ap->getName()][$radio->getName()] ?? null;
+    }
+
     private function run()
     {
         $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findBy(['IsProductive' => true]);
@@ -139,6 +169,26 @@ class WlanConsistencyService
                     'keyfiles' => $keyfiles];
             }
         }
+
+        // The radio level lines, per radio, so the radio page can show what its
+        // options became without asking an access point on every page load.
+        // The block's ifname resolves to the device and from there to the radio.
+        $radioConf = [];
+        $byIfname = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll() as $device) {
+            $r = $device->getRadio();
+            $a = $r ? $r->getAccessPoint() : null;
+            if ($a && $device->ifname()) {
+                $byIfname[$a->getName()][$device->ifname()] = $r->getName();
+            }
+        }
+        foreach ($blocks as $b) {
+            $radioName = $byIfname[$b['ap']][$b['bss']] ?? null;
+            if (null !== $radioName && !isset($radioConf[$b['ap']][$radioName])) {
+                $radioConf[$b['ap']][$radioName] = $b['cfg']['_radio'] ?? [];
+            }
+        }
+        $this->cacheFactory->addCacheItem('wlan.radioconf', $radioConf, 7 * 86400);
 
         // group by ssid and band: 6 GHz legitimately differs in pmf and akm
         $groups = [];
