@@ -300,11 +300,11 @@ class ClientCommandService
                 // client is elsewhere" hides a bss that is simply gone behind
                 // a perfectly normal looking search result.
                 //
-                // The agent marks the second case with stage=lookup: the call
-                // never reached an object. Only on the deferred path — the
-                // synchronous binding cannot tell the two apart, so where the
-                // field is absent the old reading is the only one available
-                // and also the right one.
+                // The agent marks the second case with stage=lookup: the
+                // call never reached an object. Both paths say it, deferred
+                // and queued alike — only an agent old enough to still block
+                // cannot tell the two apart, and where the field is absent the
+                // old reading is the only one available and also the right one.
                 if ('lookup' === ($res['error']['stage'] ?? null)) {
                     $result['missing'][] = $label;
                     $this->stateTree->observeBss($where['bss'], ['present' => false]);

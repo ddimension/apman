@@ -64,25 +64,30 @@ class wrtJsonRpc
     }
 
     /**
-     * Give a deferred command the same deadline its caller works to.
+     * Give a command the same deadline its caller works to.
      *
      * Without one it runs on the agent's own, thirty seconds. A caller that
-     * gives up after five and a command that keeps going for another
-     * twenty five do not disagree about anything important — but the answer
+     * gives up after three and a command that keeps going for another
+     * twenty seven do not disagree about anything important — but the answer
      * still arrives, on command_result/<id>, long after anybody was listening
      * for it, and whoever is subscribed then sees a reply to a question that
      * was written off. Saying how long we care makes that case not exist.
      *
-     * Only for "call_async": a synchronous call has no deadline of its own to
-     * set, and the field would be noise on the wire.
+     * It counts from when the call goes out, not from when the command was
+     * sent: a command far back in the agent's queue can start later than the
+     * budget allows and then still take all of it. At the depths seen so far —
+     * thirty four commands, under a second in total — that is not a real
+     * quantity, but it is the reason this is not a guarantee about when an
+     * answer arrives.
+     *
+     * An agent too old to have a queue ignores the field, which is the right
+     * thing for it to do: there the call was going to block anyway.
      *
      * @param float $seconds the agent clamps this to 1..300
      */
     public function setTimeout(\stdClass $cmd, $seconds)
     {
-        if ('call_async' === $cmd->method) {
-            $cmd->timeout = max(1, min(300, (int) ceil($seconds)));
-        }
+        $cmd->timeout = max(1, min(300, (int) ceil($seconds)));
 
         return $cmd;
     }
