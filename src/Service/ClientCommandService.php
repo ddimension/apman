@@ -222,7 +222,7 @@ class ClientCommandService
             $byAp[$apName][] = $device;
         }
         foreach ($byAp as $apName => $devices) {
-            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            $commands = ['list' => []];
             foreach ($devices as $device) {
                 $id = 'cc-'.$method.'-'.$device->getId().'-'.$run;
                 // The whole point of this class is to ask several bsses at

@@ -408,12 +408,7 @@ class AccessPointService
         }
 
         $session = $this->getApSession($ap);
-        $commands = [
-            'list' => [],
-            'options' => [
-                'cancel_on_error' => false,
-            ],
-        ];
+        $commands = ['list' => []];
 
         // An SSID answered by the AP's own RADIUS server needs the secret
         // generated before the device configs are built — they carry it as a
@@ -436,8 +431,8 @@ class AccessPointService
 
         // Total clean up — but only for the section types the access point
         // actually has. A delete for a type it has none of answers
-        // "not found (4)", and even with cancel_on_error the staged session
-        // does not come out of that intact: a section re-added under its own
+        // "not found (4)", and the staged session does not come out of that
+        // intact either way: a section re-added under its own
         // name afterwards keeps the options the new values do not mention.
         //
         // That is not cosmetic. kalnet carried a wpa_psk_radius=2 that existed
@@ -1401,7 +1396,7 @@ class AccessPointService
                 // the beacon is regenerated from the flags the first call set,
                 // so neither of these may be sent asynchronously.
                 $batch = function (array $devices) use ($opts) {
-                    $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+                    $commands = ['list' => []];
                     foreach ($devices as $device) {
                         $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
                         $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
@@ -1693,12 +1688,7 @@ class AccessPointService
         }
         foreach ($cmds as $apname => $apcmds) {
             $topic = 'apman/ap/'.$apname.'/command/bulk';
-            $commands = [
-                'list' => $apcmds,
-                'options' => [
-                    'cancel_on_error' => false,
-                ],
-            ];
+            $commands = ['list' => $apcmds];
             if (count($commands['list'])) {
                 $this->logger->info("assignAllNeighbors(): send rrm commands to $apname\n");
                 $client->publish($topic, json_encode($commands));

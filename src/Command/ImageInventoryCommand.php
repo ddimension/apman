@@ -270,7 +270,18 @@ class ImageInventoryCommand extends Command
             $this->onAnswer($message, $key);
         });
         foreach ($this->pending as $id => $name) {
-            $cmd = $this->rpcService->createRpcRequest($id, 'call', null, $call[0], $call[1], $call[2]);
+            // This command never touches the database — the whole inventory is
+            // built from what the broker replays — so the capability is read
+            // from the feature list collected a moment ago rather than looked
+            // up. One call per device, so there is no parallelism here to win;
+            // what it buys is the deadline: a device that does not answer
+            // stops being asked when we stop waiting, instead of holding a
+            // ubus request for thirty seconds after that.
+            $features = $this->devices[$name]['agent']['features'] ?? [];
+            $method = in_array('ubus_async', $features, true) ? 'call_async' : 'call';
+            $cmd = $this->rpcService->setTimeout(
+                $this->rpcService->createRpcRequest($id, $method, null, $call[0], $call[1], $call[2]),
+                $timeout);
             $client->publish('apman/ap/'.$name.'/command', json_encode($cmd), 1);
         }
         $client->wait(max(1, (int) $timeout), function () {

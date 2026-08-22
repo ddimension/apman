@@ -1027,17 +1027,27 @@ class PpskService
      *
      * @return array apName => (sectionName => values), null when it did not answer
      */
-    private function readState($client, array $ifnamesByAp, $timeout = 8, array $noWait = [])
+    private function readState($client, array $ifnamesByAp, $timeout = 8, array $noWait = [], array $apsByName = [])
     {
         $wait = [];
         $run = bin2hex(random_bytes(3));
         foreach ($ifnamesByAp as $apName => $ifnames) {
-            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            // Nothing here changes anything and nothing here reads what
+            // another one of them produced — one uci section list and a
+            // handful of files, gathered by id afterwards. An access point
+            // with a dozen bsses has no reason to answer them one at a time,
+            // and the deadline it works to is the caller's.
+            $ap = $apsByName[$apName] ?? null;
+            $method = $ap ? $this->rpcService->asyncMethod($ap) : 'call';
+            $stamp = function ($cmd) use ($timeout) {
+                return $this->rpcService->setTimeout($cmd, $timeout);
+            };
+            $commands = ['list' => []];
             $opts = new \stdClass();
             $opts->config = 'wireless';
             $opts->type = 'wifi-station';
             $id = 'ppsk-read-'.$apName.'-'.$run;
-            $commands['list'][] = $this->rpcService->createRpcRequest($id, 'call', null, 'uci', 'get', $opts);
+            $commands['list'][] = $stamp($this->rpcService->createRpcRequest($id, $method, null, 'uci', 'get', $opts));
             // ask it anyway, but do not hold everyone else up for an answer
             // that is not coming
             if (!isset($noWait[$apName])) {
@@ -1050,7 +1060,7 @@ class PpskService
                 $read = new \stdClass();
                 $read->path = '/var/run/hostapd-'.$ifname.'.psk';
                 $fid = 'ppsk-readfile-'.$ifname.'-'.$run;
-                $commands['list'][] = $this->rpcService->createRpcRequest($fid, 'call', null, 'file', 'read', $read);
+                $commands['list'][] = $stamp($this->rpcService->createRpcRequest($fid, $method, null, 'file', 'read', $read));
                 $wait[$fid] = ['ap' => $apName, 'what' => 'file', 'ifname' => $ifname];
             }
             $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);
@@ -1393,8 +1403,10 @@ class PpskService
         // access point used to cost every distribution the full deadline of
         // every phase — measured 2026-08-21 with ap-hv-klwz down all day.
         $noWait = [];
+        $apsByName = [];
         foreach ($byAp as $apName => $apDevices) {
             $waitAp = $apDevices[0]->getRadio()->getAccessPoint();
+            $apsByName[$apName] = $waitAp;
             if ($waitAp && !$this->worthWaitingFor($waitAp)) {
                 $noWait[$apName] = true;
             }
@@ -1404,7 +1416,7 @@ class PpskService
                 ' — the state tree says they are not reachable');
         }
 
-        $state = $this->readState($client, $ifnamesByAp, 8, $noWait);
+        $state = $this->readState($client, $ifnamesByAp, 8, $noWait, $apsByName);
         $current = $state['sections'];
         $committed = [];
         $fileBatches = [];
@@ -1413,7 +1425,7 @@ class PpskService
         $verify = [];
 
         foreach ($byAp as $apName => $apDevices) {
-            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            $commands = ['list' => []];
             $ifaces = [];    // uci wifi-iface section names carrying this ssid
             $expected = [];  // section name => uci add payload
             $targets = [];   // ifname => device
@@ -1538,7 +1550,7 @@ class PpskService
             // `delete` 6 ms. With ninety station sections per access point,
             // deleting them all and writing them all back was 2.3 seconds of
             // work for what is usually one changed key.
-            $uciCommands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            $uciCommands = ['list' => []];
             $dropped = 0;
             $added = 0;
             foreach ($current[$apName] as $name => $values) {
@@ -1747,7 +1759,7 @@ class PpskService
             $id = 'ppsk-keys-'.$apName.'-'.$run;
             $commands = ['list' => [
                 $this->rpcService->createRpcRequest($id, 'call', null, 'apman', 'keys', $payload),
-            ], 'options' => ['cancel_on_error' => false]];
+            ]];
             $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);
             // It still gets the key set — the broker may yet deliver it, and a
             // slow access point must not be skipped. What we do not do is sit
@@ -1856,7 +1868,7 @@ class PpskService
             $id = 'ppsk-drop-'.$apName.'-'.$run;
             $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode(['list' => [
                 $this->rpcService->createRpcRequest($id, 'call', null, 'apman', 'keys', $payload),
-            ], 'options' => ['cancel_on_error' => false]]), 1);
+            ]]), 1);
             $wait[$id] = $apName;
             $results[$apName] = 'no answer';
         }
@@ -1893,7 +1905,7 @@ class PpskService
     {
         $flushed = 0;
         foreach ($this->devicesByAp($ssid) as $apName => $devices) {
-            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            $commands = ['list' => []];
             foreach ($devices as $device) {
                 $commands['list'][] = $this->rpcService->createRpcRequest(
                     'ppsk-pmksa-'.$device->getIfname().'-'.$run, 'ctrl', null,
@@ -1995,7 +2007,7 @@ class PpskService
             if (!$reload) {
                 continue;
             }
-            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            $commands = ['list' => []];
             foreach ($reload as $ifname => $device) {
                 $commands['list'][] = $this->rpcService->createRpcRequest(
                     'ppsk-reload-'.$ifname.'-'.$run, 'ctrl', null, $ifname, 'RELOAD_WPA_PSK'
@@ -2302,7 +2314,7 @@ class PpskService
 
         $expect = [];
         foreach ($byAp as $apName => $devices) {
-            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            $commands = ['list' => []];
             foreach ($devices as $device) {
                 $id = $what.'-'.$device->getId();
                 $commands['list'][] = $this->rpcService->createRpcRequest(
@@ -2388,7 +2400,7 @@ class PpskService
         $sent = 0;
         $targets = [];
         foreach ($byAp as $apName => $devices) {
-            $commands = ['list' => [], 'options' => ['cancel_on_error' => false]];
+            $commands = ['list' => []];
             foreach ($devices as $device) {
                 $opts = new \stdClass();
                 $opts->command = '/usr/sbin/hostapd_cli';
