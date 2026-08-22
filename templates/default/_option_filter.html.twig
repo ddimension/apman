@@ -1,0 +1,108 @@
+{#
+	The two filters over an option table, shared by the network and the radio
+	page. storage_key keeps each page's last choice apart — the scope you want
+	on a radio is rarely the one you want on a network.
+#}
+<script>
+const rows = Array.from(document.querySelectorAll('tr.opt'));
+const groups = Array.from(document.querySelectorAll('details.group'));
+
+// Two filters at once: the "show everything" switch and the search box. An
+// option stays visible when it is set, or when the switch is on, or when it
+// matches the search — searching implies showing defaults, otherwise looking
+// for something you have not set yet finds nothing.
+const SCOPES = {
+	set: ['set'],
+	documented: ['set', 'default'],
+	all: ['set', 'default', 'off', 'unwritten'],
+};
+
+const scopeSel = document.getElementById('scope');
+const filterBox = document.getElementById('filter');
+const shown = document.getElementById('shown');
+const toggleAll = document.getElementById('toggleall');
+
+// the last choice survives a reload — you rarely want a different one on the
+// next network than on this one
+const stored = localStorage.getItem('{{ storage_key|default('apman.options.scope') }}');
+if (stored && SCOPES[stored]) { scopeSel.value = stored; }
+
+function apply() {
+	const scope = SCOPES[scopeSel.value] || SCOPES.all;
+	const q = filterBox.value.trim().toLowerCase();
+	let count = 0;
+	rows.forEach((tr) => {
+		const inScope = scope.includes(tr.dataset.state);
+		const hit = !q || tr.dataset.name.includes(q) || (tr.dataset.doc || '').includes(q);
+		// a search always reaches into everything — looking for something you
+		// have not switched on yet must not come up empty
+		const visible = hit && (inScope || q);
+		tr.style.display = visible ? '' : 'none';
+		if (visible) { count++; }
+	});
+	programmatic = true;
+	groups.forEach((d) => {
+		const visible = d.querySelectorAll('tr.opt:not([style*="none"])').length;
+		d.style.display = visible ? '' : 'none';
+		// a group the user has not touched follows the view: searching or
+		// asking for everything opens it, otherwise it stays as it was
+		if (visible && !d.dataset.touched) { d.open = true; }
+	});
+	programmatic = false;
+	shown.textContent = count + ' of ' + rows.length + ' options';
+}
+
+// opening a group from here must not count as the user having touched it,
+// otherwise the first filter freezes every group in place
+let programmatic = false;
+groups.forEach((d) => d.addEventListener('toggle', () => {
+	if (!programmatic) { d.dataset.touched = '1'; }
+}));
+scopeSel.addEventListener('change', () => {
+	localStorage.setItem('{{ storage_key|default('apman.options.scope') }}', scopeSel.value);
+	groups.forEach((d) => delete d.dataset.touched);
+	apply();
+});
+filterBox.addEventListener('input', apply);
+toggleAll.addEventListener('click', () => {
+	const open = toggleAll.textContent.trim() === 'open all';
+	groups.forEach((d) => { d.dataset.touched = '1'; d.open = open; });
+	toggleAll.textContent = open ? 'close all' : 'open all';
+});
+apply();
+
+// The form is submitted through fetch so the answer can say what moved
+// instead of reloading the page and losing the scroll position. Both editors
+// answer with {ok, changed, hint}; a page without a #result element would
+// throw here before the request went out, which is a save that silently does
+// nothing — so the element is required and this says so.
+document.getElementById('editor').addEventListener('submit', async (ev) => {
+	ev.preventDefault();
+	const out = document.getElementById('result');
+	if (!out) {
+		console.error('no #result element on this page: the save would report nothing');
+
+		return;
+	}
+	const btn = ev.target.querySelector('button[type=submit]');
+	btn.disabled = true;
+	out.className = 'small';
+	out.textContent = 'saving…';
+	try {
+		const res = await fetch(ev.target.action, { method: 'POST', body: new FormData(ev.target) });
+		const d = await res.json();
+		if (!d.ok) {
+			out.className = 'small warn';
+			out.textContent = d.error || 'failed';
+		} else {
+			out.className = 'small ok';
+			out.textContent = d.hint + (d.changed.length ? ' (' + d.changed.join(', ') + ')' : '');
+			if (d.changed.length) { setTimeout(() => location.reload(), 1500); }
+		}
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+	btn.disabled = false;
+});
+</script>

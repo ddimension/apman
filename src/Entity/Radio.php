@@ -153,6 +153,36 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     private $accesspoint;
 
     /**
+     * The options that have a column of their own, and the setter for each.
+     *
+     * Everything not in here lives in the json column. The split is historical
+     * rather than principled — these nineteen were added one at a time — but it
+     * has to be written down somewhere, because an option must have exactly one
+     * place to live.
+     */
+    public const COLUMN_OPTIONS = [
+        'type' => 'setConfigType',
+        'path' => 'setConfigPath',
+        'disabled' => 'setConfigDisabled',
+        'channel' => 'setConfigChannel',
+        'channels' => 'setConfigChannels',
+        'band' => 'setConfigBand',
+        'hwmode' => 'setConfigHwmode',
+        'txpower' => 'setConfigTxpower',
+        'country' => 'setConfigCountry',
+        'require_mode' => 'setConfigRequireMode',
+        'log_level' => 'setConfigLogLevel',
+        'htmode' => 'setConfigHtmode',
+        'noscan' => 'setConfigNoscan',
+        'beacon_int' => 'setConfigBeaconInt',
+        'basic_rate' => 'setConfigBasicRate',
+        'supported_rates' => 'setConfigSupportedRates',
+        'rts' => 'setConfigRts',
+        'antenna_gain' => 'setConfigAntennaGain',
+        'ht_capab' => 'setConfigHtCapab',
+    ];
+
+    /**
      * Everything else the radio may carry, as uci names it.
      *
      * There are nineteen config_* columns and a hundred and fifty-two options
@@ -838,10 +868,7 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     {
         // the columns own these; a duplicate in the json would be a second
         // truth about the same option
-        foreach (['type', 'path', 'disabled', 'channel', 'channels', 'band',
-            'hwmode', 'txpower', 'country', 'require_mode', 'log_level',
-            'htmode', 'noscan', 'beacon_int', 'basic_rate', 'supported_rates',
-            'rts', 'antenna_gain', 'ht_capab'] as $owned) {
+        foreach (array_keys(self::COLUMN_OPTIONS) as $owned) {
             unset($config[$owned]);
         }
         $this->config = $config;

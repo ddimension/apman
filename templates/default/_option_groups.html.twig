@@ -1,0 +1,80 @@
+{#
+	The option groups of one section — a network's wifi-iface options or a
+	radio's wifi-device ones. Shared, because two copies of a table this size
+	drift: the network page had it first and the radio page needs exactly the
+	same thing with a different schema behind it.
+
+	Expects: groups (from WirelessSchemaService::describe)
+	Optional: features (the preview of what runs over a network's options —
+	          a radio has no features, so the block is guarded)
+#}
+	{% for key, g in groups %}
+		{% set count = g.set|length %}
+		<details class="group" data-group="{{ key }}" open>
+			<summary>
+				<b>{{ g.title }}</b>
+				<span class="small">{{ g.intro }}</span>
+				<span class="pill {{ count ? 'up' : '' }}">{{ count }} set</span>
+				{% if g.counts.default %}<span class="pill">{{ g.counts.default }} on default</span>{% endif %}
+				{% if g.counts.off %}<span class="pill off">{{ g.counts.off }} off</span>{% endif %}
+				{% if g.counts.unwritten %}<span class="pill stale">{{ g.counts.unwritten }} not written</span>{% endif %}
+			</summary>
+
+			<table class="opts">
+				{% for o in g.set|merge(g.available) %}
+					<tr class="opt state-{{ o.state }}" data-state="{{ o.state }}"
+						data-name="{{ o.name }}" data-doc="{{ o.description|default('')|lower }}">
+						<td class="name" data-label="Option">
+							<code>{{ o.name }}</code>
+							{% if o.state == 'set' %}<span class="tag set">set</span>
+							{% elseif o.state == 'default' %}<span class="tag def">default {{ o.default }}</span>
+							{% elseif o.state == 'off' %}<span class="tag off">off</span>
+							{% else %}<span class="tag un">not written</span>{% endif %}
+							{% if o.alias_of %}<div class="small stale">alias for {{ o.alias_of }}</div>{% endif %}
+							{% if not o.known %}<div class="small warn">not in the schema</div>{% endif %}
+							{% if features is defined and features.overridden[o.name] is defined %}
+								{# what is edited here is not what reaches the access point #}
+								<div class="small override">overridden by <b>{{ features.overridden[o.name] }}</b>
+									→ <code>{{ features.final[o.name] is iterable ? features.final[o.name]|join(', ') : (features.final[o.name] is same as(null) ? 'removed' : features.final[o.name]) }}</code></div>
+							{% endif %}
+						</td>
+						<td class="val" data-label="Value">
+							{% if o.is_list %}
+								<textarea name="list[{{ o.name }}]" rows="{{ o.value ? o.value|length + 1 : 2 }}"
+									placeholder="one entry per line">{{ o.value ? o.value|join("\n") }}</textarea>
+							{% elseif o.type == 'boolean' %}
+								<select name="opt[{{ o.name }}]">
+									<option value="" {{ o.is_set ? '' : 'selected' }}>{% if o.default is not null %}— default ({{ o.default ? 'on' : 'off' }}) —{% else %}— not written, feature off —{% endif %}</option>
+									<option value="1" {{ o.value in ['1','true','on','yes'] ? 'selected' }}>on</option>
+									<option value="0" {{ o.is_set and o.value not in ['1','true','on','yes'] ? 'selected' }}>off</option>
+								</select>
+							{% elseif o.enum %}
+								<select name="opt[{{ o.name }}]">
+									<option value="">— default{% if o.default is not null %} ({{ o.default }}){% endif %} —</option>
+									{% for e in o.enum %}<option value="{{ e }}" {{ o.value == e ? 'selected' }}>{{ e }}</option>{% endfor %}
+								</select>
+							{% else %}
+								<input type="{{ o.type == 'number' ? 'number' : 'text' }}"
+									name="opt[{{ o.name }}]" value="{{ o.value }}"
+									{% if o.minimum is not null %}min="{{ o.minimum }}"{% endif %}
+									{% if o.maximum is not null %}max="{{ o.maximum }}"{% endif %}
+									placeholder="{{ o.default is not null ? 'default: ' ~ o.default : 'not set' }}">
+							{% endif %}
+						</td>
+						<td class="doc small" data-label="What it does">
+							{{ o.description ?: '' }}
+							{% if o.description is empty %}<span class="stale">undocumented — neither OpenWrt nor we have a text for this one</span>
+							{% elseif o.doc_source == 'apman' %}<span class="src" title="written here from the hostapd and mac80211 sources, because OpenWrt's schema leaves this option blank">our note</span>{% endif %}
+							{% if o.default is not null %}<span class="stale"> Default: <code>{{ o.default }}</code>.</span>
+							{% elseif o.state == 'off' %}<span class="stale"> Not written, so this function is off.</span>
+							{% elseif o.state == 'unwritten' %}<span class="stale"> Not written — hostapd's own built-in default applies, which the schema does not state.</span>
+							{% endif %}
+							{% if o.type == 'number' and (o.minimum is not null or o.maximum is not null) %}
+								<span class="stale"> Range {{ o.minimum ?? '…' }}–{{ o.maximum ?? '…' }}.</span>
+							{% endif %}
+						</td>
+					</tr>
+				{% endfor %}
+			</table>
+		</details>
+	{% endfor %}

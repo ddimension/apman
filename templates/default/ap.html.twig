@@ -34,7 +34,7 @@
 	</tr>
 	{% for radio in tree.children %}
 		<tr>
-			<td>&nbsp;&nbsp;{{ radio.name }}</td>
+			<td>&nbsp;&nbsp;{% if radio.id %}<a href="{{ path('radio_detail', {'id': radio.id}) }}">{{ radio.name }}</a>{% else %}{{ radio.name }}{% endif %}</td>
 			<td>{{ radio.state_name }}</td>
 			<td class="small">{{ radio.since ? ((date().timestamp - radio.since) // 60) ~ ' min' : '—' }}</td>
 			<td class="small">{{ radio.seen ? (date().timestamp - radio.seen) ~ ' s' : 'never' }}</td>

@@ -1046,6 +1046,143 @@ class DefaultController extends AbstractController
     }
 
     /**
+     * One radio in full, the same way a network is shown.
+     *
+     * wifi-device.json describes 152 options and the admin form had nineteen
+     * fields, hand written, with no documentation and no defaults. The schema
+     * was in the repository the whole time and nothing opened it.
+     */
+    #[Route(path: '/radio/{id}', name: 'radio_detail')]
+    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, $id)
+    {
+        $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->find($id);
+        if (!$radio) {
+            throw $this->createNotFoundException('no such radio');
+        }
+        $values = [];
+        $lists = [];
+        foreach ((array) $radio->exportConfig() as $name => $value) {
+            if (is_array($value)) {
+                $lists[$name] = $value;
+            } else {
+                $values[$name] = $value;
+            }
+        }
+
+        $bss = [];
+        foreach ($radio->getDevices() as $device) {
+            $node = $stateTree->bss($device);
+            $bss[] = [
+                'name' => $device->getName(),
+                'ssid' => $device->getSsid() ? $device->getSsid()->getName() : null,
+                'ifname' => $device->ifname(),
+                'wanted' => $device->getIfname(),
+                'state' => $node['state_name'],
+            ];
+        }
+
+        return $this->render('default/radio.html.twig', [
+            'radio' => $radio,
+            'ap' => $radio->getAccessPoint(),
+            'groups' => $schema->describe($values, $lists, \ApManBundle\Service\WirelessSchemaService::DEVICE),
+            'titles' => $schema->groupTitles(\ApManBundle\Service\WirelessSchemaService::DEVICE),
+            'columns' => array_keys(\ApManBundle\Entity\Radio::COLUMN_OPTIONS),
+            'bss' => $bss,
+        ]);
+    }
+
+    /**
+     * Save one radio's options, each into the place that owns it.
+     */
+    #[Route(path: '/radio/{id}/save', name: 'radio_save', methods: ['POST'])]
+    public function radioSaveAction(Request $request, $id)
+    {
+        $em = $this->doctrine->getManager();
+        $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->find($id);
+        if (!$radio) {
+            throw $this->createNotFoundException('no such radio');
+        }
+        $posted = $request->request->all('opt');
+        $lists = $request->request->all('list');
+        $json = $radio->getConfig();
+        // what the radio looks like before and after, so the answer can say
+        // what moved rather than only that something did
+        $before = (array) $radio->exportConfig();
+
+        foreach ($posted as $name => $value) {
+            $value = is_string($value) ? trim($value) : $value;
+            $setter = \ApManBundle\Entity\Radio::COLUMN_OPTIONS[$name] ?? null;
+            if ($setter) {
+                $radio->$setter('' === $value ? null : $value);
+                continue;
+            }
+            // An empty field removes the option rather than writing an empty
+            // one: uci does not distinguish "" from unset, and an option
+            // written empty reads as a decision on the page next time.
+            if ('' === $value || null === $value) {
+                unset($json[$name]);
+            } else {
+                $json[$name] = $value;
+            }
+        }
+        foreach ($lists as $name => $text) {
+            $entries = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', (string) $text)), 'strlen'));
+            $setter = \ApManBundle\Entity\Radio::COLUMN_OPTIONS[$name] ?? null;
+            if ($setter) {
+                $radio->$setter($entries ?: null);
+                continue;
+            }
+            if ($entries) {
+                $json[$name] = $entries;
+            } else {
+                unset($json[$name]);
+            }
+        }
+        $radio->setConfig($json);
+        $after = (array) $radio->exportConfig();
+        $em->persist($radio);
+        $em->flush();
+
+        // The same shape the network editor answers with, because the script
+        // that submits both forms is one script and reads exactly these keys.
+        $changed = [];
+        foreach ($before as $name => $value) {
+            $now = $after[$name] ?? null;
+            if ($now !== $value) {
+                $changed[] = $name.': '.$this->sayValue($value).' → '.$this->sayValue($now);
+            }
+        }
+        foreach ($after as $name => $value) {
+            if (!array_key_exists($name, $before)) {
+                $changed[] = $name.': '.$this->sayValue($value);
+            }
+        }
+        sort($changed);
+
+        return $this->json([
+            'ok' => true,
+            'changed' => $changed,
+            'hint' => $changed
+                ? 'Saved. This radio keeps running the old configuration until it is provisioned, '
+                    .'and every bss on it is rebuilt when it is.'
+                : 'Nothing changed.',
+        ]);
+    }
+
+    /** A value as a person would read it in a one-line summary. */
+    private function sayValue($value): string
+    {
+        if (null === $value) {
+            return 'removed';
+        }
+        if (is_array($value)) {
+            return $value ? implode(', ', $value) : 'empty';
+        }
+
+        return '' === (string) $value ? 'empty' : (string) $value;
+    }
+
+    /**
      * One network in full: every option OpenWrt knows, grouped, documented, and
      * with its default shown where nothing is set.
      */
@@ -1201,8 +1338,13 @@ class DefaultController extends AbstractController
             return $this->json(['ok' => false, 'error' => 'no such ssid'], 404);
         }
 
-        $posted = (array) $request->request->get('opt', []);
-        $postedLists = (array) $request->request->get('list', []);
+        // all(), not get(). InputBag::get() takes a scalar and throws on an
+        // array in Symfony 7 — "Unexpected value for parameter \"opt\":
+        // expecting \"string\", got \"array\"" — so every save from the network
+        // editor has failed since the upgrade, with a 400 the page reported as
+        // "failed" and nothing in it saying why.
+        $posted = $request->request->all('opt');
+        $postedLists = $request->request->all('list');
         $changed = [];
 
         // The RADIUS fallback is not a uci option — it decides what the

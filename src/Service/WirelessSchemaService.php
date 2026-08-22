@@ -332,9 +332,9 @@ class WirelessSchemaService
      * Everything known about one option, with aliases resolved: uci accepts
      * "acct_server" but the schema documents "acct_server_addr".
      */
-    public function option($name, $type = self::IFACE)
+    public function option($name, $section = self::IFACE)
     {
-        $schema = $this->schema($type);
+        $schema = $this->schema($section);
         $entry = $schema[$name] ?? null;
         $aliasOf = null;
         if ($entry && 'alias' === ($entry['type'] ?? null)) {
@@ -373,18 +373,109 @@ class WirelessSchemaService
             'minimum' => $entry['minimum'] ?? null,
             'maximum' => $entry['maximum'] ?? null,
             'is_list' => 'array' === ($entry['type'] ?? null),
-            'group' => $this->groupOf($name),
+            'group' => $this->groupOf($name, $section),
         ];
     }
 
-    public function groupOf($name)
+    /**
+     * The same idea for a radio: sections in display order.
+     *
+     * A radio is a different animal from a network — nothing here is about
+     * keys or clients, and everything is about the air.
+     */
+    private const RADIO_GROUPS = [
+        'channel' => [
+            'title' => 'Channel and band',
+            'intro' => 'Where this radio transmits, and how wide.',
+            'names' => ['band', 'channel', 'channels', 'chanlist', 'channel_list', 'htmode',
+                'hwmode', 'hw_mode', 'chanbw', 'disabled', 'type', 'path', 'phy', 'radio',
+                'require_mode', 'noscan', 'ht_coex', 'beacon_int'],
+        ],
+        'power' => [
+            'title' => 'Power and regulatory',
+            'intro' => 'What the regulator allows and what this radio makes of it. '
+                .'The actual power is the lower of what is set here and what the country permits.',
+            'names' => ['txpower', 'min_tx_power', 'antenna_gain', 'country', 'country3',
+                'country_code', 'country_ie', 'ieee80211d', 'ieee80211h', 'doth', 'distance',
+                'local_pwr_constraint', 'spectrum_mgmt_required', 'reg_power_type',
+                'he_6ghz_reg_pwr_type'],
+        ],
+        'acs' => [
+            'title' => 'Channel selection and DFS',
+            'intro' => 'How the radio picks a channel when it is told to, and what it does '
+                .'about radar.',
+            'names' => ['acs_chan_bias', 'acs_exclude_dfs', 'background_radar',
+                'enable_background_radar', 'scan_list'],
+        ],
+        'reuse' => [
+            'title' => 'Spatial reuse and neighbours',
+            'intro' => 'What this radio tells the ones around it. On a channel shared with '
+                .'another access point this is the difference between taking turns and '
+                .'transmitting anyway.',
+            'names' => ['he_bss_color', 'he_bss_color_enabled', 'he_spr_sr_control',
+                'he_spr_psr_enabled', 'he_spr_non_srg_obss_pd_max_offset', 'mbssid',
+                'multiple_bssid', 'rnr_beacon', 'stationary_ap', 'cell_density'],
+        ],
+        'load' => [
+            'title' => 'Load and admission',
+            'intro' => 'How many stations, how weak they may be, and how airtime is shared.',
+            'names' => ['iface_max_num_sta', 'maxassoc', 'no_probe_resp_if_max_sta',
+                'rssi_ignore_probe_request', 'rssi_reject_assoc_rssi',
+                'rssi_reject_assoc_timeout', 'airtime_mode'],
+        ],
+        'rates' => [
+            'title' => 'Rates and modulation',
+            'intro' => 'Which rates the radio offers. Removing the slowest ones keeps a '
+                .'distant client from holding the channel.',
+            'names' => ['basic_rate', 'basic_rates', 'supported_rates', 'legacy_rates',
+                'beacon_rate', 'mcast_rate', 'rts', 'rts_threshold', 'frag', 'greenfield',
+                'short_gi_20', 'short_gi_40', 'short_gi_80', 'short_gi_160'],
+            'prefixes' => ['vht_', 'he_mu_edca', 'tx_stbc', 'rx_stbc', 'ldpc', 'rxldpc',
+                'max_amsdu', 'dsss_cck', 'htc_vht'],
+        ],
+        'antenna' => [
+            'title' => 'Antennas and beamforming',
+            'names' => ['txantenna', 'rxantenna', 'tx_antenna_pattern', 'rx_antenna_pattern',
+                'su_beamformer', 'su_beamformee', 'mu_beamformer', 'mu_beamformee',
+                'beamformer_antennas', 'beamformee_antennas', 'he_su_beamformer',
+                'he_su_beamformee', 'he_mu_beamformer'],
+        ],
+        'logging' => [
+            'title' => 'Logging',
+            'intro' => 'hostapd counts down: 0 is everything, 4 is errors only. The default '
+                .'is 2, and 0 on an access point whose agent shares the log chain with its '
+                .'radius server is not free.',
+            'names' => ['log_level'],
+            'prefixes' => ['log_', 'logger_'],
+        ],
+        'expert' => [
+            'title' => 'Expert and raw configuration',
+            'intro' => 'Everything else, and the way in for what uci does not model. '
+                .'A raw line is invisible to this page and to the consistency check.',
+            'names' => ['hostapd_options'],
+        ],
+    ];
+
+    /**
+     * Which section an option belongs to, for the section type given.
+     */
+    public function groupOf($name, $type = self::IFACE)
     {
-        foreach (self::GROUPS as $key => $group) {
+        if (self::DEVICE === $type) {
+            return $this->groupIn(self::RADIO_GROUPS, $name);
+        }
+
+        return $this->groupIn(self::GROUPS, $name);
+    }
+
+    private function groupIn(array $groups, $name)
+    {
+        foreach ($groups as $key => $group) {
             if (in_array($name, $group['names'] ?? [], true)) {
                 return $key;
             }
         }
-        foreach (self::GROUPS as $key => $group) {
+        foreach ($groups as $key => $group) {
             foreach ($group['prefixes'] ?? [] as $prefix) {
                 if (0 === strpos($name, $prefix)) {
                     return $key;
@@ -395,10 +486,10 @@ class WirelessSchemaService
         return 'expert';
     }
 
-    public function groupTitles()
+    public function groupTitles($type = self::IFACE)
     {
         $out = [];
-        foreach (self::GROUPS as $key => $group) {
+        foreach (self::DEVICE === $type ? self::RADIO_GROUPS : self::GROUPS as $key => $group) {
             $out[$key] = ['title' => $group['title'], 'intro' => $group['intro'] ?? ''];
         }
 
@@ -414,7 +505,7 @@ class WirelessSchemaService
     public function describe($values, $lists, $type = self::IFACE)
     {
         $groups = [];
-        foreach (self::GROUPS as $key => $group) {
+        foreach (self::DEVICE === $type ? self::RADIO_GROUPS : self::GROUPS as $key => $group) {
             $groups[$key] = [
                 'key' => $key,
                 'title' => $group['title'],

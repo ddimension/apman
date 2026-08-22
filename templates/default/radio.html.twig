@@ -1,0 +1,70 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}{{ ap ? ap.name ~ ' ' : '' }}{{ radio.name }}{% endblock %}
+
+{% block body %}
+<h2>
+	{% if ap %}<a href="{{ path('ap_detail', {'name': ap.name}) }}">{{ ap.name }}</a> {% endif %}
+	{{ radio.name }} <span class="small">radio configuration</span>
+</h2>
+
+<p class="small">
+	These options are written into the <i>wifi-device</i> section of this access point. They
+	belong to the radio, not to a network: a channel, a transmit power or a bss colour is one
+	value for every bss on this radio. The descriptions come from OpenWrt's own
+	<code>wifi-device.json</code> — 152 options, of which the admin form used to show nineteen.
+</p>
+
+<div class="card">
+	<p class="small">
+		<b>Carries</b>
+		{% if bss|length %}
+			{{ bss|length }} bss —
+			{% for b in bss %}
+				<span class="stale">{{ b.ssid ?: b.name }}/{{ b.ifname ?: '(no name)' }}</span>
+				<span class="pill {{ b.state == 'ACTIVE' ? 'up' : (b.state in ['ABSENT','UNKNOWN'] ? 'down' : '') }}">{{ b.state }}</span>{{ not loop.last ? ' · ' }}
+			{% endfor %}
+		{% else %}
+			nothing. A radio with no bss is configured and silent.
+		{% endif %}
+	</p>
+	<p class="small stale">
+		Changing anything here rebuilds every one of those bsses at the next provisioning run,
+		and the stations on them are dropped. Saving alone reaches no access point.
+	</p>
+</div>
+
+<form id="editor" method="post" action="{{ path('radio_save', {'id': radio.id}) }}">
+	<div class="toolbar">
+		<input type="search" id="filter" placeholder="filter by name or description…">
+		<label class="small">show
+			<select id="scope">
+				<option value="documented">set and documented defaults</option>
+				<option value="all">everything, including inactive functions</option>
+				<option value="set">only what is set</option>
+			</select>
+		</label>
+		<button type="button" id="toggleall" class="ghost small">close all</button>
+		<span id="shown" class="small stale"></span>
+		<span class="spacer"></span>
+		<button type="submit">Save</button>
+		<span id="result" class="small"></span>
+	</div>
+
+	<p class="small legend">
+		<span class="tag set">set</span> stored here and written to the access point ·
+		<span class="tag def">default</span> not stored, the shown OpenWrt default applies ·
+		<span class="tag off">off</span> a switch that is not written, so the function is off ·
+		<span class="tag un">not written</span> hostapd's own built-in value applies, which the schema does not state
+	</p>
+
+	{{ include('default/_option_groups.html.twig') }}
+</form>
+{% endblock %}
+
+{% block javascripts %}
+{{ include('default/_option_filter.html.twig', {'storage_key': 'apman.radio.scope'}) }}
+{% endblock %}
+
+{% block stylesheets %}
+{{ include('default/_option_styles.html.twig') }}
+{% endblock %}
