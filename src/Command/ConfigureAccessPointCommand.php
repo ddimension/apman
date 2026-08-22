@@ -55,16 +55,26 @@ class ConfigureAccessPointCommand extends Command
 
             return 1;
         }
-        $this->apservice->publishConfig($ap);
-        /*
-        $logger = new class {
-            public function debug($msg) {
-            echo $msg."\n";
-            }
-        };
-        $ap->publishConfig($logger);
-        */
+        // applyConfig(), not publishConfig(). The latter stages the whole
+        // wireless transaction into the rpcd session and stops there — and a
+        // session's staged changes are not in /etc/config, so they are not
+        // even visible to a "uci changes" on the device; they simply expire
+        // with the session. This command reported success and changed nothing,
+        // on every run, for as long as it has existed. The same bug was found
+        // and fixed in the admin batch action (CustomActionsController::
+        // batchActionConfigure) and in apman:ipsk-migrate; this was the copy
+        // nobody came back to.
+        $report = $this->apservice->applyConfig($ap);
+        if ($report['ok'] ?? false) {
+            $output->writeln($ap->getName().': '.($report['note'] ?? (($report['change_count'] ?? 0).' change(s) applied')));
 
-        return 0;
+            return 0;
+        }
+        $output->writeln('<error>'.$ap->getName().': '.($report['error'] ?? 'provisioning failed').'</error>');
+        foreach (array_slice($report['failed'] ?? [], 0, 5, true) as $id => $why) {
+            $output->writeln('  '.$id.': '.$why);
+        }
+
+        return 1;
     }
 }
