@@ -58,7 +58,7 @@
 <pre id="diff" class="small" style="display:none; background:#f6f6f6; padding:.5rem; overflow:auto"></pre>
 
 {% for dev in devices %}
-	<h3>{{ dev.ifname }}
+	<h3><a href="{{ path('device_detail', {'id': dev.id}) }}">{{ dev.ifname }}</a>
 		{% if dev.ssid %}<span class="small">{{ dev.ssid }}</span>{% endif %}
 		{% if dev.age is not null %}
 			<span class="small {{ dev.age > 60 ? 'stale' : '' }}">state {{ dev.age }}s old</span>

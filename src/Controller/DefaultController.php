@@ -17,6 +17,13 @@ class DefaultController extends AbstractController
      */
     private const RADIO_SILENT_AFTER = 25;
 
+    /**
+     * Device::getConfig() folds these in from columns of their own, and
+     * setConfig() takes them back out. They are not overrides and must not be
+     * offered as ones.
+     */
+    private const DEVICE_COLUMN_KEYS = ['ifname', 'macaddr', 'macaddress'];
+
     private $logger;
     private $apservice;
     private $doctrine;
@@ -1137,6 +1144,7 @@ class DefaultController extends AbstractController
             }
             $counts = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
             $bss[] = [
+                'id' => $device->getId(),
                 'name' => $device->getName(),
                 'ssid' => $device->getSsid() ? $device->getSsid()->getName() : null,
                 'ifname' => $device->ifname(),
@@ -1348,6 +1356,170 @@ class DefaultController extends AbstractController
         uasort($out, function ($a, $b) { return $b['n'] <=> $a['n']; });
 
         return $out;
+    }
+
+    /**
+     * One bss: what it was told, what it became, and what it is doing.
+     *
+     * The radio page exists and this did not, which was the wrong way round —
+     * most options are bss level, and the only way to edit one for a single bss
+     * rather than for the whole network was the Sonata form.
+     *
+     * Three layers, and keeping them apart is the point. The network's options
+     * apply to every bss of it; this bss may override them; and what the access
+     * point generated from both is a third thing that may differ from either.
+     */
+    #[Route(path: '/device/{id}', name: 'device_detail')]
+    public function deviceDetailAction(\ApManBundle\Service\WirelessSchemaService $schema,
+        \ApManBundle\Service\StateTreeService $stateTree,
+        \ApManBundle\Service\WlanConsistencyService $consistency,
+        \ApManBundle\Service\AccessPointService $aps, $id)
+    {
+        $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->find($id);
+        if (!$device) {
+            throw $this->createNotFoundException('no such bss');
+        }
+        $radio = $device->getRadio();
+        $ap = $radio ? $radio->getAccessPoint() : null;
+        $ssid = $device->getSsid();
+
+        // What goes out: the network's options with this bss's own written over
+        // them, then the feature chain. That is the payload, not what anybody
+        // typed — the same distinction that made the arrival rule wrong once.
+        $effective = [];
+        try {
+            $built = $aps->getDeviceConfig($device);
+            $effective = (array) ($built[0]->values ?? []);
+        } catch (\Throwable $e) {
+            $this->logger->warning('bss '.$device->getName().': cannot build the configuration: '
+                .$e->getMessage());
+        }
+        $values = [];
+        $lists = [];
+        foreach ($effective as $name => $value) {
+            if (is_array($value)) {
+                $lists[$name] = $value;
+            } else {
+                $values[$name] = $value;
+            }
+        }
+
+        // And which of those this bss decides for itself. getConfig() folds the
+        // two column backed values in — ifname and macaddr live in columns of
+        // their own and setConfig() strips them again — so listing them here
+        // would show two settings nobody made as overrides.
+        $own = array_diff_key(
+            is_array($device->getConfig()) ? $device->getConfig() : [],
+            array_flip(self::DEVICE_COLUMN_KEYS));
+
+        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+        $apStatus = is_array($status) && is_array($status['ap_status'] ?? null) ? $status['ap_status'] : [];
+        $bssInfo = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId().'.bss_info');
+        $counts = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
+        $signals = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].probe_signals');
+
+        $heard = [];
+        if (is_array($signals)) {
+            foreach ($signals as $mac => $entry) {
+                $heard[$mac] = (int) ($entry['best'] ?? 0);
+            }
+        }
+
+        return $this->render('default/device.html.twig', [
+            'device' => $device,
+            'radio' => $radio,
+            'ap' => $ap,
+            'ssid' => $ssid,
+            'node' => $stateTree->bss($device),
+            'groups' => $schema->describe($values, $lists, \ApManBundle\Service\WirelessSchemaService::IFACE),
+            'titles' => $schema->groupTitles(\ApManBundle\Service\WirelessSchemaService::IFACE),
+            'hints' => $schema->hints($values),
+            'own' => $own,
+            'running_config' => $consistency->runningBssConfig($device),
+            'ap_status' => $apStatus,
+            'bss_info' => is_array($bssInfo) ? $bssInfo : null,
+            'ctrlcounts' => $this->mergedCtrlCounts([['ctrlcounts' => is_array($counts) ? $counts : []]]),
+            'probes' => $this->probeHistogram($heard),
+            'age' => is_array($status) && isset($status['received']) ? time() - (int) $status['received'] : null,
+        ]);
+    }
+
+    /**
+     * Save what this one bss decides for itself.
+     *
+     * Only the options that differ from the network go into Device::$config —
+     * writing back everything would freeze a copy of the network's settings
+     * onto the bss, and the next change to the network would not reach it.
+     */
+    #[Route(path: '/device/{id}/save', name: 'device_save', methods: ['POST'])]
+    public function deviceSaveAction(Request $request, \ApManBundle\Service\AccessPointService $aps, $id)
+    {
+        $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->find($id);
+        if (!$device) {
+            return $this->json(['ok' => false, 'error' => 'no such bss'], 404);
+        }
+        $posted = $request->request->all('opt');
+        $lists = $request->request->all('list');
+        $own = array_diff_key(
+            is_array($device->getConfig()) ? $device->getConfig() : [],
+            array_flip(self::DEVICE_COLUMN_KEYS));
+
+        // the network's value, to tell an override from a repetition
+        $fromSsid = [];
+        if ($device->getSsid()) {
+            foreach ((array) $device->getSsid()->exportConfig() as $n => $v) {
+                $fromSsid[$n] = $v;
+            }
+        }
+
+        $changed = [];
+        foreach ($posted as $name => $value) {
+            $value = is_string($value) ? trim($value) : $value;
+            $wasOwn = array_key_exists($name, $own);
+            if ('' === $value || null === $value) {
+                if ($wasOwn) {
+                    unset($own[$name]);
+                    $changed[$name] = 'back to the network';
+                }
+                continue;
+            }
+            // the same value the network already gives is not an override
+            if (array_key_exists($name, $fromSsid) && (string) $fromSsid[$name] === (string) $value) {
+                if ($wasOwn) {
+                    unset($own[$name]);
+                    $changed[$name] = 'back to the network';
+                }
+                continue;
+            }
+            if (!$wasOwn || (string) $own[$name] !== (string) $value) {
+                $own[$name] = $value;
+                $changed[$name] = $value;
+            }
+        }
+        foreach ($lists as $name => $text) {
+            $entries = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', (string) $text)), 'strlen'));
+            if ($entries) {
+                $own[$name] = $entries;
+                $changed[$name] = count($entries).' entries';
+            } elseif (array_key_exists($name, $own)) {
+                unset($own[$name]);
+                $changed[$name] = 'back to the network';
+            }
+        }
+
+        $device->setConfig($own);
+        $this->doctrine->getManager()->flush();
+        $this->logger->notice('bss '.$device->getName().': '
+            .($changed ? implode(', ', array_keys($changed)) : 'nothing').' changed');
+
+        return $this->json([
+            'ok' => true,
+            'changed' => $changed,
+            'overrides' => count($own),
+            'note' => $changed
+                ? 'saved. Nothing has reached the access point — provision it to apply.'
+                : 'nothing changed',
+        ]);
     }
 
     /**

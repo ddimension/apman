@@ -1,0 +1,190 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}{{ device.name }}{% endblock %}
+
+{% block body %}
+<h2>
+	{% if ap %}<a href="{{ path('ap_detail', {'name': ap.name}) }}">{{ ap.name }}</a> /{% endif %}
+	{% if radio %}<a href="{{ path('radio_detail', {'id': radio.id}) }}">{{ radio.name }}</a> /{% endif %}
+	{{ device.ifname ?: device.name }}
+	<span class="small">bss</span>
+</h2>
+
+<p class="small">
+	One bss on one radio. Its options come from three places and they are kept apart here: what
+	{% if ssid %}<a href="{{ path('ssid_detail', {'id': ssid.id}) }}">{{ ssid.name }}</a>{% else %}the network{% endif %}
+	says for every bss of it, what this one decides for itself, and what the access point
+	generated out of both. The third can differ from the first two, and when it does that is
+	worth knowing.
+</p>
+
+<div class="card">
+	<div class="stats">
+		<div class="stat">
+			<b>{{ node.state_name }}</b>
+			<span>state{% if age is not null %} · heard {{ age }}s ago{% endif %}</span>
+			<span class="stale">{{ device.name }}</span>
+		</div>
+		<div class="stat">
+			<b class="mono">{{ ap_status.bssid|default(device.address) ?: '—' }}</b>
+			<span>bssid</span>
+			<span class="stale">
+				{% if device.address and ap_status.bssid is defined and ap_status.bssid|lower != device.address|lower %}
+					<span class="warn">configured {{ device.address }} — a station sees the other one</span>
+				{% elseif device.address %}configured, and what runs{% else %}
+					<span class="warn">no address configured, so the driver picks one</span>{% endif %}
+			</span>
+		</div>
+		{% if ap_status.freq is defined %}
+			<div class="stat">
+				<b>{{ ap_status.channel|default('?') }}</b>
+				<span>channel · {{ ap_status.freq }} MHz</span>
+				<span class="stale">{{ ap_status.status|default('') }}</span>
+			</div>
+		{% endif %}
+		{% if ap_status.wnm is defined %}
+			<div class="stat">
+				<b>{{ ap_status.wnm.bss_transition_request_tx|default(0) }}</b>
+				<span>transitions asked for</span>
+				<span class="stale">{{ ap_status.wnm.bss_transition_response_rx|default(0) }} answered,
+					{{ ap_status.wnm.bss_transition_query_rx|default(0) }} asked by stations</span>
+			</div>
+		{% endif %}
+		{% if ap_status.rrm is defined %}
+			<div class="stat">
+				<b>{{ ap_status.rrm.neighbor_report_tx|default(0) }}</b>
+				<span>neighbour reports sent</span>
+				<span class="stale">802.11k</span>
+			</div>
+		{% endif %}
+	</div>
+	{% if bss_info %}
+		<p class="small stale" style="margin-top:.6em">
+			hostapd runs it as
+			<span class="mono">{{ bss_info.ssid|default('?') }}</span>,
+			wpa {{ bss_info.wpa|default('?') }},
+			key management {{ bss_info.wpa_key_mgmt|default('?') }},
+			pmf {{ bss_info.ieee80211w|default('?') }},
+			mode {{ bss_info.hw_mode|default('?') }}
+		</p>
+	{% endif %}
+</div>
+
+{% if own|length %}
+<div class="card">
+	<p class="small"><b>What this bss decides for itself</b> — {{ own|length }} option{{ own|length > 1 ? 's' : '' }}
+		written over the network's:</p>
+	<table class="counters small">
+		<tr><th>option</th><th>this bss</th></tr>
+		{% for name, value in own %}
+			<tr><td class="mono">{{ name }}</td>
+				<td><b>{{ value is iterable ? value|join(', ') : value }}</b></td></tr>
+		{% endfor %}
+	</table>
+</div>
+{% endif %}
+
+{% if running_config %}
+<div class="card">
+	<p class="small"><b>What the access point generated</b> — {{ running_config|length }} lines in the
+		running hostapd configuration for this bss, as the consistency check last read it.
+		An option set above and missing here did not arrive.</p>
+	<details class="group">
+		<summary>show the {{ running_config|length }} lines</summary>
+		<table class="opts">
+			{% for name, value in running_config %}
+				<tr><td class="name mono">{{ name }}</td><td class="val">{{ value }}</td></tr>
+			{% endfor %}
+		</table>
+	</details>
+</div>
+{% endif %}
+
+{% if hints %}
+<div class="card warn-card">
+	<p class="small"><b>Worth knowing about what is set here</b></p>
+	<ul class="small">{% for h in hints %}<li>{{ h }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if probes or ctrlcounts %}
+<div class="card">
+	{% if probes %}
+		<h3 class="small" style="margin:0 0 .3em">What this bss hears</h3>
+		<p class="small stale">
+			{{ probes.stations }} stations, one entry each at its strongest. Strongest {{ probes.max }},
+			median {{ probes.median }}, weakest {{ probes.min }} dBm.
+		</p>
+		<table class="thresh small">
+			<tr><th>threshold</th>{% for t, r in probes.thresholds %}<th>{{ t }}</th>{% endfor %}</tr>
+			<tr><th>would keep</th>{% for t, r in probes.thresholds %}<td>{{ r.kept }}</td>{% endfor %}</tr>
+			<tr><th>would turn away</th>{% for t, r in probes.thresholds %}
+				<td class="{{ r.turned_away ? 'warn' : '' }}">{{ r.turned_away }}</td>{% endfor %}</tr>
+		</table>
+	{% endif %}
+	{% if ctrlcounts %}
+		<h3 class="small" style="margin:1em 0 .3em">What hostapd has reported about it</h3>
+		<table class="counters small">
+			<tr><th>event</th><th>count</th><th>per hour</th><th>avg</th><th>worst</th><th>last</th></tr>
+			{% for name, c in ctrlcounts %}
+				<tr>
+					<td class="mono">{{ name }}</td>
+					<td>{{ c.n }}</td>
+					<td>{{ c.rate is not null ? c.rate : '—' }}</td>
+					<td>{{ c.ms_avg is not null ? c.ms_avg|round(2) ~ ' ms' : '—' }}</td>
+					<td>{{ c.ms_max ? c.ms_max|round(2) ~ ' ms' : '—' }}</td>
+					<td>{{ c.last ? (c.last|date('Y-m-d H:i')) : '—' }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+	{% endif %}
+</div>
+{% endif %}
+
+<form id="editor" method="post" action="{{ path('device_save', {'id': device.id}) }}">
+	<div class="toolbar sticky">
+		<input type="search" id="filter" placeholder="filter by name or description…">
+		<label class="small">show
+			<select id="scope">
+				<option value="documented">set and documented defaults</option>
+				<option value="all">everything, including inactive functions</option>
+				<option value="set">only what is set</option>
+			</select>
+		</label>
+		<button type="button" id="toggleall" class="ghost small">close all</button>
+		<span id="shown" class="small stale"></span>
+		<span class="spacer"></span>
+		<button type="submit">Save</button>
+		<span id="result" class="small"></span>
+	</div>
+
+	<p class="small legend">
+		The values shown are what this bss would be given — the network's, with this bss's own
+		written over them and the features applied. Saving stores only what differs from the
+		network, so a later change to the network still reaches this bss. Clearing a field puts
+		the option back to whatever the network says.
+	</p>
+
+	{{ include('default/_option_groups.html.twig') }}
+</form>
+{% endblock %}
+
+{% block javascripts %}
+{{ include('default/_option_filter.html.twig', {'storage_key': 'apman.device.scope'}) }}
+{% endblock %}
+
+{% block stylesheets %}
+{{ include('default/_option_styles.html.twig') }}
+<style>
+.stats { display: flex; flex-wrap: wrap; gap: 1.2em 2em; }
+.stat { min-width: 8em; max-width: 24em; }
+.stat b { display: block; font-size: 1.5em; line-height: 1.1; }
+.stat span { display: block; font-size: .8em; }
+.stat span + span { color: var(--ink-mute); }
+table.counters { border-collapse: collapse; margin-top: .4em; }
+table.counters th, table.counters td { padding: .25em .8em .25em 0; text-align: left; vertical-align: top; }
+table.counters th { border-bottom: 1px solid var(--line-strong); font-weight: 600; }
+table.thresh { border-collapse: collapse; margin: .3em 0 .5em; }
+table.thresh th, table.thresh td { padding: .2em .9em .2em 0; text-align: left; }
+table.thresh td.warn { color: var(--warn-strong); font-weight: 600; }
+</style>
+{% endblock %}

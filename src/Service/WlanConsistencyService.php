@@ -152,6 +152,28 @@ class WlanConsistencyService
         return $cached[$ap->getName()][$radio->getName()] ?? null;
     }
 
+    /**
+     * The configuration one bss is running, as the access point generated it.
+     *
+     * Secrets are replaced by their length and the roaming key lists by their
+     * tail, the same way the consistency page shows them — this is a page in a
+     * browser, and a wpa_passphrase belongs in neither.
+     *
+     * @return array|null option => value, or null if nothing is cached
+     */
+    public function runningBssConfig(\ApManBundle\Entity\Device $device): ?array
+    {
+        $radio = $device->getRadio();
+        $ap = $radio ? $radio->getAccessPoint() : null;
+        $ifname = (string) $device->ifname();
+        if (!$ap || '' === $ifname) {
+            return null;
+        }
+        $cached = $this->cacheFactory->getCacheItemValue('wlan.bssconf');
+
+        return is_array($cached) ? ($cached[$ap->getName()][$ifname] ?? null) : null;
+    }
+
     private function run()
     {
         $aps = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findBy(['IsProductive' => true]);
@@ -189,6 +211,26 @@ class WlanConsistencyService
             }
         }
         $this->cacheFactory->addCacheItem('wlan.radioconf', $radioConf, 7 * 86400);
+
+        // and the same per bss, which is where most options actually live
+        $bssConf = [];
+        foreach ($blocks as $b) {
+            $cfg = $b['cfg'];
+            unset($cfg['_radio'], $cfg['_band']);
+            foreach (self::SECRETS as $secret) {
+                if (isset($cfg[$secret])) {
+                    $cfg[$secret] = '(set, '.strlen((string) $cfg[$secret]).' characters)';
+                }
+            }
+            foreach (self::MASKED as $masked) {
+                if (isset($cfg[$masked])) {
+                    $parts = explode(' ', $cfg[$masked]);
+                    $cfg[$masked] = implode(' ', array_slice($parts, 0, -1)).' …'.substr(end($parts), -8);
+                }
+            }
+            $bssConf[$b['ap']][$b['bss']] = $cfg;
+        }
+        $this->cacheFactory->addCacheItem('wlan.bssconf', $bssConf, 7 * 86400);
 
         // group by ssid and band: 6 GHz legitimately differs in pmf and akm
         $groups = [];
