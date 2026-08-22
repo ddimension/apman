@@ -721,8 +721,25 @@ class PpskService
         }
         $blind = !$targets;
         if ($blind) {
+            // Sweep the bsses that are actually running. Aiming a kick at one
+            // that is absent or was never heard from is not caution, it is
+            // noise: the command travels, the access point has no such
+            // interface, and the answer that comes back looks exactly like the
+            // station simply not being there — which is the one thing this
+            // fallback exists to distinguish.
             foreach ($ssid->getDevices() as $device) {
+                $bss = $this->stateTree->bss($device);
+                if (!$bss['fresh'] || !in_array($bss['state'], [
+                    \ApManBundle\Library\NodeState::BSS_READY,
+                    \ApManBundle\Library\NodeState::BSS_ACTIVE,
+                ], true)) {
+                    continue;
+                }
                 $targets[$device->getId()] = $device;
+            }
+            if (!$targets) {
+                $this->logger->warning('PpskService: revocation for '.$mac.' on '.$ssid->getName()
+                    .' found no station and no running bss to sweep');
             }
         }
 
@@ -1403,6 +1420,19 @@ class PpskService
                     $results[$apName][] = ['device' => $device->getName(), 'skipped' => 'no ifname yet'];
                     continue;
                 }
+                // A bss the access point does not have is not a bss to write
+                // keys into. ABSENT is the specific case: the tree has heard
+                // from this access point and its radio, and this interface was
+                // not among them — a section on a disabled radio, or a device
+                // row that outlived a rename. STARTING and UNKNOWN are not
+                // skipped; they are transient, and skipping them would strand
+                // the keys of an interface that is merely still coming up.
+                $bssNode = $this->stateTree->bss($device);
+                if (\ApManBundle\Library\NodeState::BSS_ABSENT === $bssNode['state']) {
+                    $results[$apName][] = ['device' => $device->getName(),
+                        'skipped' => 'the access point does not run this interface'];
+                    continue;
+                }
                 $ifaces[$device->getName()] = true;
                 $targets[$ifname] = $device;
                 foreach ($this->getStationSections($device) as $section) {
@@ -1415,6 +1445,43 @@ class PpskService
             if (null === $current[$apName]) {
                 $results[$apName][] = ['error' => 'no answer to the uci read, left untouched'];
                 $this->logger->error('PpskService: '.$apName.' did not answer the uci read, skipping it');
+                continue;
+            }
+
+            // The second precondition, and the one that matters.
+            //
+            // On 2026-08-20 at 21:50 this method found the access points'
+            // sections differing from the database and rewrote them. What the
+            // database held by then was the network passphrase where the per
+            // device keys used to be, so the rewrite replaced eleven real keys
+            // with one shared secret and the only copies were gone. Ten came
+            // back out of a RADIUS backup and one out of a forwarded syslog.
+            //
+            // A distribution overwrites; it never invents. If the value we are
+            // about to write into a section that already exists is the network
+            // passphrase, and what stands there is something else, then the
+            // database lost the key rather than the key having changed. Refuse
+            // the whole access point — a half written set is worse than none.
+            $networkKey = (string) ($ssid->exportConfig()->key ?? '');
+            $wouldFlatten = [];
+            if ('' !== $networkKey) {
+                foreach ($expected as $name => $section) {
+                    $onAp = $current[$apName][$name] ?? null;
+                    $has = is_array($onAp) ? (string) ($onAp['key'] ?? '') : '';
+                    if ('' !== $has && $has !== $networkKey
+                        && (string) ($section->values['key'] ?? '') === $networkKey) {
+                        $wouldFlatten[] = $name;
+                    }
+                }
+            }
+            if ($wouldFlatten) {
+                $results[$apName][] = ['error' => 'refused: '.count($wouldFlatten)
+                    .' per device key(s) would be replaced by the network passphrase'];
+                $this->logger->critical('PpskService: refusing to distribute to '.$apName
+                    .' — '.count($wouldFlatten).' section(s) hold a per device key that the'
+                    .' database no longer has, and writing would replace it with the network'
+                    .' passphrase: '.implode(', ', array_slice($wouldFlatten, 0, 8))
+                    .(count($wouldFlatten) > 8 ? ' …' : ''));
                 continue;
             }
 

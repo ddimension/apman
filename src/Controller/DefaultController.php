@@ -1046,7 +1046,7 @@ class DefaultController extends AbstractController
      * with its default shown where nothing is set.
      */
     #[Route(path: '/ssid/{id}', name: 'ssid_detail')]
-    public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\PpskService $ppsk, $id)
+    public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\PpskService $ppsk, \ApManBundle\Service\StateTreeService $stateTree, $id)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
         if (!$ssid) {
@@ -1071,17 +1071,36 @@ class DefaultController extends AbstractController
             $lists[$list->getName()] = $entries;
         }
 
+        // The state of every bss carrying this network, on one page.
+        //
+        // A network that is ABSENT on one access point and READY on the others
+        // is precisely the failure that took an evening to find, and this is
+        // the page that should have shown it. It is also why the count below
+        // is worth having: "6 of 7 running" is a sentence somebody notices,
+        // while a list of seven rows is one they scroll past.
         $devices = [];
+        $bssStates = [];
         foreach ($ssid->getDevices() as $device) {
             $ap = $device->getRadio() ? $device->getRadio()->getAccessPoint() : null;
+            $node = $stateTree->bss($device);
+            $bssStates[$node['state_name']] = ($bssStates[$node['state_name']] ?? 0) + 1;
             $devices[] = [
                 'name' => $device->getName(),
                 'ifname' => $device->getIfname(),
                 'ap' => $ap ? $ap->getName() : null,
                 'band' => $device->getRadio() ? $device->getRadio()->getConfigBand() : null,
                 'address' => $device->getAddress(),
+                'state' => $node['state_name'],
+                'seen' => $node['seen'],
+                'since' => $node['since'],
+                'fresh' => $node['fresh'],
+                'trouble' => in_array($node['state'], [
+                    \ApManBundle\Library\NodeState::BSS_ABSENT,
+                    \ApManBundle\Library\NodeState::BSS_UNKNOWN,
+                ], true),
             ];
         }
+        ksort($bssStates);
 
         return $this->render('default/ssid.html.twig', [
             'ssid' => $ssid,
@@ -1089,6 +1108,7 @@ class DefaultController extends AbstractController
             'titles' => $schema->groupTitles(),
             'hints' => $schema->hints($values),
             'devices' => $devices,
+            'bssStates' => $bssStates,
             'values' => $values,
             'lists' => $lists,
             'keys' => $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(['ssid' => $ssid]),

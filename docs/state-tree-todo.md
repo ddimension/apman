@@ -6,6 +6,9 @@ written down on 2026-08-21 while it was still fresh.
 
 ## Where it stands
 
+Worked through on 2026-08-22. What is done is marked below; the two items that
+are not are at the bottom with the reason.
+
 Done and deployed:
 
 - `StateTreeService` composes the three levels and writes the composed state
@@ -17,10 +20,27 @@ Done and deployed:
   two never had one — and `/aps` and `/ap/<name>` show it.
 - The flat `AccessPointState` still runs alongside and is still the truth for
   the activation path.
+- **Section 1 is done.** `ClientCommandService`, `AccessPointService::isLive()`
+  and the blind revocation sweep in `PpskService` all ask the tree now. There
+  is one definition of "this bss can answer" and it is `bss(...)` being fresh
+  and `READY`/`ACTIVE`.
+- **Section 2 is done.** `distribute()` skips a bss the tree calls `ABSENT` and
+  refuses an access point outright when writing would replace a per device key
+  with the network passphrase. `publishConfig()` refuses an access point that
+  is `OFFLINE`/`UNKNOWN` and says so in those words.
+- **`/ssid/<id>` is done** — every bss of the network with its state, and a
+  count in the heading. kalnet on the day it was written: 13× ACTIVE,
+  2× DISABLED, 2× UNKNOWN.
+- **Escalation is done.** `lifetimeHouseKeeping()` fires once per episode, at
+  CRITICAL for an unreachable access point and a failed radio, WARNING for a
+  degraded one, and names it. The marker carries state and `since`, so a second
+  outage is a second line and a long one stays a single line.
+- **`WlanConsistencyService` is done**, and further: it gained rules for the
+  things a fleet-wide comparison cannot see at all. See `docs/ipsk.md`.
 
-## 1. Three answers to the same question
+## 1. Three answers to the same question — done
 
-These do not need the tree so much as they need to stop hand-rolling it.
+These did not need the tree so much as they needed to stop hand-rolling it.
 
 **`ClientCommandService.php:110–120`** keeps its own 120 second window and a
 comment explaining why the online marker cannot be trusted. The reasoning is
@@ -37,7 +57,7 @@ The one at `:661` is the blind sweep a revocation falls back on: today it can
 aim a kick at a bss that is not running, and treats a missing entry like an
 empty one. Skip `ABSENT`/`UNKNOWN`, sweep `READY`/`ACTIVE`.
 
-## 2. Gates that do not exist yet
+## 2. Gates that did not exist — done, except steering
 
 **`PpskService::distribute()`** is where the keys were lost on 2026-08-20 at
 21:50 local: it found the access points' uci stations differing from the
@@ -122,7 +142,9 @@ use.** The comment above `keyDelivery()` has said so for a while — it throws
 every client of the radio off, measured — and this is what happens when it is
 tried anyway.
 
-## 4. The stages that were planned
+## 4. The stages that were planned — two left
+
+The two below are what is left of this document, and both are deliberate.
 
 - **Activation on the event.** `bss: * → READY` enables management for that one
   interface instead of a fleet-wide sweep on an access point transition. The
@@ -135,7 +157,17 @@ tried anyway.
   `lifetimeHouseKeeping()` counts and logs a line today and does nothing;
   `ap-hv-klwz` was offline for a whole day without anything noticing.
 - **Retire the flat state**: `AccessPointState`, `changeLifetimeState()` and the
-  state part of `lifetimeMessageHandler()`.
+  state part of `lifetimeMessageHandler()`. **Not done on purpose.** The flat
+  state is still what the activation path decides on, and removing it is not a
+  refactor but a change to when a bss starts being managed. It wants a session
+  where a full activation cycle can be watched, not the tail of one that
+  changed six other things.
+
+- **Activation on the event** and **neighbours per bss** are the other two left.
+  They are the same risk in a smaller form: both move work off an access point
+  transition and onto a node transition, and getting the trigger wrong means a
+  bss that never gets managed at all — which looks like a healthy access point
+  from every page.
 
 ## Order I would take it in
 

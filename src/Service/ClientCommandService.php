@@ -35,19 +35,22 @@ class ClientCommandService
     private $rpcService;
     private $mqttFactory;
     private $cacheFactory;
+    private $stateTree;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
         \Doctrine\Persistence\ManagerRegistry $doctrine,
         wrtJsonRpc $rpcService,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
-        \ApManBundle\Factory\CacheFactory $cacheFactory
+        \ApManBundle\Factory\CacheFactory $cacheFactory,
+        StateTreeService $stateTree
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
+        $this->stateTree = $stateTree;
     }
 
     /**
@@ -107,13 +110,18 @@ class ClientCommandService
             if (!$device->getSsid() || !isset($ssids[$device->getSsid()->getId()])) {
                 continue;
             }
-            // An access point that is not currently reporting cannot answer
-            // and would only use up the wait budget. Whether status is still
-            // arriving is a more reliable signal than the online marker, which
-            // is not retained and goes stale for long dead access points.
-            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
-            $stamp = is_array($status) ? ($status['received'] ?? ($status['timestamp'] ?? null)) : null;
-            if (!$stamp || (time() - $stamp) > 120) {
+            // A bss that is not currently reporting cannot answer and would
+            // only use up the wait budget. The reasoning was right and used to
+            // be hand rolled here with its own 120 second window; the tree
+            // keeps the same question in one place, and its answer decays with
+            // the access point that stopped talking rather than with a
+            // timestamp this method looked up for itself.
+            $bss = $this->stateTree->bss($device);
+            if (!$bss['fresh'] || in_array($bss['state'], [
+                \ApManBundle\Library\NodeState::BSS_ABSENT,
+                \ApManBundle\Library\NodeState::BSS_DISABLED,
+                \ApManBundle\Library\NodeState::BSS_UNKNOWN,
+            ], true)) {
                 continue;
             }
             $seen[$device->getId()] = ['device' => $device, 'inactive' => null, 'live' => false];

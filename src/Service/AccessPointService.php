@@ -2,6 +2,7 @@
 
 namespace ApManBundle\Service;
 
+use ApManBundle\Library\NodeState;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Cache\Psr16Cache;
 
@@ -375,6 +376,18 @@ class AccessPointService
             $logger->notice($ap->getName().': Ignore request to publish config sice ProvisioningEnabled is false.');
 
             return true;
+        }
+        // Provisioning an access point nobody has heard from burns the whole
+        // rollback window waiting for answers that cannot come, and reports
+        // "no answer from the access point" — which is a different sentence
+        // from "the access point is offline" for whoever reads it afterwards.
+        // The tree already knows which one it is.
+        $node = $this->stateTree->ap($ap);
+        if (in_array($node['state'], [NodeState::AP_OFFLINE, NodeState::AP_UNKNOWN], true)) {
+            $logger->warning($ap->getName().': not provisioning, the access point is '
+                .$node['state_name'].($node['since'] ? ' since '.date('d.m. H:i', (int) $node['since']) : ''));
+
+            return false;
         }
         $changed = false;
         $client = $this->mqttFactory->getClient();
@@ -1430,8 +1443,7 @@ class AccessPointService
 
             return false;
         }
-        $apsNotActive = [];
-        $productive = 0;
+        $notHealthy = [];
         $total = 0;
         foreach ($aps as $ap) {
             // Re-compose the tree even when nothing arrived. The composed values
@@ -1440,26 +1452,71 @@ class AccessPointService
             // would keep showing whatever it was last, for as long as the entry
             // lives. Composing it here lets it decay: the nodes read as unknown
             // once their facts are stale, and that is what gets stored.
-            $this->stateTree->refresh($ap);
+            $tree = $this->stateTree->refresh($ap);
 
             if (!$ap->getIsProductive()) {
                 // ignore others;
                 continue;
             }
             ++$total;
-            $stateKey = 'status.state['.$ap->getId().']';
-            $state = $this->cacheFactory->getCacheItemValue($stateKey);
-            $state = \ApManBundle\Library\AccessPointState::getStateName($state);
-            if ('STATE_ACTIVE' != $state) {
-                $apsNotActive[] = $ap;
+            $this->escalate($ap, $tree);
+            if (!in_array($tree['state'], [NodeState::AP_ACTIVE, NodeState::AP_READY,
+                NodeState::AP_CAC], true)) {
+                $notHealthy[] = $ap->getName().' '.$tree['state_name'];
             }
         }
-        if (!count($apsNotActive)) {
+        if (!$notHealthy) {
             return;
         }
-        $this->logger->error('Failure - '.count($apsNotActive).' APs offline|online='.($total - count($apsNotActive)).' offline='.count($apsNotActive));
+        $this->logger->error('Failure - '.count($notHealthy).' of '.$total.' access points not healthy: '
+            .implode(', ', $notHealthy).'|online='.($total - count($notHealthy)).' offline='.count($notHealthy));
 
         return;
+    }
+
+    /**
+     * Say it once, when it happens, and name the level it happened at.
+     *
+     * This used to count and log a line every tick, at the same level whether
+     * one access point was in a channel availability check or the whole site
+     * had gone. ap-hv-klwz was offline for a day and nothing said so louder on
+     * the day it went than on the six ticks before it came back.
+     *
+     * Once means once per episode: the marker carries the state and the moment
+     * it started, so an access point that goes, comes back and goes again is
+     * three lines, and one that simply stays away is one.
+     */
+    private function escalate(\ApManBundle\Entity\AccessPoint $ap, array $tree)
+    {
+        $fire = function ($type, $id, $name, $state, $stateName, $since, $level, $what) {
+            $key = 'state.escalated.'.$type.'.'.$id;
+            $mark = $state.'@'.(int) $since;
+            if ($this->cacheFactory->getCacheItemValue($key) === $mark) {
+                return;
+            }
+            $this->cacheFactory->addCacheItem($key, $mark, 30 * 86400);
+            $this->logger->log($level, 'state: '.$what.' — '.$name.' is '.$stateName
+                .($since ? ' since '.date('d.m. H:i', (int) $since) : ''));
+        };
+
+        if (in_array($tree['state'], [NodeState::AP_OFFLINE, NodeState::AP_UNKNOWN], true)) {
+            $fire(NodeState::TYPE_AP, $ap->getId(), $ap->getName(), $tree['state'],
+                $tree['state_name'], $tree['since'], \Psr\Log\LogLevel::CRITICAL,
+                'access point unreachable');
+
+            // Its radios are unknown because it is, not on their own account.
+            // Escalating them too would turn one outage into five lines.
+            return;
+        }
+        foreach ($tree['children'] as $radio) {
+            if (in_array($radio['state'], [NodeState::RADIO_FAILED, NodeState::RADIO_DEGRADED], true)) {
+                $fire(NodeState::TYPE_RADIO, $radio['id'], $ap->getName().'/'.$radio['name'],
+                    $radio['state'], $radio['state_name'], $radio['since'],
+                    NodeState::RADIO_FAILED === $radio['state']
+                        ? \Psr\Log\LogLevel::CRITICAL : \Psr\Log\LogLevel::WARNING,
+                    'radio '.(NodeState::RADIO_FAILED === $radio['state'] ? 'failed' : 'degraded'));
+            }
+        }
     }
 
     /**
@@ -1505,22 +1562,21 @@ class AccessPointService
     /**
      * Whether the access point is really running this bss right now.
      *
-     * The agent publishes a status per interface every few seconds, so a cache
-     * entry means the interface exists over there. Nothing recent means it does
-     * not — a disabled bss, or a device row that outlived a rename.
+     * This used to hand roll its own 300 second window over the device status
+     * cache, next to two other places that asked the same question with two
+     * other windows. It is a bss node now: READY means hostapd reports the
+     * interface enabled, ACTIVE means its management is on as well, and
+     * anything else — absent, disabled, starting, never heard from — is not
+     * something to send a command to.
      */
     public function isLive(\ApManBundle\Entity\Device $device, $maxAge = 300)
     {
-        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
-        if (!is_array($status)) {
-            return false;
-        }
-        // No timestamp means the entry predates the field — an interface that
-        // has not reported since then, and the cache never expires it. Not
-        // knowing when it was last seen is not the same as it being alive.
-        $seen = $status['received'] ?? null;
+        $bss = $this->stateTree->bss($device);
 
-        return null !== $seen && (time() - (int) $seen) <= $maxAge;
+        return $bss['fresh'] && in_array($bss['state'], [
+            \ApManBundle\Library\NodeState::BSS_READY,
+            \ApManBundle\Library\NodeState::BSS_ACTIVE,
+        ], true);
     }
 
     public function assignAllNeighbors()

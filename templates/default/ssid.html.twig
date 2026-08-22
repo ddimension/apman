@@ -39,6 +39,41 @@
 	</p>
 </div>
 
+{% if devices|length %}
+	{% set trouble = devices|filter(d => d.trouble)|length %}
+	<h3{{ trouble ? ' class="warn"' : '' }}>
+		Where it runs
+		<span class="small">
+			{% for name, n in bssStates %}{{ n }}× {{ name }}{% if not loop.last %}, {% endif %}{% endfor %}
+		</span>
+	</h3>
+	{% if trouble %}
+		<p class="small warn">
+			{{ trouble }} of {{ devices|length }} bss are not there. A network that is absent on one
+			access point while its neighbours serve it looks like a client problem from every other
+			page — this is the one that says otherwise.
+		</p>
+	{% endif %}
+	<table class="aps">
+		<tr><th>Access point</th><th>Interface</th><th>Band</th><th>State</th><th>Last heard</th></tr>
+		{% for d in devices %}
+			<tr>
+				<td><a href="{{ path('ap_detail', {'name': d.ap}) }}">{{ d.ap ?: '—' }}</a></td>
+				<td class="small"><code>{{ d.ifname ?: d.name }}</code></td>
+				<td class="small">{{ d.band ?: '—' }}</td>
+				<td class="small {{ d.trouble ? 'warn' : (d.state == 'DISABLED' ? 'stale' : 'ok') }}">
+					{{ d.state }}
+					{% if d.since %}<div class="stale">since {{ d.since|date('d.m. H:i') }}</div>{% endif %}
+				</td>
+				<td class="small {{ d.fresh ? '' : 'stale' }}">
+					{% if d.seen %}{{ d.seen|date('d.m. H:i') }}{% if not d.fresh %} (stale){% endif %}
+					{% else %}never{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+	</table>
+{% endif %}
+
 <form id="editor" method="post" action="{{ path('ssid_save', {'id': ssid.id}) }}">
 	<div class="card radius">
 		<b>RADIUS</b>
