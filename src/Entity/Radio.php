@@ -152,11 +152,21 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
     #[ORM\ManyToOne(targetEntity: \ApManBundle\Entity\AccessPoint::class, inversedBy: 'radios')]
     private $accesspoint;
 
-    #[ORM\Column(type: 'string', length: 24, nullable: true)]
-    private $he_bss_color;
-
-    #[ORM\Column(type: 'string', length: 24, nullable: true)]
-    private $he_su_beamformee;
+    /**
+     * Everything else the radio may carry, as uci names it.
+     *
+     * There are nineteen config_* columns and a hundred and fifty-two options
+     * in wifi-device.json. Adding a column per option does not scale, and the
+     * bss side has solved the same problem with a json column since the
+     * beginning — Device::$config. This is that, one level up.
+     *
+     * It is written over the columns, in the same direction getDeviceConfig()
+     * lets a bss override its network: the specific beats the general.
+     *
+     * @var array|null
+     */
+    #[ORM\Column(name: 'config', type: 'json', nullable: true)]
+    private $config;
 
     /**
      * Constructor.
@@ -778,6 +788,15 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
             $cfgVar = substr($key, 7);
             $res->$cfgVar = $this->$key;
         }
+        // the json column last, so a value set there wins over the column of
+        // the same name — setConfig() keeps the two from overlapping, but a
+        // row written before it did may still carry one
+        foreach ($this->getConfig() as $name => $value) {
+            if (null === $value || (is_array($value) && !count($value))) {
+                continue;
+            }
+            $res->$name = $value;
+        }
 
         return $res;
     }
@@ -802,26 +821,30 @@ class Radio extends \ApManBundle\DynamicEntity\Radio
         return intval($this->getConfigDisabled()) < 1;
     }
 
-    public function getHeBssColor(): ?string
+    /**
+     * The free-form options, without the config_* columns.
+     *
+     * he_bss_color and he_su_beamformee used to be columns here with accessors
+     * and no way out: exportConfig() only emits properties prefixed config_,
+     * which they were not, so nothing they held ever reached an access point.
+     * They belong in here now, spelled the way uci spells them.
+     */
+    public function getConfig(): array
     {
-        return $this->he_bss_color;
+        return is_array($this->config) ? $this->config : [];
     }
 
-    public function setHeBssColor(?string $he_bss_color): self
+    public function setConfig(?array $config): self
     {
-        $this->he_bss_color = $he_bss_color;
-
-        return $this;
-    }
-
-    public function getHeSuBeamformee(): ?string
-    {
-        return $this->he_su_beamformee;
-    }
-
-    public function setHeSuBeamformee(?string $he_su_beamformee): self
-    {
-        $this->he_su_beamformee = $he_su_beamformee;
+        // the columns own these; a duplicate in the json would be a second
+        // truth about the same option
+        foreach (['type', 'path', 'disabled', 'channel', 'channels', 'band',
+            'hwmode', 'txpower', 'country', 'require_mode', 'log_level',
+            'htmode', 'noscan', 'beacon_int', 'basic_rate', 'supported_rates',
+            'rts', 'antenna_gain', 'ht_capab'] as $owned) {
+            unset($config[$owned]);
+        }
+        $this->config = $config;
 
         return $this;
     }

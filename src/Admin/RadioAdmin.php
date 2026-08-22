@@ -9,6 +9,7 @@ use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollectionInterface;
 use Sonata\AdminBundle\Show\ShowMapper;
 use Symfony\Component\Form\CallbackTransformer;
+use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 
 class RadioAdmin extends AbstractAdmin
@@ -34,7 +35,35 @@ class RadioAdmin extends AbstractAdmin
         $formMapper->add('config_supported_rates');
         $formMapper->add('config_rts');
         $formMapper->add('config_antenna_gain')
-            ->add('config_ht_capab', TextType::class);
+            ->add('config_ht_capab', TextType::class)
+            // Everything wifi-device.json knows and this form does not — a
+            // hundred and fifty-two options against nineteen columns. Written
+            // the way uci spells them, and applied over the fields above.
+            ->add('config', TextareaType::class, [
+                'required' => false,
+                'label' => 'Further options (json)',
+                'help' => 'uci option names as in wifi-device.json, e.g. '
+                    .'{"mbssid": 1, "he_bss_color": 12, "hostapd_options": ["..."]}. '
+                    .'Applied over the fields above.',
+                'attr' => ['rows' => 6],
+            ]);
+
+        $formMapper->get('config')->addModelTransformer(new CallbackTransformer(
+            function ($configAsArray) {
+                if (!is_array($configAsArray) || !count($configAsArray)) {
+                    return '';
+                }
+
+                return json_encode($configAsArray, JSON_INVALID_UTF8_IGNORE | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            },
+            function ($configAsString) {
+                if (!is_string($configAsString) || '' === trim($configAsString)) {
+                    return [];
+                }
+
+                return json_decode($configAsString, true, 512, JSON_THROW_ON_ERROR);
+            }
+        ));
 
         // config_ht_capab is a json column: the form needs a string, the
         // entity an array. Without this the create page dies with
