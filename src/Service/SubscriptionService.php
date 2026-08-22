@@ -350,7 +350,21 @@ class SubscriptionService
             $this->logger->info('handleMessage(): agent '.($agent['version'] ?? '?').' on '.$hostname);
 
             return true;
-        } elseif ('properties' == $tp[3] && 'system' == $tp[4]) {
+        }
+        if ('properties' == $tp[3] && 'radius' == $tp[4]) {
+            $radius = json_decode($message->payload, true);
+            if (!is_array($radius)) {
+                return false;
+            }
+            $radius['received'] = time();
+            // 7 days: long enough that an access point which has been off for
+            // a weekend still shows what its server was doing when it went,
+            // short enough that a decommissioned one stops claiming to run.
+            $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId().'.radius', $radius, 7 * 86400);
+
+            return true;
+        }
+        if ('properties' == $tp[3] && 'system' == $tp[4]) {
             $this->logger->info('handleMessage(): saved system.'.$tp[5].' for '.$hostname);
             $data = [];
             $data[$tp[5]] = json_decode($message->payload, true);

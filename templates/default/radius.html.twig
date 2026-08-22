@@ -22,6 +22,99 @@
 	<span class="small stale">— it shares the event loop with the MQTT client, so answers do not wait for anything else</span>
 </div>
 
+{% if agents|length %}
+	<h3>The servers on the access points</h3>
+	<p class="small">
+		Each access point answers its own hostapd on <code>127.0.0.1</code>, out of the key store
+		it was given. What follows is what those servers report about themselves — not what we
+		infer from the requests they sent us. A server that answers nothing and a server nobody
+		asks look identical from here; only the server itself can tell them apart.
+	</p>
+	<table class="aps">
+		<tr>
+			<th>Access point</th><th>Server</th><th>Keys</th>
+			<th>24 h</th><th>Answer</th><th>Last action</th><th>Last error</th>
+		</tr>
+		{% for a in agents %}
+			{% set i = a.info %}
+			<tr>
+				<td>
+					<a href="{{ path('ap_detail', {'name': a.name}) }}">{{ a.name }}</a>
+					<div class="small stale">
+						{{ a.state }}{% if a.agent_version %} · agent {{ a.agent_version }}{% endif %}
+					</div>
+				</td>
+				<td>
+					{% if i is null %}
+						<span class="pill">no report</span>
+						<div class="small stale">this agent does not publish its radius state yet</div>
+					{% elseif i.running is defined and i.running %}
+						<span class="pill up">running</span>
+						<div class="small stale">{{ i.bind|default('127.0.0.1') }}:{{ i.port|default(1812) }}</div>
+					{% else %}
+						<span class="pill down">not running</span>
+						<div class="small warn">{{ i.reason|default('—') }}</div>
+					{% endif %}
+				</td>
+				<td class="small">
+					{% if i and i.store is defined %}
+						{{ i.store.keys|default(0) }}
+						<div class="stale">{{ i.store.source|default('—') }}</div>
+						{% if i.store.ssids is defined and i.store.ssids %}
+							<div class="stale">
+								{% for name, v in i.store.ssids %}{{ name }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}
+							</div>
+						{% endif %}
+					{% else %}—{% endif %}
+				</td>
+				<td class="small">
+					{% if a.stats24 %}
+						{{ a.stats24.n }}
+						<div class="stale">{{ a.stats24.ok }} in, <span class="{{ a.stats24.bad > 0 ? 'warn' : 'stale' }}">{{ a.stats24.bad }} turned away</span></div>
+					{% else %}—{% endif %}
+					{% if i and i.stats is defined %}
+						<div class="stale">since start: {{ i.stats.accepted|default(0) }}/{{ i.stats.rejected|default(0) }}/{{ i.stats.dropped|default(0) }}</div>
+					{% endif %}
+				</td>
+				<td class="small">
+					{% if a.stats24 and a.stats24.ms is not null %}
+						{{ a.stats24.ms }} ms
+						<div class="stale">worst {{ a.stats24.msmax }} ms</div>
+					{% elseif i and i.stats is defined and i.stats.avg_ms is defined and i.stats.avg_ms %}
+						{{ i.stats.avg_ms|round(2) }} ms
+						<div class="stale">worst {{ i.stats.max_ms|round(2) }} ms</div>
+					{% else %}—{% endif %}
+				</td>
+				<td class="small">
+					{% if i and i.last is defined and i.last %}
+						<code>{{ i.last.mac|default('—') }}</code>
+						<span class="{{ i.last.decision == 'accept' ? 'ok' : 'warn' }}">{{ i.last.decision|default('—') }}</span>
+						<div class="stale">
+							{{ i.last.ssid|default('—') }}{% if i.last.key_source is defined and i.last.key_source %} · {{ i.last.key_source }}{% endif %}
+							{% if i.last.ms is defined %} · {{ i.last.ms|round(2) }} ms{% endif %}
+						</div>
+					{% elseif a.stats24 %}
+						<div class="stale">{{ a.stats24.last }}</div>
+					{% else %}—{% endif %}
+				</td>
+				<td class="small">
+					{% if i and i.last_error is defined and i.last_error %}
+						<span class="warn">{{ i.last_error.message }}</span>
+						<div class="stale">{{ i.last_error.ts|date('d.m. H:i') }}{% if i.stats is defined %} · {{ i.stats.errors|default(0) }} total{% endif %}</div>
+					{% else %}
+						<span class="stale">none</span>
+					{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+	</table>
+	<p class="small stale">
+		The last error is kept after a recovery on purpose. An error that scrolled out of the
+		log never happened as far as anyone looking later is concerned, and the store reload
+		that fixed it leaves no other trace.
+	</p>
+{% endif %}
+
 {% if pointing|length %}
 	<h3>Networks that ask a RADIUS server</h3>
 	<table class="aps">

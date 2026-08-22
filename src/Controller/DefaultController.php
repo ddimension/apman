@@ -1492,7 +1492,7 @@ class DefaultController extends AbstractController
     }
 
     #[Route(path: '/radius', name: 'radius')]
-    public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, \ApManBundle\Service\PpskService $ppsk, Request $request)
+    public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, \ApManBundle\Service\PpskService $ppsk, \ApManBundle\Service\StateTreeService $stateTree, Request $request)
     {
         $em = $this->doctrine->getManager();
         $filterSsid = trim((string) $request->get('ssid'));
@@ -1560,6 +1560,7 @@ class DefaultController extends AbstractController
         }
 
         return $this->render('default/radius.html.twig', [
+            'agents' => $this->radiusAgents($stateTree),
             'rows' => $rows,
             'stats' => $stats,
             'unknown' => $unknown,
@@ -1571,6 +1572,60 @@ class DefaultController extends AbstractController
             'filterSsid' => $filterSsid,
             'filterResult' => $filterResult,
         ]);
+    }
+
+    /**
+     * Every access point's own RADIUS server, as it reports itself.
+     *
+     * The agent publishes properties/radius retained, so this is what the
+     * server says about itself rather than what we infer from the requests it
+     * happened to send. That distinction is the whole point: a server that
+     * answers nothing looks exactly like one nobody asked, and only the server
+     * itself can tell the two apart.
+     *
+     * The numbers next to it come from radius_auth grouped by nas — the same
+     * requests the table below lists, seen per access point.
+     */
+    private function radiusAgents(\ApManBundle\Service\StateTreeService $stateTree)
+    {
+        $em = $this->doctrine->getManager();
+        $perNas = [];
+        foreach ($em->getConnection()->fetchAllAssociative(
+            'SELECT nas, COUNT(*) AS n, SUM(result = \'accept\') AS ok,'
+            .' SUM(result <> \'accept\') AS bad, ROUND(AVG(duration_ms), 2) AS ms,'
+            .' ROUND(MAX(duration_ms), 2) AS msmax, MAX(created) AS last'
+            .' FROM radius_auth WHERE created > DATE_SUB(NOW(), INTERVAL 24 HOUR)'
+            .' AND nas IS NOT NULL GROUP BY nas'
+        ) as $row) {
+            $perNas[$row['nas']] = $row;
+        }
+
+        $out = [];
+        foreach ($em->getRepository('ApManBundle\Entity\AccessPoint')->findAll() as $ap) {
+            $info = $this->cacheFactory->getCacheItemValue('status.ap.'.$ap->getId().'.radius');
+            $agent = $this->cacheFactory->getCacheItemValue('status.ap.'.$ap->getId().'.agent');
+            $stats24 = $perNas[$ap->getName()] ?? null;
+            // An access point with nothing to say about a radius server and no
+            // requests to its name is not a radius server having a bad day —
+            // it simply does not run one. Listing it would bury the ones that
+            // do among the ones that never will.
+            if (!is_array($info) && !$stats24) {
+                continue;
+            }
+            $tree = $stateTree->ap($ap);
+            $out[] = [
+                'name' => $ap->getName(),
+                'id' => $ap->getId(),
+                'state' => $tree['state_name'],
+                'seen' => $tree['seen'] ?? null,
+                'agent_version' => is_array($agent) ? ($agent['version'] ?? null) : null,
+                'has_feature' => is_array($agent) && in_array('radius_psk', $agent['features'] ?? [], true),
+                'info' => is_array($info) ? $info : null,
+                'stats24' => $stats24,
+            ];
+        }
+
+        return $out;
     }
 
     /**

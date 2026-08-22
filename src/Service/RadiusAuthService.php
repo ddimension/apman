@@ -423,7 +423,7 @@ class RadiusAuthService
         $mac = $this->normaliseMac($mac);
         $this->execute(
             'INSERT INTO radius_auth (created, mac, ssid_name, nas, result, reason, keyid, ppsk_id, duration_ms)'
-            .' VALUES (NOW(), :mac, :ssid, :nas, :result, :reason, :keyid, :ppsk, NULL)',
+            .' VALUES (NOW(), :mac, :ssid, :nas, :result, :reason, :keyid, :ppsk, :ms)',
             [
                 'mac' => $mac,
                 'ssid' => mb_substr((string) $ssid, 0, 64),
@@ -432,6 +432,11 @@ class RadiusAuthService
                 'reason' => mb_substr((string) $reason, 0, 128),
                 'keyid' => $ppsk ? $ppsk->getKeyid() : null,
                 'ppsk' => $ppsk ? $ppsk->getId() : null,
+                // The agent times its own answer and sends it along. Until it
+                // did, this column was NULL for every request the access
+                // points answered — which is all of them now — so the page's
+                // "average answer" was measuring a server nobody asks.
+                'ms' => isset($event['ms']) ? round((float) $event['ms'], 3) : null,
             ]
         );
 
