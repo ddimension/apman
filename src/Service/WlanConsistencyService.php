@@ -82,6 +82,7 @@ class WlanConsistencyService
     private $doctrine;
     private $rpcService;
     private $ubus;
+    private $apService;
     private $cacheFactory;
     private $stateTree;
     private $schema;
@@ -93,12 +94,14 @@ class WlanConsistencyService
         \ApManBundle\Factory\CacheFactory $cacheFactory,
         StateTreeService $stateTree,
         WirelessSchemaService $schema,
-        ApUbusService $ubus
+        ApUbusService $ubus,
+        AccessPointService $apService
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
         $this->ubus = $ubus;
+        $this->apService = $apService;
         $this->cacheFactory = $cacheFactory;
         $this->stateTree = $stateTree;
         $this->schema = $schema;
@@ -222,6 +225,9 @@ class WlanConsistencyService
             $findings[] = $f;
         }
         foreach ($this->clobberedOptionRules() as $f) {
+            $findings[] = $f;
+        }
+        foreach ($this->arrivalRules($blocks) as $f) {
             $findings[] = $f;
         }
         foreach ($this->ifnameRules() as $f) {
@@ -536,6 +542,178 @@ class WlanConsistencyService
         }
 
         return $out;
+    }
+
+    /**
+     * Options we set that the access point does not carry.
+     *
+     * The general form of the two findings that turned up by hand today. With
+     * `custom_cfg` the container was wrong; with `start_disabled` the option was
+     * right and ucode overwrote it. Both fail the same way — the configuration
+     * says one thing and the device does another, silently — and both were
+     * found only because somebody happened to grep for them.
+     *
+     * The check is empirical rather than a list, so it needs no maintaining: an
+     * option is only compared when it appears **as a key** in at least one bss
+     * block somewhere in the fleet. That proves ap.uc renders it under its own
+     * name, and it keeps the many uci options that legitimately have no line of
+     * their own — encryption, key, ppsk, band, network — out of the comparison
+     * entirely, because they never appear as a key anywhere.
+     *
+     * @param array $blocks every bss of every access point, as parsed
+     */
+    private function arrivalRules(array $blocks)
+    {
+        // What ap.uc renders under its own name — learnt per network and band
+        // rather than across the fleet, because many options render only under
+        // a condition. `reassociation_deadline` is written inside the 802.11r
+        // block, so every network without fast roaming is missing it and none
+        // of them is wrong; compared fleet-wide it produced twenty-four
+        // findings and every one was noise. The same network on two access
+        // points, on the same band, should render the same way — that is a
+        // disagreement worth a word.
+        $rendered = [];
+        $groupOf = [];
+        foreach ($blocks as $i => $b) {
+            $ssid = $b['cfg']['ssid'] ?? trim($b['cfg']['ssid2'] ?? '', '"');
+            if ('' === $ssid) {
+                continue;
+            }
+            $key = $ssid.' / '.($b['cfg']['_band'] ?? '?');
+            $groupOf[$i] = $key;
+            $rendered[$key] = $rendered[$key] ?? [];
+            foreach (array_keys($b['cfg']) as $option) {
+                if ('_' !== $option[0]) {
+                    $rendered[$key][$option] = true;
+                }
+            }
+        }
+
+        // ifname to device, per access point
+        $byIfname = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\\Entity\\Device')->findAll() as $device) {
+            $radio = $device->getRadio();
+            $ap = $radio ? $radio->getAccessPoint() : null;
+            if ($ap && $device->ifname()) {
+                $byIfname[$ap->getName()][$device->ifname()] = $device;
+            }
+        }
+
+        $missing = [];
+        $differs = [];
+        $broken = [];
+        foreach ($blocks as $i => $b) {
+            $group = $groupOf[$i] ?? null;
+            // one bss of a network on one band has nothing to disagree with
+            if (null === $group || count($rendered[$group]) < 1) {
+                continue;
+            }
+            $device = $byIfname[$b['ap']][$b['bss']] ?? null;
+            if (!$device || !$device->getSsid()) {
+                continue;
+            }
+            // The payload the provisioning actually sends, not what somebody
+            // typed. The feature chain rewrites values on the way out — the
+            // network says wpa_group_rekey 86400 and a feature makes it 3600 —
+            // and comparing the typed value would report sixty-one bsses as
+            // wrong when every one of them is running what we told it to.
+            try {
+                // getDeviceConfig() returns [the uci section, the extra
+                // sections it needs]. The options are inside the first one, in
+                // ->values; casting the pair itself gives an array of two and a
+                // rule that compares nothing and reports nothing, which is what
+                // the first version of this did.
+                $built = $this->apService->getDeviceConfig($device);
+                $wanted = (array) ($built[0]->values ?? []);
+            } catch (\Throwable $e) {
+                // Saying nothing here would be the same failure this rule
+                // exists to catch: a bss whose configuration cannot even be
+                // built is the strongest possible version of "what we think we
+                // send is not what is running".
+                $broken[$e->getMessage()][$b['ap'].'/'.$b['bss']] = true;
+                continue;
+            }
+            if (!$wanted) {
+                $broken['the built configuration has no options at all'][$b['ap'].'/'.$b['bss']] = true;
+                continue;
+            }
+            $where = $b['ap'].'/'.$b['bss'];
+            foreach ($wanted as $name => $value) {
+                if (!isset($rendered[$group][$name]) || is_array($value) || is_object($value)) {
+                    continue;
+                }
+                // An option set to nothing is not set; a secret is not compared,
+                // because the parser masks it and a mask never matches.
+                if ('' === (string) $value || in_array($name, self::SECRETS, true)
+                    || in_array($name, self::MASKED, true)) {
+                    continue;
+                }
+                if (!array_key_exists($name, $b['cfg'])) {
+                    $missing[$name.' | '.$group][$where] = true;
+                    continue;
+                }
+                if (!$this->sameValue($value, $b['cfg'][$name])) {
+                    $differs[$name.' = '.$value.', running '.$b['cfg'][$name]][$where] = true;
+                }
+            }
+        }
+
+        $out = [];
+        foreach ($broken as $why => $places) {
+            $out[] = [
+                'group' => 'configuration cannot be built',
+                'option' => 'getDeviceConfig',
+                'values' => [$why => array_keys($places)],
+                'roaming' => false,
+            ];
+        }
+        foreach ($missing as $what => $places) {
+            [$name, $group] = explode(' | ', $what, 2);
+            $out[] = [
+                'group' => $group,
+                'option' => $name,
+                'values' => ['set for this bss, and this bss does not carry it — the same network '
+                    .'renders it on another access point, so it is not a name that is ignored here'
+                    => array_keys($places)],
+                'roaming' => false,
+            ];
+        }
+        foreach ($differs as $what => $places) {
+            $out[] = [
+                'group' => 'set, and changed on the way',
+                'option' => explode(' = ', $what)[0],
+                'values' => [$what => array_keys($places)],
+                'roaming' => false,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Whether what we asked for and what is running are the same thing.
+     *
+     * uci writes booleans as 1 and 0 and people write them as true, on and yes;
+     * hostapd.conf carries the number. A string in the file may be quoted where
+     * ours is not. None of that is a difference worth reporting, and reporting
+     * it would bury the ones that are.
+     */
+    private function sameValue($wanted, $running): bool
+    {
+        $norm = function ($v) {
+            $v = trim((string) $v, " \t\"'");
+            $lower = strtolower($v);
+            if (in_array($lower, ['1', 'true', 'on', 'yes'], true)) {
+                return '1';
+            }
+            if (in_array($lower, ['0', 'false', 'off', 'no'], true)) {
+                return '0';
+            }
+
+            return $v;
+        };
+
+        return $norm($wanted) === $norm($running);
     }
 
     /**
