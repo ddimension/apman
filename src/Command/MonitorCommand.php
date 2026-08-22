@@ -83,6 +83,7 @@ class MonitorCommand extends Command
         $counts = [self::OK => 0, self::WARNING => 0, self::CRITICAL => 0];
         $radiosBad = 0;
         $bssBad = 0;
+        $offline = [];
 
         foreach ($aps as $ap) {
             $tree = $this->stateTree->ap($ap);
@@ -110,6 +111,10 @@ class MonitorCommand extends Command
                 }
             }
 
+            if (in_array($tree['state'], [NodeState::AP_OFFLINE, NodeState::AP_UNKNOWN], true)) {
+                $offline[] = $ap->getName().($tree['since'] ? ' ('.$this->age($tree['since']).')' : '');
+            }
+
             ++$counts[$sev];
             if (self::OK !== $sev) {
                 $detail[] = sprintf('%s %s%s', $ap->getName(), $tree['state_name'],
@@ -133,14 +138,24 @@ class MonitorCommand extends Command
             $worst = max($worst, $sev);
         }
 
-        $perf = sprintf('ok=%d warning=%d critical=%d radios_bad=%d bss_bad=%d',
+        $perf = sprintf('ok=%d warning=%d critical=%d offline=%d radios_bad=%d bss_bad=%d',
             $counts[self::OK], $counts[self::WARNING], $counts[self::CRITICAL],
-            $radiosBad, $bssBad);
+            count($offline), $radiosBad, $bssBad);
 
         $word = [self::OK => 'OK', self::WARNING => 'WARNING', self::CRITICAL => 'CRITICAL'][$worst];
         $summary = self::OK === $worst
             ? sprintf('all %d access points healthy', count($aps))
             : sprintf('%d of %d access points not healthy', count($aps) - $counts[self::OK], count($aps));
+
+        // Name them in the first line. A count tells whoever gets paged how
+        // bad it is; the names tell them whether it is the one access point
+        // that has been dead for a day or the whole site, and that is the
+        // difference between reading on and getting up. Nagios shows the
+        // first line and often nothing else — ap-hv-klwz was offline for a
+        // whole day behind a summary that only counted.
+        if ($offline) {
+            $summary .= ' — offline: '.implode(', ', $offline);
+        }
 
         $output->writeln($word.' - '.$summary.'|'.$perf);
         foreach ($detail as $line) {
