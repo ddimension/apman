@@ -80,6 +80,8 @@
 			<b>{% if dfs and dfs.active %}{{ dfs.left is not null ? dfs.left ~ 's' : (dfs.elapsed ~ 's') }}{% else %}clear{% endif %}</b>
 			<span>dfs{% if running.dfs.cac_seconds %} · {{ running.dfs.cac_seconds }}s expected{% endif %}</span>
 			{% if dfs and dfs.active %}
+				<button type="button" id="escape" class="ghost small"
+				        data-configured="{{ radio.configChannel }}">take it off this check</button>
 				<span class="cacbar{{ dfs.overdue ? ' over' : '' }}"><span
 					style="width: {{ dfs.expected ? min(100, (dfs.elapsed * 100 / dfs.expected)|round) : 0 }}%"></span></span>
 				<span class="{{ dfs.overdue ? 'warn' : 'stale' }}">
@@ -338,6 +340,33 @@
 
 {% block javascripts %}
 {{ include('default/_option_filter.html.twig', {'storage_key': 'apman.radio.scope'}) }}
+<script>
+// A radio in a check is not carrying traffic, and on the weather radar range
+// that is ten minutes. Neither channel switch works from inside one — measured;
+// hostapd has no ubus object for an interface that is not enabled, and no
+// beacon to announce a switch in. Putting the channel back and reloading the
+// one radio takes three seconds.
+var escapeBtn = document.getElementById('escape');
+if (escapeBtn) {
+	escapeBtn.addEventListener('click', function () {
+		var to = window.prompt('Put this radio on which channel? Its configured one is '
+			+ (escapeBtn.dataset.configured || 'not set')
+			+ '. A channel that needs a check of its own only trades one wait for another.',
+			escapeBtn.dataset.configured || '');
+		if (to === null) { return; }
+		escapeBtn.disabled = true;
+		escapeBtn.textContent = 'reloading the radio…';
+		fetch({{ path('radio_escape', {'id': radio.id})|json_encode|raw }}, {
+			method: 'POST', body: new URLSearchParams(to === '' ? {} : { channel: to })
+		}).then(function (r) { return r.json(); }).then(function (d) {
+			var res = document.getElementById('result');
+			if (res) { res.textContent = d.error || d.note; res.className = 'small ' + (d.ok ? 'ok' : 'warn'); }
+			if (d.ok) { window.setTimeout(function () { window.location.reload(); }, 4000); }
+			else { escapeBtn.disabled = false; escapeBtn.textContent = 'take it off this check'; }
+		});
+	});
+}
+</script>
 <script>
 // Clicking a cell fills in the two fields it takes to mean it. The width is a
 // number inside a name — HE80, VHT40 — so the prefix already in the field is

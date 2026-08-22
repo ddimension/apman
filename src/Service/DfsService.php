@@ -246,6 +246,103 @@ class DfsService
         $this->cacheFactory->addCacheItem($key, $episode, self::KEEP_SECONDS);
     }
 
+    /** at most one escape per radio in this many seconds, however often it is asked */
+    public const ESCAPE_COOLDOWN = 3600;
+
+    /**
+     * Get a radio out of a check it is stuck in.
+     *
+     * Measured on ap-av-attic 2026-08-23, on a provoked ten minute check on
+     * channel 124: neither channel switch works from inside a check.
+     * `hostapd.<if> switch_chan` is not found, because hostapd registers no
+     * ubus object for an interface that is not enabled; `hostapd
+     * switch_channel` on the global object answers unknown error, because there
+     * is no beacon to announce a switch in. A CSA is for a radio that is
+     * transmitting.
+     *
+     * What works is to put the channel back and reload that one radio: three
+     * seconds, and no new check if the target is already cleared. Which is the
+     * whole trick — escaping onto another channel that needs a check would
+     * trade ten minutes for ten minutes.
+     *
+     * @param int|null $channel where to go; by default the channel this radio
+     *                          was configured for, which is where it was meant
+     *                          to be all along
+     */
+    public function escape(Radio $radio, ?int $channel = null): array
+    {
+        $ap = $radio->getAccessPoint();
+        if (!$ap) {
+            return ['ok' => false, 'error' => 'the radio is on no access point'];
+        }
+        $state = $this->state($radio);
+        $from = $state['freq'] ?? null;
+
+        $target = $channel ?? (int) $radio->getConfigChannel();
+        if ($target < 1) {
+            return ['ok' => false, 'error' => 'no channel to go to: this radio is configured for '
+                .($radio->getConfigChannel() ?: 'auto').', so there is nothing to put back'];
+        }
+        if (null !== $from && $this->channelOf($from) === $target) {
+            return ['ok' => false, 'error' => 'the configured channel is the one it is checking on '
+                .'('.$target.'), so putting it back would start the same check again — name '
+                .'another one'];
+        }
+
+        $section = 'wireless.'.$radio->getName().'.channel';
+        $answers = $this->ubus->callMany($ap, [
+            ['object' => 'uci', 'method' => 'set',
+                'args' => ['config' => 'wireless', 'section' => $radio->getName(),
+                    'values' => ['channel' => (string) $target]]],
+            ['object' => 'uci', 'method' => 'commit', 'args' => ['config' => 'wireless']],
+            ['object' => 'file', 'method' => 'exec',
+                'args' => ['command' => '/sbin/wifi', 'params' => ['reload', $radio->getName()]]],
+        ], 30);
+
+        foreach ([0 => 'uci set', 1 => 'uci commit', 2 => 'wifi reload'] as $i => $what) {
+            if (!isset($answers[$i]) || !$answers[$i]->isOk()) {
+                return ['ok' => false, 'error' => $what.' failed: '
+                    .(isset($answers[$i]) ? $answers[$i]->why() : 'no answer'),
+                    'set' => $section];
+            }
+        }
+
+        $this->logger->error('dfs: '.$ap->getName().'/'.$radio->getName().' was taken off '
+            .($from ? $from.' MHz' : 'its check').' and put on channel '.$target
+            .' — a check it could not finish is a radio that is not carrying traffic');
+
+        // the episode is over as far as we are concerned; the next probe writes
+        // whatever is true afterwards
+        $key = $this->key($radio);
+        $episode = $this->cacheFactory->getCacheItemValue($key);
+        if (is_array($episode)) {
+            $episode['escaped'] = time();
+            $this->cacheFactory->addCacheItem($key, $episode, self::KEEP_SECONDS);
+        }
+        $this->cacheFactory->addCacheItem('dfs.escaped.radio.'.$radio->getId(), time(),
+            self::ESCAPE_COOLDOWN);
+
+        return ['ok' => true, 'channel' => $target, 'from' => $from,
+            'note' => 'the radio was reloaded onto channel '.$target
+                .'. If that channel needs a check of its own this has not helped yet.'];
+    }
+
+    /** Has this radio been pulled out of a check recently? */
+    public function escapedRecently(Radio $radio): bool
+    {
+        return null !== $this->cacheFactory->getCacheItemValue('dfs.escaped.radio.'.$radio->getId());
+    }
+
+    /** the 5 and 6 GHz channel a frequency belongs to */
+    private function channelOf(int $freq): int
+    {
+        if ($freq >= 5945) {
+            return (int) (($freq - 5955) / 5) + 1;
+        }
+
+        return (int) (($freq - 5000) / 5);
+    }
+
     /**
      * Where one radio stands, for a page or a check to read.
      *

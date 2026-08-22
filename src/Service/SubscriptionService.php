@@ -1081,6 +1081,25 @@ class SubscriptionService
                 }
                 $this->dfs->noteProbe($radio, $probe);
                 $this->stateTree->observeRadio($radio, ['cac' => (bool) $probe['checking']]);
+
+                // A check past its own deadline is a radio that is not carrying
+                // traffic and cannot say when it will. Put it back on the
+                // channel it was configured for — three seconds, measured —
+                // rather than leaving it there.
+                //
+                // Narrow on purpose: only past the deadline the radio itself
+                // named, only on a productive access point, only once an hour
+                // per radio, and never onto a channel that would start the same
+                // check again — escape() refuses that.
+                $state = $this->dfs->state($radio);
+                if (($state['overdue'] ?? false) && $ap->getIsProductive()
+                    && !$this->dfs->escapedRecently($radio)) {
+                    $result = $this->dfs->escape($radio);
+                    $this->logger->error('dfs: '.$ap->getName().'/'.$radio->getName()
+                        .' was '.$state['elapsed'].'s into a check of '.$state['expected']
+                        .'s — '.($result['ok'] ? ($result['note'] ?? 'moved') : ('left where it is: '
+                            .$result['error'])));
+                }
                 // notice, not info: the service runs with -v, so info never
                 // reaches the journal, and a radio that is not carrying traffic
                 // is worth a line whatever the reason turns out to be

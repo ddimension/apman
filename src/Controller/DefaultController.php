@@ -1557,6 +1557,26 @@ class DefaultController extends AbstractController
     }
 
     /**
+     * Take a radio out of a channel availability check it is stuck in.
+     *
+     * A person presses this. The automatic version in apman:dfs-check waits for
+     * the check to be past its own deadline; this one does not, because
+     * somebody looking at the page can see something the deadline cannot.
+     */
+    #[Route(path: '/radio/{id}/escape', name: 'radio_escape', methods: ['POST'])]
+    public function radioEscapeAction(Request $request, \ApManBundle\Service\DfsService $dfs, $id)
+    {
+        $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->find($id);
+        if (!$radio) {
+            return $this->json(['ok' => false, 'error' => 'no such radio'], 404);
+        }
+        $channel = $request->request->get('channel');
+        $result = $dfs->escape($radio, null !== $channel && '' !== $channel ? (int) $channel : null);
+
+        return $this->json($result, ($result['ok'] ?? false) ? 200 : 400);
+    }
+
+    /**
      * Save one radio's options, each into the place that owns it.
      */
     #[Route(path: '/radio/{id}/save', name: 'radio_save', methods: ['POST'])]

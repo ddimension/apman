@@ -192,6 +192,37 @@ class DfsServiceTest extends TestCase
         $this->assertSame(660, $dfs->waitBudget($radio, 40));
     }
 
+    /**
+     * Escaping onto the channel it is already checking would start the same
+     * check again — ten minutes traded for ten minutes.
+     */
+    public function testItRefusesToEscapeOntoTheChannelItIsCheckingOn(): void
+    {
+        $device = $this->device();
+        $dfs = $this->service();
+        $radio = $device->getRadio();
+        $radio->setConfigChannel('116');
+        $dfs->observe($device, $this->status(true, 600, 590, 5580));
+
+        $out = $dfs->escape($radio);
+        $this->assertFalse($out['ok']);
+        $this->assertStringContainsString('would start the same check again', $out['error']);
+    }
+
+    /** A radio configured for auto has nothing to be put back to. */
+    public function testARadioOnAutoHasNowhereToGoBackTo(): void
+    {
+        $device = $this->device();
+        $dfs = $this->service();
+        $radio = $device->getRadio();
+        $radio->setConfigChannel('auto');
+        $dfs->observe($device, $this->status(true, 600, 590, 5580));
+
+        $out = $dfs->escape($radio);
+        $this->assertFalse($out['ok']);
+        $this->assertStringContainsString('nothing to put back', $out['error']);
+    }
+
     /** A radio that needs no check gets no extra wait, whatever hostapd names. */
     public function testAChannelOutsideTheDfsRangesNeedsNoWait(): void
     {
