@@ -1288,15 +1288,24 @@ class DefaultController extends AbstractController
         foreach ($bss as $b) {
             foreach ($b['ctrlcounts'] ?? [] as $name => $c) {
                 if (!isset($out[$name])) {
-                    $out[$name] = ['n' => 0, 'last' => 0, 'first' => null];
+                    $out[$name] = ['n' => 0, 'last' => 0, 'first' => null, 'ms_sum' => 0.0, 'ms_max' => 0.0];
                 }
                 $out[$name]['n'] += (int) ($c['n'] ?? 0);
+                $out[$name]['ms_sum'] += (float) ($c['ms_sum'] ?? 0);
+                $out[$name]['ms_max'] = max($out[$name]['ms_max'], (float) ($c['ms_max'] ?? 0));
                 $out[$name]['last'] = max($out[$name]['last'], (int) ($c['last'] ?? 0));
                 $first = (int) ($c['first'] ?? 0);
                 if ($first && (null === $out[$name]['first'] || $first < $out[$name]['first'])) {
                     $out[$name]['first'] = $first;
                 }
             }
+        }
+        // the same three numbers the radius page reports for an answer: how
+        // many, how long on average, and the worst one
+        foreach ($out as $name => $c) {
+            $out[$name]['ms_avg'] = $c['n'] ? round($c['ms_sum'] / $c['n'], 3) : null;
+            $out[$name]['rate'] = ($c['first'] && $c['last'] > $c['first'])
+                ? round($c['n'] * 3600 / ($c['last'] - $c['first']), 1) : null;
         }
         uasort($out, function ($a, $b) { return $b['n'] <=> $a['n']; });
 

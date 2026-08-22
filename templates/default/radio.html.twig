@@ -236,19 +236,28 @@
 	{% if ctrlcounts %}
 		<h3 class="small" style="margin:1em 0 .3em">What the bsses on this radio have reported</h3>
 		<table class="counters small">
-			<tr><th>event</th><th>count</th><th>last</th><th>since</th></tr>
+			<tr><th>event</th><th>count</th><th title="events per hour since the first one">per hour</th>
+				<th title="what handling one costs the subscriber loop">avg</th>
+				<th title="the slowest one seen">worst</th>
+				<th>last</th><th>since</th></tr>
 			{% for name, c in ctrlcounts %}
 				<tr>
 					<td class="mono">{{ name }}</td>
 					<td>{{ c.n }}</td>
+					<td>{{ c.rate is not null ? c.rate : '—' }}</td>
+					<td>{{ c.ms_avg is not null ? c.ms_avg|round(2) ~ ' ms' : '—' }}</td>
+					<td class="{{ c.ms_max > 50 ? 'warn' : '' }}">{{ c.ms_max ? c.ms_max|round(2) ~ ' ms' : '—' }}</td>
 					<td>{{ c.last ? (c.last|date('Y-m-d H:i')) : '—' }}</td>
 					<td class="stale">{{ c.first ? (c.first|date('Y-m-d H:i')) : '—' }}</td>
 				</tr>
 			{% endfor %}
 		</table>
 		<p class="small stale">
-			Counted for a week, per name, from hostapd's own control channel. Every name is counted
-			rather than a chosen few, so an event nobody thought of appears here by itself —
+			Counted for a week, per name, from hostapd's own control channel, with what each one
+			costs the subscriber loop — the same three numbers the RADIUS page reports for an
+			answer, and the ones that say whether forwarding the whole socket stream is
+			affordable. Every name is counted rather than a chosen few, so an event nobody
+			thought of appears here by itself —
 			<span class="mono">OCV-FAILURE</span> will show up the day <span class="mono">ocv</span>
 			is switched on. There is no access point side event for beacon protection in this
 			hostapd build, so that one cannot be counted at all.

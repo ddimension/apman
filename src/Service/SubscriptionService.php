@@ -673,15 +673,26 @@ class SubscriptionService
      * which is how OCV-FAILURE will show up the day OCV is switched on, without
      * a line of code being added for it.
      */
-    private function countCtrlEvent($device, string $name): void
+    private function countCtrlEvent($device, string $name, float $ms = 0.0): void
     {
         $key = 'status.device['.$device->getId().'].ctrlcounts';
         $counts = $this->cacheFactory->getCacheItemValue($key);
         if (!is_array($counts)) {
             $counts = [];
         }
-        $counts[$name] = ['n' => 1 + (int) ($counts[$name]['n'] ?? 0), 'last' => time(),
-            'first' => $counts[$name]['first'] ?? time()];
+        $was = $counts[$name] ?? [];
+        $counts[$name] = [
+            'n' => 1 + (int) ($was['n'] ?? 0),
+            'last' => time(),
+            'first' => $was['first'] ?? time(),
+            // The same shape the radius page reports: how many, how long on
+            // average, and the worst one. An event stream that is forwarded
+            // wholesale needs the same accounting as the one request path that
+            // already has it, or the first slow handler is found by somebody
+            // noticing the loop is behind rather than by a number.
+            'ms_sum' => round((float) ($was['ms_sum'] ?? 0) + $ms, 3),
+            'ms_max' => round(max((float) ($was['ms_max'] ?? 0), $ms), 3),
+        ];
         $this->cacheFactory->addCacheItem($key, $counts, 7 * 86400);
     }
 
@@ -702,9 +713,11 @@ class SubscriptionService
             'raw' => $data['raw'] ?? null,
         ];
 
+        // timed from here: what the switch below costs is the number that says
+        // whether forwarding everything from the socket is affordable
+        $started = microtime(true);
         if ($device) {
             $this->pushCtrlEvent('status.device['.$device->getId().'].ctrlevents', $entry, 40);
-            $this->countCtrlEvent($device, $name);
         }
         if ($address) {
             $this->pushCtrlEvent('status.client['.str_replace(':', '', $address).'].ctrlevents', $entry, 20);
@@ -776,6 +789,10 @@ class SubscriptionService
             case 'AP-ENABLED':
                 $this->logger->notice('ctrlEvent(): '.$entry['ifname'].' '.$name.' '.json_encode($fields));
                 break;
+        }
+
+        if ($device) {
+            $this->countCtrlEvent($device, $name, (microtime(true) - $started) * 1000);
         }
 
         return true;
