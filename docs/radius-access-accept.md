@@ -209,10 +209,18 @@ up. First measurement of the rebuilt agent, 150 samples each, `system board`
 over `call`:
 
 ```
-                 min   median    p90    p99    max   over 300 ms
-ap-av-grwz      41 ms   127 ms  220 ms  240 ms  437 ms   0.7 %
-ap-av-attic     16 ms   123 ms  213 ms  241 ms  242 ms   0.0 %
+                   n     median    p90    p99    max   over 300 ms
+ap-av-grwz       600     131 ms  221 ms  243 ms  321 ms   1  (0.2 %)
+ap-av-grwz       150     127 ms  220 ms  240 ms  437 ms   1  (0.7 %)
+ap-av-attic      150     123 ms  213 ms  241 ms  242 ms   0
 ```
+
+The first two rows are the same access point measured twice, and they are the
+argument for taking more than a hundred and fifty samples. Median, p90 and p99
+barely move — 127 to 131, 220 to 221, 240 to 243 — but the maximum falls from
+437 ms to 321 ms and the share above 300 ms from 0.7 % to 0.2 %. The 437 ms was
+one sample, and one sample is not a tail. At six hundred, 598 of them are under
+250 ms.
 
 ap-av-grwz has three radios, eleven bsses and 6 GHz on DFS; ap-av-attic has two
 radios and eleven bsses and is the quiet one. Read them together, because apart
