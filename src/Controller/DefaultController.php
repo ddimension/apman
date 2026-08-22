@@ -1512,7 +1512,7 @@ class DefaultController extends AbstractController
     }
 
     #[Route(path: '/radius', name: 'radius')]
-    public function radiusAction(\ApManBundle\Service\RadiusServerService $radius, \ApManBundle\Service\PpskService $ppsk, \ApManBundle\Service\StateTreeService $stateTree, Request $request)
+    public function radiusAction(\ApManBundle\Service\PpskService $ppsk, \ApManBundle\Service\StateTreeService $stateTree, Request $request)
     {
         $em = $this->doctrine->getManager();
         $filterSsid = trim((string) $request->get('ssid'));
@@ -1572,7 +1572,6 @@ class DefaultController extends AbstractController
                 'broadcast' => $config->ssid ?? '',
                 'server' => $server,
                 'encryption' => $config->encryption ?? 'none',
-                'ours' => (bool) preg_match('/(^|\D)'.preg_quote($this->radiusOwnAddress($radius), '/').'(\D|$)/', (string) $server),
                 'onap' => '127.0.0.1' === (string) $server || $ppsk->usesOnApRadius($ssid),
                 'fallback' => $ssid->getRadiusFallback(),
                 'id' => $ssid->getId(),
@@ -1587,8 +1586,6 @@ class DefaultController extends AbstractController
             'flaky' => $flaky,
             'flakyKeys' => $flakyKeys,
             'pointing' => $pointing,
-            'enabled' => $radius->isEnabled(),
-            'bind' => $radius->getBind(),
             'filterSsid' => $filterSsid,
             'filterResult' => $filterResult,
         ]);
@@ -1646,23 +1643,6 @@ class DefaultController extends AbstractController
         }
 
         return $out;
-    }
-
-    /**
-     * The address an access point would have to be pointed at. Only used to
-     * mark the SSIDs that already are.
-     */
-    private function radiusOwnAddress(\ApManBundle\Service\RadiusServerService $radius)
-    {
-        $bind = $radius->getBind();
-        $host = explode(':', $bind)[0];
-        if ('0.0.0.0' !== $host && '' !== $host) {
-            return $host;
-        }
-        // bound to everything: take the address the access points reach us on
-        $own = gethostbyname(gethostname());
-
-        return $own ?: '127.0.0.1';
     }
 
     /**

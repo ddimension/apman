@@ -2,7 +2,7 @@
 {% block title %}RADIUS{% endblock %}
 
 {% block body %}
-<h2>RADIUS <span class="small">what the access points asked, and what we answered</span></h2>
+<h2>RADIUS <span class="small">what the access points asked, and what they answered</span></h2>
 
 <p class="small">
 	An access point asks before it lets a station in: it sends the MAC and the network,
@@ -11,16 +11,13 @@
 	<i>wpa_psk_file</i> for SAE. Everything below is that conversation.
 </p>
 
-<div class="card">
-	<b>Server</b>
-	{% if enabled %}
-		<span class="pill up">running</span> <code>{{ bind }}</code>
-	{% else %}
-		<span class="pill down">switched off</span>
-		<span class="small">set <code>RADIUS_ENABLED=1</code> and a <code>RADIUS_SECRET</code>, then restart the subscriber</span>
-	{% endif %}
-	<span class="small stale">— it shares the event loop with the MQTT client, so answers do not wait for anything else</span>
-</div>
+<p class="small stale">
+	The question is answered on the access point itself, out of a key store this controller
+	distributes. That means it is answered in about a millisecond instead of over the network,
+	it keeps being answered while this controller is unreachable, and nothing on the network
+	can ask it but the hostapd sitting next to it. This controller no longer runs a RADIUS
+	server of its own.
+</p>
 
 {% if agents|length %}
 	<h3>The servers on the access points</h3>
@@ -131,7 +128,6 @@
 				</td>
 				<td class="small">{{ p.server }}
 					{% if p.onap %}<span class="pill up" title="answered by the AP's own RADIUS server — works without this controller">on the AP</span>
-					{% elseif p.ours %}<span class="pill up">us</span>
 					{% else %}<span class="pill">elsewhere</span>{% endif %}
 				</td>
 				<td class="small">

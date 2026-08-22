@@ -28,7 +28,6 @@ class SubscriptionService
     private const CACHE_REFRESH_INTERVAL = 60;
     private const HOUSEKEEPING_INTERVAL = 10;
     /** the RADIUS server sharing this loop, null when it is switched off */
-    private $radius;
     private $reconnecting = false;
     private $reconnectDelay = 0;
 
@@ -42,10 +41,8 @@ class SubscriptionService
         PpskService $ppskService,
         RadiusAuthService $radiusAuthService,
         ApContextService $apContext,
-        StateTreeService $stateTree,
-        ?RadiusServerService $radius = null
+        StateTreeService $stateTree
     ) {
-        $this->radius = $radius;
         $this->ppskService = $ppskService;
         $this->radiusAuthService = $radiusAuthService;
         $this->apContext = $apContext;
@@ -100,9 +97,7 @@ class SubscriptionService
                 $this->reviveDatabase();
             }
         });
-        if ($this->radius) {
-            $this->radius->listen($loop);
-        }
+
 
         $loop->run();
 

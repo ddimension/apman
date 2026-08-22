@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d272c8f18d45b1238208910e16d2c334",
+    "content-hash": "f1783e605eee040b5b8ec09eee9f2444",
     "packages": [
         {
             "name": "amphp/amp",
@@ -4239,81 +4239,6 @@
             "time": "2021-10-29T13:26:27+00:00"
         },
         {
-            "name": "react/async",
-            "version": "v4.3.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/reactphp/async.git",
-                "reference": "635d50e30844a484495713e8cb8d9e079c0008a5"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/async/zipball/635d50e30844a484495713e8cb8d9e079c0008a5",
-                "reference": "635d50e30844a484495713e8cb8d9e079c0008a5",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=8.1",
-                "react/event-loop": "^1.2",
-                "react/promise": "^3.2 || ^2.8 || ^1.2.1"
-            },
-            "require-dev": {
-                "phpstan/phpstan": "1.10.39",
-                "phpunit/phpunit": "^9.6"
-            },
-            "type": "library",
-            "autoload": {
-                "files": [
-                    "src/functions_include.php"
-                ],
-                "psr-4": {
-                    "React\\Async\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Christian Lück",
-                    "email": "christian@clue.engineering",
-                    "homepage": "https://clue.engineering/"
-                },
-                {
-                    "name": "Cees-Jan Kiewiet",
-                    "email": "reactphp@ceesjankiewiet.nl",
-                    "homepage": "https://wyrihaximus.net/"
-                },
-                {
-                    "name": "Jan Sorgalla",
-                    "email": "jsorgalla@gmail.com",
-                    "homepage": "https://sorgalla.com/"
-                },
-                {
-                    "name": "Chris Boden",
-                    "email": "cboden@gmail.com",
-                    "homepage": "https://cboden.dev/"
-                }
-            ],
-            "description": "Async utilities and fibers for ReactPHP",
-            "keywords": [
-                "async",
-                "reactphp"
-            ],
-            "support": {
-                "issues": "https://github.com/reactphp/async/issues",
-                "source": "https://github.com/reactphp/async/tree/v4.3.0"
-            },
-            "funding": [
-                {
-                    "url": "https://opencollective.com/reactphp",
-                    "type": "open_collective"
-                }
-            ],
-            "time": "2024-06-04T14:40:02+00:00"
-        },
-        {
             "name": "react/cache",
             "version": "v1.2.0",
             "source": {
@@ -4459,87 +4384,6 @@
                 }
             ],
             "time": "2025-12-23T15:25:20+00:00"
-        },
-        {
-            "name": "react/datagram",
-            "version": "v1.10.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/reactphp/datagram.git",
-                "reference": "9236e1f5a67a6029be17d551e9858c487836c301"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/datagram/zipball/9236e1f5a67a6029be17d551e9858c487836c301",
-                "reference": "9236e1f5a67a6029be17d551e9858c487836c301",
-                "shasum": ""
-            },
-            "require": {
-                "evenement/evenement": "^3.0 || ^2.0 || ^1.0",
-                "php": ">=5.3",
-                "react/dns": "^1.13",
-                "react/event-loop": "^1.2",
-                "react/promise": "^3.2 || ^2.1 || ^1.2"
-            },
-            "require-dev": {
-                "phpunit/phpunit": "^9.6 || ^5.7 || ^4.8.36",
-                "react/async": "^4.3 || ^3 || ^2"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "React\\Datagram\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Christian Lück",
-                    "email": "christian@clue.engineering",
-                    "homepage": "https://clue.engineering/"
-                },
-                {
-                    "name": "Cees-Jan Kiewiet",
-                    "email": "reactphp@ceesjankiewiet.nl",
-                    "homepage": "https://wyrihaximus.net/"
-                },
-                {
-                    "name": "Jan Sorgalla",
-                    "email": "jsorgalla@gmail.com",
-                    "homepage": "https://sorgalla.com/"
-                },
-                {
-                    "name": "Chris Boden",
-                    "email": "cboden@gmail.com",
-                    "homepage": "https://cboden.dev/"
-                }
-            ],
-            "description": "Event-driven UDP datagram socket client and server for ReactPHP",
-            "homepage": "https://github.com/reactphp/datagram",
-            "keywords": [
-                "Socket",
-                "async",
-                "client",
-                "datagram",
-                "dgram",
-                "reactphp",
-                "server",
-                "udp"
-            ],
-            "support": {
-                "issues": "https://github.com/reactphp/datagram/issues",
-                "source": "https://github.com/reactphp/datagram/tree/v1.10.0"
-            },
-            "funding": [
-                {
-                    "url": "https://opencollective.com/reactphp",
-                    "type": "open_collective"
-                }
-            ],
-            "time": "2024-09-06T11:22:35+00:00"
         },
         {
             "name": "react/dns",
@@ -5070,47 +4914,6 @@
                 }
             ],
             "time": "2026-06-05T03:04:51+00:00"
-        },
-        {
-            "name": "skydiablo/sky-ttl-list",
-            "version": "dev-master",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/skydiablo/SkyTtlList.git",
-                "reference": "7fbc90a7a9ec7e4c505baea43144d4347df7d327"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/skydiablo/SkyTtlList/zipball/7fbc90a7a9ec7e4c505baea43144d4347df7d327",
-                "reference": "7fbc90a7a9ec7e4c505baea43144d4347df7d327",
-                "shasum": ""
-            },
-            "require": {
-                "react/event-loop": "^v1.2"
-            },
-            "default-branch": true,
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "SkyDiablo\\SkyTtlList\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Volker von Hoeßlin",
-                    "email": "skydiablo@gmx.net"
-                }
-            ],
-            "description": "description",
-            "support": {
-                "issues": "https://github.com/skydiablo/SkyTtlList/issues",
-                "source": "https://github.com/skydiablo/SkyTtlList/tree/master"
-            },
-            "time": "2021-10-29T10:01:09+00:00"
         },
         {
             "name": "sonata-project/admin-bundle",
@@ -5886,57 +5689,6 @@
                 }
             ],
             "time": "2025-11-23T16:41:45+00:00"
-        },
-        {
-            "name": "swsn/react-radius",
-            "version": "dev-main",
-            "source": {
-                "type": "git",
-                "url": "https://codeberg.org/stadtwerke-schwerin/ReactRadius.git",
-                "reference": "b7317da8a0d74525ebd21d6af8e2944f2e8c4879"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://codeberg.org/api/v1/repos/stadtwerke-schwerin/ReactRadius/archive/b7317da8a0d74525ebd21d6af8e2944f2e8c4879.zip",
-                "reference": "b7317da8a0d74525ebd21d6af8e2944f2e8c4879",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=8.1",
-                "react/async": "^4.3",
-                "react/datagram": "^1.10",
-                "skydiablo/sky-ttl-list": "@dev"
-            },
-            "require-dev": {
-                "phpunit/phpunit": "^12.0"
-            },
-            "default-branch": true,
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "SWSN\\ReactRadius\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Volker von Hoeßlin",
-                    "email": "volker.hoesslin@swsn.de"
-                }
-            ],
-            "description": "The first (known to me) RADIUS server/client library which was implemented natively in PHP!",
-            "keywords": [
-                "radius",
-                "reactphp"
-            ],
-            "support": {
-                "issues": "https://codeberg.org/stadtwerke-schwerin/ReactRadius/issues",
-                "source": "https://codeberg.org/stadtwerke-schwerin/ReactRadius/branch/main"
-            },
-            "time": "2026-06-11T16:40:37+00:00"
         },
         {
             "name": "symfony/asset",
@@ -12350,9 +12102,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "swsn/react-radius": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
