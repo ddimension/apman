@@ -51,9 +51,16 @@ say "reloading the web server and starting $SERVICE"
 ssh "$HOST" "systemctl reload apache2 && systemctl start $SERVICE"
 sleep 6
 
+# The RADIUS server this used to count a socket for is gone; the access points
+# answer their own hostapd now. The check is inverted rather than deleted: a
+# listener on 1812 after a deploy means an old daemon outlived the restart and
+# is still holding the port — which used to be invisible and is worth a line.
 say "checking"
 ssh "$HOST" "systemctl is-active apache2 $SERVICE | tr '\n' ' '; echo; \
-  echo -n 'radius socket: '; ss -ulnp | grep -c ':1812' || true"
+  echo -n 'udp/1812: '; \
+  if ss -uln 2>/dev/null | grep -q ':1812'; then \
+    echo 'STILL LISTENING - an old process survived the restart'; \
+  else echo 'silent, as it should be'; fi"
 
 for path in / /aps /ssids /radius /admin/dashboard; do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 \
