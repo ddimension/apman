@@ -14,6 +14,13 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     /**
      * @var int
      */
+    /** through the apman agent, over the message bus */
+    public const TRANSPORT_MQTT = 'mqtt';
+    /** straight to the access point's own json-rpc endpoint, with a session */
+    public const TRANSPORT_HTTP = 'http';
+
+    public const TRANSPORTS = [self::TRANSPORT_MQTT, self::TRANSPORT_HTTP];
+
     #[ORM\Column(name: 'id', type: 'integer')]
     #[ORM\Id]
     #[ORM\GeneratedValue(strategy: 'IDENTITY')]
@@ -72,6 +79,23 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
      *
      * @var string|null
      */
+    /**
+     * Which way the controller talks to this access point.
+     *
+     * Both ways reach the same ubus. MQTT goes through the apman agent, which
+     * is subscribed and answers on a topic; HTTP logs in to the access point's
+     * own json-rpc endpoint and holds a session. MQTT is the default and the
+     * one everything new uses — it needs no session, survives the access point
+     * being briefly unreachable, and does not put a password on the wire per
+     * call.
+     *
+     * HTTP stays for the access point that has no agent, or has one that is
+     * not answering, and this column is where that is said instead of being
+     * decided by which piece of code happens to be running.
+     */
+    #[ORM\Column(name: 'transport', type: 'string', length: 8, nullable: true, options: ['default' => 'mqtt'])]
+    private $transport = self::TRANSPORT_MQTT;
+
     #[ORM\Column(name: 'radius_secret', type: 'string', nullable: true)]
     private $radiusSecret;
 
@@ -302,5 +326,28 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
         $this->radiusSecret = $radiusSecret;
 
         return $this;
+    }
+
+    /**
+     * Which way to talk to this access point. Never null to a caller: an empty
+     * column means nobody has chosen, and the choice for that is mqtt.
+     */
+    public function getTransport(): string
+    {
+        return in_array($this->transport, self::TRANSPORTS, true)
+            ? $this->transport : self::TRANSPORT_MQTT;
+    }
+
+    public function setTransport(?string $transport): self
+    {
+        $this->transport = in_array($transport, self::TRANSPORTS, true)
+            ? $transport : self::TRANSPORT_MQTT;
+
+        return $this;
+    }
+
+    public function usesMqtt(): bool
+    {
+        return self::TRANSPORT_MQTT === $this->getTransport();
     }
 }

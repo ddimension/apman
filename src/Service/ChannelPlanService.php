@@ -126,14 +126,16 @@ class ChannelPlanService
             ['object' => 'iwinfo', 'method' => 'survey', 'args' => ['device' => $ifname]],
         ], 10);
 
-        $freqOut = $answers[0]->isOk() ? ($answers[0]->data['stdout'] ?? '') : null;
+        $freqOut = $answers[0]->isOk() && is_object($answers[0]->data)
+            ? (string) ($answers[0]->data->stdout ?? '') : null;
         if (!$freqOut) {
             $this->logger->info('ChannelPlanService: '.$ap->getName().' '.$ifname
                 .' gave no freqlist: '.$answers[0]->why());
 
             return null;
         }
-        $regOut = $answers[1]->isOk() ? ($answers[1]->data['stdout'] ?? '') : '';
+        $regOut = $answers[1]->isOk() && is_object($answers[1]->data)
+            ? (string) ($answers[1]->data->stdout ?? '') : '';
 
         $channels = $this->parseFreqlist($freqOut);
         if (!$channels) {
@@ -178,8 +180,10 @@ class ChannelPlanService
     private function addLoad(array $channels, $survey, array $neighbours): array
     {
         $byMhz = [];
-        if (is_array($survey) && is_array($survey['results'] ?? null)) {
-            foreach ($survey['results'] as $r) {
+        $rows = is_object($survey) ? ($survey->results ?? null)
+            : (is_array($survey) ? ($survey['results'] ?? null) : null);
+        if (is_array($rows)) {
+            foreach ($rows as $r) {
                 $r = (array) $r;
                 if (!isset($r['mhz'])) {
                     continue;

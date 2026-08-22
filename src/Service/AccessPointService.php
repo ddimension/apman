@@ -26,6 +26,7 @@ class AccessPointService
     private $logger;
     private $doctrine;
     private $rpcService;
+    private $ubus;
     private $kernel;
     private $mqttFactory;
     private $cacheFactory;
@@ -39,6 +40,7 @@ class AccessPointService
         \Psr\Log\LoggerInterface $logger,
         \Doctrine\Persistence\ManagerRegistry $doctrine,
         wrtJsonRpc $rpcService,
+        ApUbusService $ubus,
         \Symfony\Component\HttpKernel\KernelInterface $kernel,
         \ApManBundle\Factory\MqttFactory $mqttFactory,
         \ApManBundle\Factory\CacheFactory $cacheFactory,
@@ -51,6 +53,7 @@ class AccessPointService
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
+        $this->ubus = $ubus;
         $this->kernel = $kernel;
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
@@ -446,22 +449,30 @@ class AccessPointService
         // enabled, but no RADIUS checking (macaddr_acl=2) enabled" — and took
         // every other network on that radio down with it. Measured 2026-08-21.
         $types = ['wifi-iface', 'wifi-device', 'wifi-vlan', 'wifi-station'];
-        $probe = $this->rpcService->getSession($ap);
+        // One batch rather than four round trips: the agent runs a batch in
+        // order and answers it in one message, so asking four questions costs
+        // what one used to.
+        $probeCalls = [];
         foreach ($types as $type) {
-            if (false !== $probe) {
-                $count = 0;
-                try {
-                    $probeOpts = new \stdClass();
-                    $probeOpts->config = 'wireless';
-                    $probeOpts->type = $type;
-                    $found = $probe->call('uci', 'get', $probeOpts);
-                    $values = $found->values ?? null;
-                    $count = is_array($values) ? count($values)
-                        : (is_object($values) ? count(get_object_vars($values)) : 0);
-                } catch (\Exception $e) {
-                    // unreachable mid-probe: fall back to asking for the delete
-                    $count = 1;
+            $probeOpts = new \stdClass();
+            $probeOpts->config = 'wireless';
+            $probeOpts->type = $type;
+            $probeCalls[] = ['object' => 'uci', 'method' => 'get', 'args' => $probeOpts];
+        }
+        $probed = $this->ubus->callMany($ap, $probeCalls, 10);
+        foreach ($types as $probeIndex => $type) {
+            $res = $probed[$probeIndex] ?? null;
+            // No answer at all means the probe could not be made, and then the
+            // delete is asked for anyway — the same fallback this always had.
+            if ($res && $res->reachedUbus()) {
+                $values = null;
+                if ($res->isOk()) {
+                    $data = $res->data;
+                    $values = is_object($data) ? ($data->values ?? null)
+                        : (is_array($data) ? ($data['values'] ?? null) : null);
                 }
+                $count = is_array($values) ? count($values)
+                    : (is_object($values) ? count(get_object_vars($values)) : 0);
                 if (!$count) {
                     $logger->debug($ap->getName().': no '.$type.' sections, skipping their delete');
                     continue;
@@ -847,11 +858,6 @@ class AccessPointService
      */
     public function scanNeighbours($ap, $ttl = 604800)
     {
-        $session = $this->rpcService->getSession($ap);
-        if (false === $session) {
-            return ['ok' => false, 'error' => 'cannot log in to '.$ap->getName()];
-        }
-
         // one interface per radio is enough, they share the antenna
         $perRadio = [];
         foreach ($ap->getRadios() as $radio) {
@@ -867,8 +873,15 @@ class AccessPointService
         foreach ($perRadio as $radioName => $ifname) {
             $opts = new \stdClass();
             $opts->device = $ifname;
-            $result = $session->call('iwinfo', 'scan', $opts);
-            if (!is_object($result) || !property_exists($result, 'results')) {
+            // a scan takes the radio off channel for a moment, so it is slower
+            // than a status call and worth waiting for rather than retrying
+            $scan = $this->ubus->call($ap, 'iwinfo', 'scan', $opts, 30);
+            $result = $scan->data;
+            $entries = is_object($result) ? ($result->results ?? null)
+                : (is_array($result) ? ($result['results'] ?? null) : null);
+            if (!$scan->isOk() || !is_array($entries)) {
+                $this->logger->info('scanNeighbours(): '.$ap->getName().'/'.$ifname.' gave nothing: '
+                    .($scan->isOk() ? 'no results in the answer' : $scan->why()));
                 $errors[] = $radioName.'/'.$ifname;
                 continue;
             }
@@ -877,7 +890,7 @@ class AccessPointService
             // be enumerated — a cache has no key listing — so a scan that found
             // forty networks left nothing behind that could answer that.
             $summary = [];
-            foreach ($result->results as $entry) {
+            foreach ($entries as $entry) {
                 $entry = (array) $entry;
                 if (empty($entry['bssid'])) {
                     continue;
@@ -959,16 +972,16 @@ class AccessPointService
     {
         $doc = $this->doctrine;
         $em = $this->doctrine->getManager();
-        $session = $this->rpcService->getSession($ap);
-        if (false === $session) {
-            $this->logger->error('Cannot connect to AP '.$ap->getName());
-
-            return false;
-        }
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-device';
-        $stat = $session->call('uci', 'get', $opts);
+        $res = $this->ubus->call($ap, 'uci', 'get', $opts, 10);
+        if (!$res->isOk()) {
+            $this->logger->error('refreshRadios(): '.$ap->getName().' did not answer: '.$res->why());
+
+            return false;
+        }
+        $stat = $res->data;
         if (!isset($stat->values) || !count(get_object_vars($stat->values))) {
             $this->logger->warning('No radios found on AP '.$ap->getName());
 
@@ -1126,57 +1139,17 @@ class AccessPointService
         // of log lines any more.
     }
 
-    public function fetchDynamicProperties(\ApManBundle\Entity\AccessPoint $ap)
-    {
-        $em = $this->doctrine->getManager();
-        $qb = $em->createQueryBuilder();
-        $query = $em->createQuery(
-            'SELECT ap
-	     FROM ApManBundle\Entity\AccessPoint ap
-	     WHERE
-	     ap.id = :id'
-        );
-        // setFetchMode() is gone in ORM 3, and it never took effect here:
-        // "ApManBundle\AccessPoint" is not a mapped class — the entity lives in
-        // ApManBundle\Entity — so the hint matched nothing.
-        $query->setParameter('id', $apId);
-        $ap = $query->getSingleResult();
-        $session = $this->rpcService->getSession($ap);
-        $opts = new \stdclass();
-        $opts->command = 'ip';
-        $opts->params = ['-s', 'link', 'show'];
-        $opts->env = ['LC_ALL' => 'C'];
-        $stat = $session->callCached('file', 'exec', $opts, 15);
-
-        $data = $session->callCached('network.device', 'status', null, 15);
-        $data = $session->callCached('iwinfo', 'devices', null, 15);
-        $data = $session->callCached('system', 'info', null, 15);
-        $data = $session->callCached('system', 'board', null, 15);
-        foreach ($ap->getRadios() as $radio) {
-            $p = new \stdClass();
-            $p->device = $radio->getName();
-            $data = $session->callCached('iwinfo', 'info', $p, 15);
-            foreach ($radio->getDevices() as $device) {
-                $config = $device->getConfig();
-                if (empty($device->ifname())) {
-                    continue;
-                }
-                $o = new \stdClass();
-                $o->device = $device->ifname();
-                $data = $session->callCached('iwinfo', 'info', $o, 15);
-                $data = $session->callCached('iwinfo', 'assoclist', $o, 15);
-                //print_r($data);
-            /*
-            if (is_object($data) && property_exists($data, 'results') && is_array($data->results)) {
-                $this->ssidService->applyLocationConstraints($data->results, $device);
-                $session->invalidateCache('iwinfo','assoclist', $o , 15);
-            }
-             */
-            }
-        }
-        //$stop = microtime(true);
-    //echo "Polled ".$ap->getName().", took ".sprintf('%0.3f',$stop-$start)."s\n";
-    }
+    /**
+     * fetchDynamicProperties() used to be here.
+     *
+     * It was never called by anything, and it could not have worked if it had
+     * been: it took an $ap and then looked up `$apId`, which is not defined
+     * anywhere in it, so the first line past the query would have been a fatal.
+     * Every call in it assigned to $data and the next line overwrote it, so
+     * even working it would have fetched eight things and kept none of them.
+     * The same eight calls, in the same order, live in the status cycle that
+     * does keep them.
+     */
 
     public function lifetimeMessageHandler($ap, \ApManBundle\Mqtt\Message $message, $deviceList, \ApManBundle\Mqtt\Publisher $client)
     {

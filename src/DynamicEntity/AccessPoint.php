@@ -19,6 +19,33 @@ class AccessPoint
         $this->rpcService = $rpcService;
     }
 
+    private $ubusService;
+
+    public function setUbusService($ubusService)
+    {
+        $this->ubusService = $ubusService;
+    }
+
+    /**
+     * One ubus call, whichever way this access point is reached.
+     *
+     * The entity used to log in itself — getSession() below — and ask over
+     * HTTP, which meant an admin list page opened a session to every access
+     * point in it. This goes through the same switch as everything else, so an
+     * access point set to mqtt is asked over mqtt from here too.
+     *
+     * Answers are cached, because the six getters underneath ask `iwinfo info`
+     * six times for six properties of one radio.
+     */
+    public function ubus(string $object, string $method, $args = null, int $ttl = 300)
+    {
+        if (!$this->ubusService) {
+            return false;
+        }
+
+        return $this->ubusService->callCached($this, $object, $method, $args, $ttl);
+    }
+
     private $cache;
 
     public function setCache($cache)

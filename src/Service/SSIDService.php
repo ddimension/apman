@@ -12,12 +12,15 @@ class SSIDService
     private $apservice;
     private $rpcService;
 
-    public function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, AccessPointService $apservice, wrtJsonRpc $rpcService)
+    private $ubus;
+
+    public function __construct(\Psr\Log\LoggerInterface $logger, \Doctrine\Persistence\ManagerRegistry $doctrine, AccessPointService $apservice, wrtJsonRpc $rpcService, ApUbusService $ubus)
     {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->apservice = $apservice;
         $this->rpcService = $rpcService;
+        $this->ubus = $ubus;
     }
 
     /**
@@ -30,15 +33,12 @@ class SSIDService
      */
     public function applyLocationConstraints($assocList, $device)
     {
-        $session = $this->rpcService->getSession($device->getRadio()->getAccesspoint());
-        if (!$session) {
-            $this->logger->error('Failed to establish session');
-
-            return null;
-        }
+        $ap = $device->getRadio()->getAccesspoint();
         $config = $device->getConfig();
 
-        $res = $session->callCached('hostapd.'.$device->ifname(), 'get_clients', null, 1);
+        // one second, because this is asked once per station of the page and
+        // the answer is the same for all of them
+        $res = $this->ubus->callCached($ap, 'hostapd.'.$device->ifname(), 'get_clients', null, 1);
         $hostapd_clients = [];
         if (is_object($res) and property_exists($res, 'clients')) {
             $hostapd_clients = (array) $res->clients;
@@ -59,7 +59,6 @@ class SSIDService
             if (!is_object($assocClient)) {
                 continue;
             }
-            $data = $session->callCached('hostapd.'.$device->ifname(), 'get_clients', null, 1);
             if (isset($hostapd_clients[$mac])) {
                 if (!$hostapd_clients[$mac]->assoc) {
                     $this->logger->info('Client '.$mac.' not associated, skip LocationConstraint');
@@ -165,9 +164,9 @@ class SSIDService
             return;
         }
         $cache->set($cacheKey, true, 30 + $timeout / 10);
-        $session = $this->rpcService->getSession($device->getRadio()->getAccesspoint());
-        if (!$session) {
-            $this->logger->info('Failed to establish session to '.$device->getRadio()->getAccesspoint()->getName());
+        $ap = $device->getRadio()->getAccesspoint();
+        if (!$ap) {
+            $this->logger->info('wnmDisassocImminent(): the bss is on no access point');
 
             return false;
         }
@@ -196,6 +195,9 @@ class SSIDService
             }
         }
         $this->logger->info('Sending wnm_disassoc_imminent request to '.print_r($opts, true));
-        $session->call('hostapd.'.$device->ifname(), 'wnm_disassoc_imminent', $opts);
+        $res = $this->ubus->call($ap, 'hostapd.'.$device->ifname(), 'wnm_disassoc_imminent', $opts);
+        if (!$res->isOk()) {
+            $this->logger->warning('wnm_disassoc_imminent on '.$device->ifname().' failed: '.$res->why());
+        }
     }
 }

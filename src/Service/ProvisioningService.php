@@ -203,8 +203,9 @@ class ProvisioningService
             ++$polls;
             $res = $this->ubus->call($ap, 'iwinfo', 'devices', null,
                 max(2, min(6, $deadline - microtime(true))));
-            if ($res->isOk() && is_array($res->data['devices'] ?? null)) {
-                $have = $res->data['devices'];
+            $devices = $res->isOk() && is_object($res->data) ? ($res->data->devices ?? null) : null;
+            if (is_array($devices)) {
+                $have = $devices;
                 $left = $present
                     ? array_values(array_diff($expected, $have))
                     : array_values(array_intersect($expected, $have));

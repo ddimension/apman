@@ -53,6 +53,7 @@ class WlanConsistencyService
     private $logger;
     private $doctrine;
     private $rpcService;
+    private $ubus;
     private $cacheFactory;
     private $stateTree;
     private $schema;
@@ -63,11 +64,13 @@ class WlanConsistencyService
         wrtJsonRpc $rpcService,
         \ApManBundle\Factory\CacheFactory $cacheFactory,
         StateTreeService $stateTree,
-        WirelessSchemaService $schema
+        WirelessSchemaService $schema,
+        ApUbusService $ubus
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
         $this->rpcService = $rpcService;
+        $this->ubus = $ubus;
         $this->cacheFactory = $cacheFactory;
         $this->stateTree = $stateTree;
         $this->schema = $schema;
@@ -688,10 +691,6 @@ class WlanConsistencyService
 
     private function fetchConfig($ap)
     {
-        $session = $this->rpcService->getSession($ap);
-        if (false === $session) {
-            return null;
-        }
         $opts = new \stdClass();
         $opts->command = '/bin/sh';
         // The key files come along, by size only. For a network on iPSK they
@@ -704,12 +703,18 @@ class WlanConsistencyService
             'for f in /var/run/hostapd-phy*.conf; do echo "###FILE $f"; cat "$f"; done;'
             .' for f in /var/run/hostapd-*.psk /var/run/hostapd-*.sae; do'
             .' [ -f "$f" ] && echo "###KEYFILE $f $(wc -c < "$f")"; done; true'];
-        $stat = $session->call('file', 'exec', $opts);
-        if (!is_object($stat) || !property_exists($stat, 'stdout')) {
+        // A dump of eleven bss blocks takes a moment to produce and to carry,
+        // which is longer than a status call and worth saying out loud
+        $res = $this->ubus->call($ap, 'file', 'exec', $opts, 20);
+        if (!$res->isOk()) {
+            $this->logger->info('WlanConsistencyService: '.$ap->getName().' gave no configuration: '.$res->why());
+
             return null;
         }
+        $stat = $res->data;
 
-        return $stat->stdout;
+        return is_object($stat) && property_exists($stat, 'stdout') ? $stat->stdout
+            : (is_array($stat) ? ($stat['stdout'] ?? null) : null);
     }
 
     /**

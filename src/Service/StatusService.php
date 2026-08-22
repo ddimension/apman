@@ -105,6 +105,11 @@ class StatusService
                 $neighbors[$mac]['name'] = $client->getName();
             }
         */
+        // The firewall, not an access point: it has no apman agent and no
+        // transport column, so this is one of the two places that stay on HTTP
+        // by necessity rather than by choice. The other is the LuCI login in
+        // CustomActionsController, where the session has to end up in the
+        // user's own browser.
         if ($firewall_host and !$neighborsCached) {
             $logger->debug('Building MAC cache');
             $session = $rpc->login($firewall_host, $firewall_user, $firewall_pwd);

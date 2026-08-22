@@ -3,6 +3,7 @@
 namespace ApManBundle\EventListener;
 
 use ApManBundle\Factory\CacheFactory;
+use ApManBundle\Service\ApUbusService;
 use ApManBundle\Service\wrtJsonRpc;
 use Doctrine\ORM\Event\PostLoadEventArgs;
 
@@ -10,11 +11,13 @@ class AccessPointListener
 {
     private $rpcService;
     private $cacheFactory;
+    private $ubus;
 
-    public function __construct(wrtJsonRpc $rpcService, CacheFactory $cacheFactory)
+    public function __construct(wrtJsonRpc $rpcService, CacheFactory $cacheFactory, ApUbusService $ubus)
     {
         $this->rpcService = $rpcService;
         $this->cacheFactory = $cacheFactory;
+        $this->ubus = $ubus;
         $this->cacheFactory->getCache();
     }
 
@@ -31,6 +34,11 @@ class AccessPointListener
         }
         if (method_exists($entity, 'setCache')) {
             $entity->setCache($this->cacheFactory);
+        }
+        // An entity cannot ask the container for anything, so the one call path
+        // is handed to it here the same way the raw rpc client always has been.
+        if (method_exists($entity, 'setUbusService')) {
+            $entity->setUbusService($this->ubus);
         }
     }
 }

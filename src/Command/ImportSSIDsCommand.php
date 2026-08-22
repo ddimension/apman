@@ -17,13 +17,14 @@ class ImportSSIDsCommand extends Command
     private $apservice;
     private $jsonrpc;
 
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $jsonrpc, $name = null)
+    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\wrtJsonRpc $jsonrpc, \ApManBundle\Service\ApUbusService $ubus, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
         $this->logger = $logger;
         $this->apservice = $apservice;
         $this->jsonrpc = $jsonrpc;
+        $this->ubus = $ubus;
     }
 
     protected function configure(): void
@@ -57,21 +58,19 @@ class ImportSSIDsCommand extends Command
             return 1;
         }
 
-        $rpcService = $this->jsonrpc;
-        $session = $rpcService->login($ap->getUbusUrl(), $ap->getUsername(), $ap->getPassword());
-        if (false === $session) {
-            $output->writeln('Cannot connect to AP '.$ap->getName());
-
-            return 1;
-        }
-
         $opts = new \stdClass();
         $opts->config = 'wireless';
         $opts->type = 'wifi-iface';
         //$opts->match = array('device' => $input->getArgument('radio'), 'mode' => 'ap');
         $opts->match = ['device' => $input->getArgument('radio')];
-        $stat = $session->call('uci', 'get', $opts);
-        if (!count(get_object_vars($stat->values))) {
+        $res = $this->ubus->call($ap, 'uci', 'get', $opts, 10);
+        if (!$res->isOk()) {
+            $output->writeln('<error>'.$ap->getName().' did not answer: '.$res->why().'</error>');
+
+            return 1;
+        }
+        $stat = $res->data;
+        if (!isset($stat->values) || !count(get_object_vars($stat->values))) {
             $output->writeln('No SSIDs/Devices found on AP '.$ap->getName());
 
             return 1;

@@ -20,6 +20,16 @@ class AccessPointAdmin extends AbstractAdmin
             ->add('password', TextType::class)
             ->add('ubus_url', UrlType::class)
             ->add('ipv4', TextType::class)
+            // The one place where it is decided which way the controller talks
+            // to this access point. Both roads reach the same ubus; mqtt goes
+            // through the agent and needs no session.
+            ->add('transport', \Symfony\Component\Form\Extension\Core\Type\ChoiceType::class, [
+                'choices' => [
+                    'mqtt — through the apman agent' => \ApManBundle\Entity\AccessPoint::TRANSPORT_MQTT,
+                    'http — straight to its json-rpc endpoint' => \ApManBundle\Entity\AccessPoint::TRANSPORT_HTTP,
+                ],
+                'help' => 'mqtt unless this access point has no agent, or one that is not answering.',
+            ])
             ->add('ProvisioningEnabled')
             ->add('IsProductive');
     }
@@ -34,6 +44,7 @@ class AccessPointAdmin extends AbstractAdmin
     {
         $listMapper->addIdentifier('name');
         $listMapper->add('ipv4');
+        $listMapper->add('transport');
         $listMapper->add('model');
         $listMapper->add('system');
         $listMapper->add('codename');
@@ -74,6 +85,7 @@ class AccessPointAdmin extends AbstractAdmin
             ->add('name')
             ->add('ipv4')
             ->add('ubus_url', 'url')
+            ->add('transport')
             ->add('username')
             ->add('model')
             ->add('system')

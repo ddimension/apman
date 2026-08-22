@@ -200,3 +200,26 @@ ap-av-grwz beacons on 6055 MHz and has never had a station.
    fetches it, or `file exec` with `cat /var/run/hostapd-phy*.conf`.
 5. Then look at whether clients are still there. A setting that renders
    correctly and empties a bss is worse than one that does not render.
+
+## Which way the controller talks to an access point
+
+`AccessPoint::$transport` — `mqtt` (default) or `http`, editable in the admin.
+`ApUbusService::call()` is the only entrance and reads it; both roads reach the
+same ubus and hand back the same `UbusResult`, so switching one access point
+over is a column and not a code change.
+
+Two things stay on HTTP because they cannot be anything else, and they are
+named here rather than left to be discovered:
+
+- **`CustomActionsController::loginAction()`** — the result is a LuCI session id
+  that has to end up in the user's own browser cookie. A session created through
+  the agent belongs to the agent: valid, and useless to the browser.
+- **`StatusService`'s firewall lookups** — the firewall is not an access point.
+  It has no apman agent and no transport column.
+
+The difference the switch had to iron out: the HTTP client decodes json into
+objects, the MQTT path receives it already decoded into arrays. A caller reading
+`$res->data['stdout']` worked over MQTT and died over HTTP with "Cannot use
+object of type stdClass as array", measured the first time an access point was
+switched over. `ApUbusService` normalises both to objects, because that is what
+`wrtJsonRpc::call()` has always returned.

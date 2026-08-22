@@ -11,13 +11,9 @@ class Radio
      */
     public function getHwMode()
     {
-        $session = $this->getAccessPoint()->getSession();
-        if (false === $session) {
-            return '-';
-        }
         $opts = new \stdClass();
         $opts->device = $this->getName();
-        $data = $session->callCached('iwinfo', 'info', $opts, 2);
+        $data = $this->getAccessPoint()->ubus('iwinfo', 'info', $opts, 2);
         if (false === $data) {
             return 'AP Offline';
         }
@@ -52,13 +48,9 @@ class Radio
      */
     public function getMode()
     {
-        $session = $this->getAccessPoint()->getSession();
-        if (false === $session) {
-            return '-';
-        }
         $opts = new \stdClass();
         $opts->device = $this->getName();
-        $data = $session->callCached('iwinfo', 'info', $opts, 2);
+        $data = $this->getAccessPoint()->ubus('iwinfo', 'info', $opts, 2);
         if (false === $data) {
             return 'AP Offline';
         }
@@ -76,13 +68,9 @@ class Radio
      */
     public function getChannel()
     {
-        $session = $this->getAccessPoint()->getSession();
-        if (false === $session) {
-            return '-';
-        }
         $opts = new \stdClass();
         $opts->device = $this->getName();
-        $data = $session->callCached('iwinfo', 'info', $opts, 2);
+        $data = $this->getAccessPoint()->ubus('iwinfo', 'info', $opts, 2);
         if (false === $data) {
             return 'AP Offline';
         }
@@ -100,13 +88,9 @@ class Radio
      */
     public function getTxPower()
     {
-        $session = $this->getAccessPoint()->getSession();
-        if (false === $session) {
-            return '-';
-        }
         $opts = new \stdClass();
         $opts->device = $this->getName();
-        $data = $session->callCached('iwinfo', 'info', $opts, 2);
+        $data = $this->getAccessPoint()->ubus('iwinfo', 'info', $opts, 2);
         if (false === $data) {
             return 'AP Offline';
         }
@@ -124,13 +108,9 @@ class Radio
      */
     public function getHtMode()
     {
-        $session = $this->getAccessPoint()->getSession();
-        if (false === $session) {
-            return '-';
-        }
         $opts = new \stdClass();
         $opts->device = $this->getName();
-        $data = $session->callCached('iwinfo', 'info', $opts, 2);
+        $data = $this->getAccessPoint()->ubus('iwinfo', 'info', $opts, 2);
         if (false === $data) {
             return 'AP Offline';
         }
@@ -148,13 +128,9 @@ class Radio
      */
     public function getHwInfo()
     {
-        $session = $this->getAccessPoint()->getSession();
-        if (false === $session) {
-            return '-';
-        }
         $opts = new \stdClass();
         $opts->device = $this->getName();
-        $data = $session->callCached('iwinfo', 'info', $opts, 2);
+        $data = $this->getAccessPoint()->ubus('iwinfo', 'info', $opts, 2);
         if (false === $data) {
             return 'AP Offline';
         }

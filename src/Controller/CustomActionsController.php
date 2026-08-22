@@ -20,6 +20,7 @@ class CustomActionsController extends CRUDController
     private $mqttFactory;
     private $cacheFactory;
     private $apService;
+    private $ubus;
 
     /**
      * Everything this controller needs comes in through the constructor.
@@ -36,12 +37,38 @@ class CustomActionsController extends CRUDController
         MqttFactory $mqttFactory,
         CacheFactory $cacheFactory,
         AccessPointService $apService,
+        \ApManBundle\Service\ApUbusService $ubus,
     ) {
         $this->rpcService = $rpcService;
         $this->logger = $logger;
         $this->mqttFactory = $mqttFactory;
         $this->cacheFactory = $cacheFactory;
         $this->apService = $apService;
+        $this->ubus = $ubus;
+    }
+
+    /**
+     * Run a command on an access point and hand back its stdout.
+     *
+     * Five actions did this by hand, each with its own session, its own error
+     * message and its own way of looking at the answer. The transport is the
+     * access point's own choice now, so all five gain that by going through
+     * here.
+     */
+    private function shell(\ApManBundle\Entity\AccessPoint $ap, string $command, array $params, float $timeout = 20)
+    {
+        $opts = new \stdClass();
+        $opts->command = $command;
+        $opts->params = $params;
+        $res = $this->ubus->call($ap, 'file', 'exec', $opts, $timeout);
+        if (!$res->isOk()) {
+            return ['ok' => false, 'why' => $res->why()];
+        }
+        $out = $res->data;
+        $stdout = is_object($out) ? ($out->stdout ?? null)
+            : (is_array($out) ? ($out['stdout'] ?? null) : null);
+
+        return ['ok' => true, 'stdout' => (string) $stdout];
     }
 
     /**
@@ -224,16 +251,12 @@ class CustomActionsController extends CRUDController
     public function batchActionWiFiRestart(ProxyQueryInterface $selectedModelQuery, Request $request)
     {
         foreach ($selectedModelQuery->execute() as $ap) {
-            $session = $this->rpcService->getSession($ap);
-            if (false === $session) {
-                $this->addFlash('sonata_flash_error', 'Cannot connect to AP '.$ap->getName());
+            $res = $this->shell($ap, 'wifi', ['reload'], 30);
+            if (!$res['ok']) {
+                $this->addFlash('sonata_flash_error', $ap->getName().': '.$res['why']);
 
                 return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
             }
-            $opts = new \stdClass();
-            $opts->command = 'wifi';
-            $opts->params = ['reload'];
-            $session->call('file', 'exec', $opts);
         }
         $this->addFlash('sonata_flash_success', 'Called "wifi restart".');
 
@@ -285,24 +308,25 @@ class CustomActionsController extends CRUDController
         }
         $ap = $object;
         header('Content-Type: text/plain');
-        $session = $this->rpcService->getSession($ap);
-        if (false === $session) {
-            $this->addFlash('sonata_flash_error', 'Failed to get session.');
+        $res = $this->shell($ap, 'logread', ['-l', '1000']);
+        if (!$res['ok']) {
+            $this->addFlash('sonata_flash_error', $ap->getName().': '.$res['why']);
 
             return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
         }
-        $opts = new \stdClass();
-        $opts->command = 'logread';
-        $opts->params = ['-l', '1000'];
-        $stat = $session->call('file', 'exec', $opts);
-        if (isset($stat->stdout)) {
-            echo $stat->stdout;
-        }
+        echo $res['stdout'];
         exit();
         //return new RedirectResponse($this->admin->generateUrl('list'));
     }
 
     /**
+     * A LuCI session for the browser, which is the one thing MQTT cannot do.
+     *
+     * Everything else in this controller goes through the transport switch. Not
+     * this: the result is a session id that has to end up in the user's own
+     * cookie, and a session created through the agent belongs to the agent. It
+     * would be a valid session that the browser could not use.
+     *
      * @param $id
      */
     public function loginAction($id)
@@ -326,6 +350,7 @@ class CustomActionsController extends CRUDController
         $opts->values->section = substr(hash('sha256', uniqid().microtime()), 0, 32);
         $stat = $session->call('session', 'set', $opts);
         $url = $ap->getUbusUrl();
+        unset($stat);
         $url = str_replace('/ubus', '/cgi-bin/luci/?sysauth='.$session->getSessionId(), $url);
 
         return new RedirectResponse($url);
@@ -343,19 +368,13 @@ class CustomActionsController extends CRUDController
         }
         $ap = $object;
         header('Content-Type: text/plain');
-        $session = $this->rpcService->getSession($ap);
-        if (false === $session) {
-            $this->addFlash('sonata_flash_error', 'Failed to get session.');
+        $res = $this->shell($ap, 'lldpcli', ['show', 'neighbors']);
+        if (!$res['ok']) {
+            $this->addFlash('sonata_flash_error', $ap->getName().': '.$res['why']);
 
             return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
         }
-        $opts = new \stdClass();
-        $opts->command = 'lldpcli';
-        $opts->params = ['show', 'neighbors'];
-        $stat = $session->call('file', 'exec', $opts);
-        if (isset($stat->stdout)) {
-            echo $stat->stdout;
-        }
+        echo $res['stdout'];
         exit();
         //return new RedirectResponse($this->admin->generateUrl('list'));
     }
@@ -371,29 +390,29 @@ class CustomActionsController extends CRUDController
             throw new NotFoundHttpException(sprintf('unable to find the object with id : %s', $id));
         }
         header('Content-Type: text/plain');
-        $session = $this->rpcService->getSession($object->getAccessPoint());
-        if (false === $session) {
-            $this->addFlash('sonata_flash_error', 'Failed to get session.');
+        $ap = $object->getAccessPoint();
+        $opts = new \stdClass();
+        $opts->device = $object->getName();
+        $info = $this->ubus->call($ap, 'iwinfo', 'info', $opts);
+        if (!$info->isOk()) {
+            $this->addFlash('sonata_flash_error', $ap->getName().': '.$info->why());
 
             return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
         }
-        $opts = new \stdClass();
-        $opts->device = $object->getName();
-        $stat = $session->call('iwinfo', 'info', $opts);
+        $stat = $info->data;
         print_r($stat);
 
-        echo "\n";
-        echo "#########################\n";
-        echo '# Phy Info '.$stat->phy."\n";
-        echo "#########################\n";
-        echo "\n";
-        $opts = new \stdClass();
-        $opts->command = 'iw';
-        $opts->params = ['phy', $stat->phy, 'info'];
-        $stat = $session->call('file', 'exec', $opts);
-        if (isset($stat->stdout)) {
-            echo $stat->stdout;
+        $phy = is_object($stat) ? ($stat->phy ?? null) : (is_array($stat) ? ($stat['phy'] ?? null) : null);
+        if (null === $phy) {
+            exit();
         }
+        echo "\n";
+        echo "#########################\n";
+        echo '# Phy Info '.$phy."\n";
+        echo "#########################\n";
+        echo "\n";
+        $res = $this->shell($ap, 'iw', ['phy', (string) $phy, 'info']);
+        echo $res['ok'] ? $res['stdout'] : $res['why'];
         exit();
     }
 
@@ -408,21 +427,21 @@ class CustomActionsController extends CRUDController
             throw new NotFoundHttpException(sprintf('unable to find the object with id : %s', $id));
         }
         header('Content-Type: text/plain');
-        $session = $this->rpcService->getSession($object->getAccessPoint());
-        if (false === $session) {
-            $this->addFlash('sonata_flash_error', 'Failed to get session.');
-
-            return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
-        }
         $opts = new \stdClass();
         $opts->device = $object->getName();
-        $stat = $session->call('iwinfo', 'scan', $opts);
-        if (!isset($stat->results)) {
-            $this->addFlash('sonata_flash_error', 'Failed to scan.: '.print_r($stat, true));
+        // a scan takes the radio off channel for a moment, so it needs longer
+        // than a status call and it is worth the wait rather than a retry
+        $res = $this->ubus->call($object->getAccessPoint(), 'iwinfo', 'scan', $opts, 30);
+        $stat = $res->data;
+        $results = is_object($stat) ? ($stat->results ?? null)
+            : (is_array($stat) ? ($stat['results'] ?? null) : null);
+        if (!$res->isOk() || null === $results) {
+            $this->addFlash('sonata_flash_error', 'The scan gave nothing back: '
+                .($res->isOk() ? 'no results in the answer' : $res->why()));
 
             return new RedirectResponse($this->admin->generateUrl('list', ['filter' => $this->admin->getFilterParameters()]));
         }
 
-        return $this->render('default/neighbors.html.twig', ['neighbors' => $stat->results]);
+        return $this->render('default/neighbors.html.twig', ['neighbors' => $results]);
     }
 }

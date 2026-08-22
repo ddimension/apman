@@ -6,11 +6,14 @@ use ApManBundle\Entity\AccessPoint;
 use ApManBundle\Library\UbusResult;
 
 /**
- * One ubus call to one access point, over MQTT, and the answer.
+ * One ubus call to one access point, and the answer.
  *
- * This is the transport everything new uses. The access points' HTTP API is
- * deliberately not extended — what already goes that way stays there, nothing
- * joins it.
+ * This is the one way in. Which road it takes is the access point's own
+ * `transport` column — mqtt through the apman agent, http to the access point's
+ * json-rpc endpoint — and mqtt is the default. Both roads reach the same ubus
+ * and both hand back the same UbusResult, so a caller does not have to know
+ * which one it got, and switching one access point over is a column and not a
+ * code change.
  *
  * The machinery existed, three times over and never quite the same:
  * AccessPointService::collectResults() polls the cache every 250 ms,
@@ -51,6 +54,57 @@ class ApUbusService
     }
 
     /**
+     * The same, returning what the old HTTP path returned: the payload, or
+     * false.
+     *
+     * Thirty call sites only ever asked "did I get something". They move over
+     * on this and gain the transport switch without gaining a new shape to
+     * handle; the ones that have to tell a missing object from a denied
+     * permission use call() and read the status.
+     */
+    public function callOrFalse(AccessPoint $ap, string $object, string $method, $args = null, float $timeout = self::DEFAULT_TIMEOUT)
+    {
+        return $this->call($ap, $object, $method, $args, $timeout)->orFalse();
+    }
+
+    /**
+     * The same as callOrFalse(), but a repeated question is only asked once.
+     *
+     * `wrtJsonRpcSession::callCached()` did this on the HTTP side and the
+     * callers that used it need it: DynamicEntity\Radio asks `iwinfo info` six
+     * times for six properties of one radio, and SSIDService asks a bss for its
+     * clients once per station on the page. Without a cache the switch to one
+     * call path would turn one round trip into six.
+     *
+     * Keyed by access point, object, method and arguments — not by transport,
+     * because the answer is the access point's and does not depend on the road
+     * taken to it.
+     */
+    public function callCached(AccessPoint $ap, string $object, string $method, $args = null, int $ttl = 300, float $timeout = self::DEFAULT_TIMEOUT)
+    {
+        $key = 'ubuscall.'.hash('sha256', serialize([$ap->getId(), $object, $method, $args]));
+        $hit = $this->cacheFactory->getCacheItemValue($key);
+        if (null !== $hit) {
+            // a miss and a stored false are told apart by the wrapper, so a
+            // failed call is not retried on every station of a page
+            return $hit['v'] ?? false;
+        }
+        $value = $this->call($ap, $object, $method, $args, $timeout)->orFalse();
+        $this->cacheFactory->addCacheItem($key, ['v' => $value], $ttl);
+
+        return $value;
+    }
+
+    /**
+     * Forget one cached answer, for when we have just changed what it answers.
+     */
+    public function forget(AccessPoint $ap, string $object, string $method, $args = null): void
+    {
+        $this->cacheFactory->deleteCacheItem(
+            'ubuscall.'.hash('sha256', serialize([$ap->getId(), $object, $method, $args])));
+    }
+
+    /**
      * Several calls in one batch, answered in the order they were given.
      *
      * The agent runs a batch in the order it was sent, which is the reason to
@@ -63,6 +117,9 @@ class ApUbusService
     {
         if (!$calls) {
             return [];
+        }
+        if (!$ap->usesMqtt()) {
+            return $this->callManyHttp($ap, $calls, $timeout);
         }
         $client = $this->mqttFactory->getClient();
         if (!$client) {
@@ -139,6 +196,68 @@ class ApUbusService
             return UbusResult::failed($code, $detail);
         }
 
-        return UbusResult::ok($data['result'] ?? null);
+        return UbusResult::ok(self::asObject($data['result'] ?? null));
+    }
+
+    /**
+     * The same shape from both transports.
+     *
+     * The HTTP client decodes json into objects; the MQTT path receives it
+     * already decoded into arrays. A caller that reads `$res->data['stdout']`
+     * therefore worked over MQTT and died over HTTP with "Cannot use object of
+     * type stdClass as array" — measured on ap-av-attic the first time one
+     * access point was switched over. A switch whose two positions need
+     * different calling code is not a switch.
+     *
+     * Objects win because that is what `wrtJsonRpc::call()` has always
+     * returned, so callOrFalse() is a true drop-in for the thirty call sites
+     * that came from there.
+     */
+    public static function asObject($value)
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        // a list stays a list; only maps become objects, which is exactly what
+        // json_decode without assoc does
+        $decoded = json_decode(json_encode($value));
+
+        return null === $decoded && 'null' !== json_encode($value) ? $value : $decoded;
+    }
+
+    /**
+     * The same calls over HTTP, for an access point that says so.
+     *
+     * No batching: the json-rpc endpoint answers one call per request, so a
+     * batch is a loop. The order is still the order, which is what a batch is
+     * for; what is lost is only the single round trip.
+     *
+     * A login that fails is a transport failure for every call in the batch
+     * rather than one failure repeated — there is nothing to retry per call.
+     *
+     * @return UbusResult[]
+     */
+    private function callManyHttp(AccessPoint $ap, array $calls, float $timeout): array
+    {
+        $session = $this->rpcService->getSession($ap);
+        if (!$session) {
+            return array_fill(0, count($calls),
+                UbusResult::failed(UbusResult::TRANSPORT_FAILED, 'cannot log in to '.$ap->getName()));
+        }
+        $out = [];
+        foreach ($calls as $call) {
+            // The HTTP client sends the arguments verbatim and replaces
+            // anything that is not an object with an empty one, so an array of
+            // arguments would arrive as no arguments at all. The MQTT path
+            // encodes either shape to the same json.
+            $args = $call['args'] ?? null;
+            if (is_array($args)) {
+                $args = (object) $args;
+            }
+            $out[] = $session->callResult($call['object'], $call['method'], $args,
+                (int) ($timeout * 1000));
+        }
+
+        return $out;
     }
 }

@@ -46,6 +46,20 @@ class wrtJsonRpcSession
         return $this->rpcService->call($this->url, $this->session, $namespace, $procedure, $arguments);
     }
 
+    /**
+     * The same call, with the ubus status instead of a bare false.
+     *
+     * The session object is this class's own — `callResult()` on the client
+     * reads `->ubus_rpc_session` off it, so handing it the session id alone
+     * gives a call with no session, which the access point answers with
+     * something that is not a ubus answer at all.
+     */
+    public function callResult($namespace, $procedure, $arguments = null, $timeoutMs = null): \ApManBundle\Library\UbusResult
+    {
+        return $this->rpcService->callResult($this->url, $this->session, $namespace, $procedure,
+            $arguments, $timeoutMs);
+    }
+
     public function callCached($namespace, $procedure, $arguments = null, $ttl = 300)
     {
         $cache = new Psr16Cache(new FilesystemAdapter());
