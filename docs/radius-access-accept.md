@@ -205,12 +205,29 @@ phase and measures the same moment over and over.
 
 The numbers that move are the tail, not the median: p90, p99, and the share
 above 300 ms, which is roughly where a station that retries three times gives
-up. First measurement of the rebuilt agent, on ap-av-grwz (three radios,
-eleven bsses, 6 GHz on DFS — the busiest device in the fleet), 150 samples:
+up. First measurement of the rebuilt agent, 150 samples each, `system board`
+over `call`:
 
 ```
-min 41 ms   median 127 ms   p90 220 ms   p99 240 ms   max 437 ms   over 300 ms: 0.7%
+                 min   median    p90    p99    max   over 300 ms
+ap-av-grwz      41 ms   127 ms  220 ms  240 ms  437 ms   0.7 %
+ap-av-attic     16 ms   123 ms  213 ms  241 ms  242 ms   0.0 %
 ```
 
-That includes the broker and the network, not only the agent, so it is a
-baseline to compare against rather than a measurement of the agent alone.
+ap-av-grwz has three radios, eleven bsses and 6 GHz on DFS; ap-av-attic has two
+radios and eleven bsses and is the quiet one. Read them together, because apart
+they mislead:
+
+- **The median is the path, not the agent.** 123 against 127 ms across two very
+  differently loaded devices is the broker round trip and the QoS 1 handshakes,
+  and it will not move whatever the agent does. Nobody should celebrate it
+  falling or worry about it rising by ten milliseconds.
+- **The tail is the agent.** Both flatten at a p99 near 240 ms — and then attic
+  stops at 242 ms while grwz reaches 437 ms. That gap, not the median, is where
+  a blocked agent shows up.
+- **0.7 % is one sample out of 150.** It is a baseline, not a rate. Anyone
+  comparing against it should take more samples before calling a difference
+  real.
+
+All of it includes the broker and the network. It is a number to compare
+against, not a measurement of the agent alone.
