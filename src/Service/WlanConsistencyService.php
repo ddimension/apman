@@ -249,10 +249,16 @@ class WlanConsistencyService
         }
 
         // A key that arrives over RADIUS has no PT, so it can do no H2E, and
-        // 6 GHz permits nothing else. The combination cannot work at all.
+        // 6 GHz permits nothing else. The combination cannot work at all — and
+        // "cannot work" turned out to be literal. Measured on ap-av-grwz
+        // 2026-08-22: wap-kc2 beacons on 6055 MHz with SAE FT-SAE,
+        // wpa_psk_radius=2 and no sae_pwe, and has never had a station. It is
+        // not a network configured wrongly, it is a network nobody can enter,
+        // advertised in every scan.
         if ($radiusKeys && $sae && '6g' === ($cfg['_band'] ?? '')) {
             $say('wpa_psk_radius on 6 GHz SAE',
-                'keys delivered over RADIUS carry no PT, and 6 GHz requires H2E');
+                'keys delivered over RADIUS carry no PT, and 6 GHz requires H2E — '
+                .'this bss can never admit a station');
         }
 
         // OWE without protected management frames cannot work: the whole
@@ -266,17 +272,6 @@ class WlanConsistencyService
         // not a WPA3 network.
         if ($sae && '2' !== ($cfg['ieee80211w'] ?? '')) {
             $say('ieee80211w', 'SAE without required management frame protection');
-        }
-
-        // 6 GHz permits nothing but hash-to-element, and a password delivered
-        // over RADIUS has no PT to derive it from. The combination cannot be
-        // fixed by configuration — measured on ap-av-grwz 2026-08-22: the bss
-        // beacons on 6055 MHz with SAE FT-SAE, wpa_psk_radius=2 and no
-        // sae_pwe, and has never had a station.
-        if ($radiusKeys && $sae && '6g' === ($cfg['_band'] ?? '')) {
-            $say('wpa_psk_radius on 6 GHz SAE',
-                'a key delivered over RADIUS carries no PT, and 6 GHz allows only hash-to-element — '
-                .'this bss can never admit a station', true);
         }
 
         // A server nobody asks. Without a RADIUS key management method and
