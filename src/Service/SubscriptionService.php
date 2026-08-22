@@ -316,11 +316,15 @@ class SubscriptionService
             foreach ($query->getResult() as $row) {
                 $apname = $row->getRadio()->getAccessPoint()->getName();
                 $this->cacheLocal['ap-by-name'][$apname] = $row->getRadio()->getAccessPoint();
-                $devname = $row->getIfname();
+                $devname = $row->ifname();
                 if (!isset($this->cacheLocal['dev-by-ap-ifname'][$apname])) {
                     $this->cacheLocal['dev-by-ap-ifname'][$apname] = [];
                 }
-                $this->cacheLocal['dev-by-ap-ifname'][$apname][$devname] = $row;
+                // no name, nothing to look it up by: the topics this index
+                // serves all carry one
+                if (null !== $devname) {
+                    $this->cacheLocal['dev-by-ap-ifname'][$apname][$devname] = $row;
+                }
             }
         }
 
@@ -470,7 +474,7 @@ class SubscriptionService
             $this->logger->info('handleMessage(): accesspoint bss.add notification '.$tp[5].' for '.$hostname, (array) $message);
             /* This is now done via the ApLifetimeHandler
             $opts = new \stdClass();
-            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', $opts);
+            $cmd = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->ifname(), 'update_beacon', $opts);
             $topic = 'apman/ap/'.$ap->getName().'/command';
             $this->client->publish($topic, json_encode($cmd));
             $this->logger->info('handleMessage(): sent update_beacon command because of notification '.$tp[5].' for '.$hostname,(array)$message);
@@ -508,7 +512,7 @@ class SubscriptionService
                     [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),
-                    'ifName' => $device->getIfname(),
+                    'ifName' => $device->ifname(),
                     ]
                 );
 
@@ -537,7 +541,7 @@ class SubscriptionService
                     [
                     'data' => json_encode($data),
                     'ap' => $ap->getName(),
-                    'ifName' => $device->getIfname(),
+                    'ifName' => $device->ifname(),
                     ]
                 );
                 $em->flush();
@@ -625,7 +629,7 @@ class SubscriptionService
             'event' => $name,
             'ts' => time(),
             'ap' => $ap ? $ap->getName() : null,
-            'ifname' => $data['ifname'] ?? ($device ? $device->getIfname() : null),
+            'ifname' => $data['ifname'] ?? ($device ? $device->ifname() : null),
             'address' => $address,
             'fields' => $fields,
             'raw' => $data['raw'] ?? null,
@@ -937,7 +941,7 @@ class SubscriptionService
                 ? (bool) $data['ap_status']['dfs']['cac_active'] : null,
         ]);
         $this->recordIpskUse($data, $ap->getName());
-        $updated[] = $ap->getName().' '.$device->getIfname();
+        $updated[] = $ap->getName().' '.$device->ifname();
         $this->logger->info('Updated status.', ['status' => 0, 'devices_updated' => $updated]);
         // handle station updates
         $this->apService->handleStationUpdates($device, $data);

@@ -186,7 +186,7 @@ class StatusService
                 foreach ($radio->getDevices() as $device) {
                     $delat = 0;
                     $status = $deviceStatus['status.device.'.$device->getId()] ?? null;
-                    $ifname = $device->getIfname();
+                    $ifname = $device->ifname();
                     if (null === $status) {
                         continue;
                     }

@@ -69,7 +69,7 @@ class ClientCommandService
         $ssids = [];
         $all = [];
         foreach ($query->getResult() as $device) {
-            if (!$device->getIfname()) {
+            if (!$device->ifname()) {
                 continue;
             }
             $all[] = $device;
@@ -235,14 +235,14 @@ class ClientCommandService
                 $cmd = $this->rpcService->createRpcRequest(
                     $id,
                     $this->rpcService->asyncMethod($device->getRadio()->getAccessPoint()),
-                    null, 'hostapd.'.$device->getIfname(), $method, $args
+                    null, 'hostapd.'.$device->ifname(), $method, $args
                 );
                 // and it should stop caring when we do, rather than answering
                 // into an empty room half a minute later
                 $commands['list'][] = $this->rpcService->setTimeout($cmd, $wait);
                 $expect[$id] = [
                     'ap' => $apName,
-                    'ifname' => $device->getIfname(),
+                    'ifname' => $device->ifname(),
                     'device' => $device->getId(),
                     // kept so an answer can be reported back to the tree, which
                     // wants the bss itself and not its id

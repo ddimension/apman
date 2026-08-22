@@ -52,6 +52,12 @@ class Device extends \ApManBundle\DynamicEntity\Device
     private $ifname;
 
     /**
+     * @var string|null the name the access point reports for this bss
+     */
+    #[ORM\Column(name: 'ifname_seen', type: 'string', nullable: true)]
+    private $ifname_seen;
+
+    /**
      * @var string
      */
     #[ORM\Column(name: 'address', type: 'string', length: 17, nullable: true)]
@@ -214,7 +220,7 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Set ifname.
+     * Set the interface name this bss is meant to have.
      *
      * @param string $ifname
      *
@@ -228,13 +234,60 @@ class Device extends \ApManBundle\DynamicEntity\Device
     }
 
     /**
-     * Get ifname.
+     * The interface name this bss is meant to have — what provisioning writes.
+     *
+     * For addressing something that is running, use ifname(). The two are the
+     * same on a healthy bss and differ exactly when it matters.
      *
      * @return string
      */
     public function getIfname()
     {
         return $this->ifname;
+    }
+
+    /**
+     * The interface name the access point last reported for this bss.
+     *
+     * Written from the wireless status, never from provisioning: this is what
+     * is, not what was asked for.
+     *
+     * @return Device
+     */
+    public function setIfnameSeen(?string $ifname)
+    {
+        $this->ifname_seen = $ifname;
+
+        return $this;
+    }
+
+    public function getIfnameSeen(): ?string
+    {
+        return $this->ifname_seen;
+    }
+
+    /**
+     * The name to address this bss by.
+     *
+     * ubus objects, key file paths, mqtt topics and the neighbour a partner bss
+     * names in owe_transition_ifname all key on the interface name, and the one
+     * that works is the one the access point actually gave the interface. That
+     * is not always the one provisioning asked for: netifd assigns its own when
+     * we name none, an access point may have refused ours, or the section was
+     * renamed and has not been provisioned since.
+     *
+     * So: what is, then what was asked for, then nothing — and a caller that
+     * gets nothing has to say so rather than build "hostapd." out of an empty
+     * string. The status message used to overwrite the wish with the fact, in
+     * one column, which made the two indistinguishable afterwards.
+     */
+    public function ifname(): ?string
+    {
+        if (!empty($this->ifname_seen)) {
+            return $this->ifname_seen;
+        }
+
+        return empty($this->ifname) ? null : $this->ifname;
     }
 
     /**

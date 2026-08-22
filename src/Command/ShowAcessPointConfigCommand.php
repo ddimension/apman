@@ -58,7 +58,7 @@ class ShowAcessPointConfigCommand extends Command
 
             foreach ($devices as $device) {
                 $result = $this->apservice->getDeviceConfig($device);
-                $output->writeln('Device '.$device->getIfname());
+                $output->writeln('Device '.$device->ifname());
                 print_r($result);
             }
         }

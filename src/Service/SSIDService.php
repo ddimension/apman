@@ -38,7 +38,7 @@ class SSIDService
         }
         $config = $device->getConfig();
 
-        $res = $session->callCached('hostapd.'.$device->getIfname(), 'get_clients', null, 1);
+        $res = $session->callCached('hostapd.'.$device->ifname(), 'get_clients', null, 1);
         $hostapd_clients = [];
         if (is_object($res) and property_exists($res, 'clients')) {
             $hostapd_clients = (array) $res->clients;
@@ -59,7 +59,7 @@ class SSIDService
             if (!is_object($assocClient)) {
                 continue;
             }
-            $data = $session->callCached('hostapd.'.$device->getIfname(), 'get_clients', null, 1);
+            $data = $session->callCached('hostapd.'.$device->ifname(), 'get_clients', null, 1);
             if (isset($hostapd_clients[$mac])) {
                 if (!$hostapd_clients[$mac]->assoc) {
                     $this->logger->info('Client '.$mac.' not associated, skip LocationConstraint');
@@ -173,7 +173,7 @@ class SSIDService
         }
 
         $cfg = $device->getConfig();
-        if (empty($device->getIfname())) {
+        if (empty($device->ifname())) {
             $this->logger->info('Missing ifname');
 
             return false;
@@ -196,6 +196,6 @@ class SSIDService
             }
         }
         $this->logger->info('Sending wnm_disassoc_imminent request to '.print_r($opts, true));
-        $session->call('hostapd.'.$device->getIfname(), 'wnm_disassoc_imminent', $opts);
+        $session->call('hostapd.'.$device->ifname(), 'wnm_disassoc_imminent', $opts);
     }
 }

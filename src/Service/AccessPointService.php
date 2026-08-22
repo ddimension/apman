@@ -856,8 +856,8 @@ class AccessPointService
         $perRadio = [];
         foreach ($ap->getRadios() as $radio) {
             foreach ($radio->getDevices() as $device) {
-                if ($device->getIfname() && !isset($perRadio[$radio->getName()])) {
-                    $perRadio[$radio->getName()] = $device->getIfname();
+                if ($device->ifname() && !isset($perRadio[$radio->getName()])) {
+                    $perRadio[$radio->getName()] = $device->ifname();
                 }
             }
         }
@@ -1135,11 +1135,11 @@ class AccessPointService
             $data = $session->callCached('iwinfo', 'info', $p, 15);
             foreach ($radio->getDevices() as $device) {
                 $config = $device->getConfig();
-                if (empty($device->getIfname())) {
+                if (empty($device->ifname())) {
                     continue;
                 }
                 $o = new \stdClass();
-                $o->device = $device->getIfname();
+                $o->device = $device->ifname();
                 $data = $session->callCached('iwinfo', 'info', $o, 15);
                 $data = $session->callCached('iwinfo', 'assoclist', $o, 15);
                 //print_r($data);
@@ -1288,9 +1288,18 @@ class AccessPointService
                             if ($ldev->getName() !== $interface['section']) {
                                 continue;
                             }
-                            if ($ldev->getIfname() !== $interface['ifname']) {
-                                $this->logger->info('ApLifetimeHandler(): assigned ifname '.$interface['ifname'].' to device '.$ldev->getName().' on '.$ap->getName());
-                                $ldev->setIfname($interface['ifname']);
+                            // What the access point reports goes in its own
+                            // column. It used to be written over the one
+                            // provisioning fills in, so afterwards nobody could
+                            // say whether a name had been asked for or found —
+                            // and an access point quietly running something
+                            // other than what it was given looked like agreement.
+                            if ($ldev->getIfnameSeen() !== $interface['ifname']) {
+                                $this->logger->info('ApLifetimeHandler(): '.$ap->getName().' reports ifname '.
+                                    $interface['ifname'].' for device '.$ldev->getName().
+                                    (empty($ldev->getIfname()) || $ldev->getIfname() === $interface['ifname']
+                                        ? '' : ' — provisioning asked for '.$ldev->getIfname()));
+                                $ldev->setIfnameSeen($interface['ifname']);
                                 $em->persist($ldev);
                                 $em->flush();
                             }
@@ -1387,8 +1396,8 @@ class AccessPointService
                 $batch = function (array $devices) use ($opts) {
                     $commands = ['list' => []];
                     foreach ($devices as $device) {
-                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'bss_mgmt_enable', $opts);
-                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->getIfname(), 'update_beacon', []);
+                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->ifname(), 'bss_mgmt_enable', $opts);
+                        $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'hostapd.'.$device->ifname(), 'update_beacon', []);
                     }
 
                     return $commands;
@@ -1620,7 +1629,7 @@ class AccessPointService
             foreach ($ssid->getDevices() as $device) {
                 $radio = $device->getRadio();
                 $ap = $radio->getAccesspoint();
-                if (empty($device->getIfname())) {
+                if (empty($device->ifname())) {
                     $this->logger->error('assignAllNeighbors: ifname missing for '.$ap->getName().':'.$radio->getName().':'.$device->getName());
                     continue;
                 }
@@ -1636,7 +1645,7 @@ class AccessPointService
             foreach ($ssid->getDevices() as $device) {
                 $radio = $device->getRadio();
                 $ap = $radio->getAccesspoint();
-                if (empty($device->getIfname())) {
+                if (empty($device->ifname())) {
                     $this->logger->error('assignAllNeighbors(): ifname missing for '.$ap->getName().':'.$radio->getName().':'.$device->getName()."\n");
                     continue;
                 }
@@ -1671,7 +1680,7 @@ class AccessPointService
                 // One neighbour list per bss, and no command in the batch is
                 // built on another: an access point with a dozen bsses has no
                 // reason to stop answering for the length of all of them.
-                $cmds[$apname][] = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'rrm_nr_set', $opts);
+                $cmds[$apname][] = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->ifname(), 'rrm_nr_set', $opts);
             }
             //print_r($neighbors);
         }
@@ -1893,7 +1902,7 @@ class AccessPointService
             // Nothing waits on the answer but this line of code, and a station
             // that has already wandered off keeps hostapd busy until it gives
             // up on it.
-            $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
+            $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->ifname(), 'del_client', $opts);
             $this->logger->warning('steerClient('.$mac.'): Sending del_client message to topic '.$topic.': '.json_encode($cmd), ['wnm_capable' => $wnm_capable]);
             $res = $mclient->publish($topic, json_encode($cmd));
             $this->steeringState['state'][$mac] = ['client' => $client, 'last_sent' => time(), 'timeout' => time() + $opts->ban_time, 'try' => $try];
@@ -1912,7 +1921,7 @@ class AccessPointService
                 return false;
             }
             $targetDev = $target['device'];
-            $this->logger->notice('steerClient('.$mac.'): target '.$target['ap'].'/'.$targetDev->getIfname().
+            $this->logger->notice('steerClient('.$mac.'): target '.$target['ap'].'/'.$targetDev->ifname().
                 ' — client hears it at '.$target['heard'].' dBm'.
                 (null !== $target['gain'] ? ' ('.sprintf('%+.1f', $target['gain']).' dB)' : '').
                 ' via '.$target['source']);
@@ -1938,7 +1947,7 @@ class AccessPointService
             // A transition request runs until the station answers it or the
             // disassociation timer expires — seconds, for a station that has
             // stopped listening. The access point has better things to do.
-            $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
+            $cmd = $this->rpcService->createRpcRequest(1, $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->ifname(), 'bss_transition_request', $opts);
             $this->logger->warning('steerClient('.$mac.'): Sending bss_transition_request message to topic '.$topic.': '.json_encode($cmd), ['wnm_capable' => $wnm_capable]);
             $res = $mclient->publish($topic, json_encode($cmd));
             $this->steeringState['state'][$mac] = ['client' => $client, 'last_sent' => time(), 'timeout' => time() + $opts->disassociation_timer / 10, 'try' => $try];

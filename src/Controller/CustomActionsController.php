@@ -101,7 +101,7 @@ class CustomActionsController extends CRUDController
                         // or the disassociation timer runs out. Sent
                         // synchronously they add up to the whole evacuation
                         // spent with the agent unable to do anything else.
-                        $cmd = $this->rpcService->createRpcRequest('evacuate-'.$device->getIfname(), $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'bss_transition_request', $opts);
+                        $cmd = $this->rpcService->createRpcRequest('evacuate-'.$device->ifname(), $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->ifname(), 'bss_transition_request', $opts);
                         $this->logger->info('Mqtt(): message to topic '.$topic.': '.json_encode($cmd));
                         $client->publish($topic, json_encode($cmd));
                     }

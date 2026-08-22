@@ -321,13 +321,13 @@ class DefaultController extends AbstractController
                             'inactive' => $entry['inactive'] ?? null,
                             'rx_rate' => $entry['rx']['rate'] ?? null,
                             'tx_rate' => $entry['tx']['rate'] ?? null,
-                            'device' => $entry['device'] ?? $device->getIfname(),
+                            'device' => $entry['device'] ?? $device->ifname(),
                         ];
                     }
                 }
                 $devices[] = [
                     'id' => $device->getId(),
-                    'ifname' => $device->getIfname(),
+                    'ifname' => $device->ifname(),
                     'radio' => $radio->getName(),
                     'band' => method_exists($radio, 'getConfigBand') ? $radio->getConfigBand() : null,
                     'ssid' => $device->getSsid() ? $device->getSsid()->getName() : null,
@@ -480,8 +480,8 @@ class DefaultController extends AbstractController
 
                     $current[] = [
                         'ap' => $device->getRadio()->getAccessPoint()->getName(),
-                        'ifname' => $device->getIfname(),
-                        'device' => $entry['device'] ?? $device->getIfname(),
+                        'ifname' => $device->ifname(),
+                        'device' => $entry['device'] ?? $device->ifname(),
                         'ssid' => $info['ssid'] ?? ($device->getSsid() ? $device->getSsid()->getName() : null),
                         'channel' => $info['channel'] ?? null,
                         'frequency' => $info['frequency'] ?? null,
@@ -545,7 +545,7 @@ class DefaultController extends AbstractController
             if (is_object($probe)) {
                 $seen[] = [
                     'ap' => $device->getRadio()->getAccessPoint()->getName(),
-                    'ifname' => $device->getIfname(),
+                    'ifname' => $device->ifname(),
                     'ts' => $probe->ts ?? null,
                     'signal' => $probe->signalstr ?? null,
                 ];
@@ -809,7 +809,7 @@ class DefaultController extends AbstractController
         foreach ($query->getResult() as $device) {
             $known[strtolower($device->getAddress())] = [
                 'ap' => $device->getRadio()->getAccessPoint()->getName(),
-                'ifname' => $device->getIfname(),
+                'ifname' => $device->ifname(),
                 'ssid' => $device->getSsid() ? $device->getSsid()->getName() : null,
             ];
         }
@@ -942,7 +942,7 @@ class DefaultController extends AbstractController
                 $bss[] = [
                     'id' => $device->getId(),
                     'ap' => $device->getRadio()->getAccessPoint()->getName(),
-                    'ifname' => $device->getIfname(),
+                    'ifname' => $device->ifname(),
                 ];
             }
             $rows[] = ['ssid' => $ssid, 'keys' => $keys, 'bss' => $bss,
@@ -1089,7 +1089,7 @@ class DefaultController extends AbstractController
             $bssStates[$node['state_name']] = ($bssStates[$node['state_name']] ?? 0) + 1;
             $devices[] = [
                 'name' => $device->getName(),
-                'ifname' => $device->getIfname(),
+                'ifname' => $device->ifname(),
                 'ap' => $ap ? $ap->getName() : null,
                 'band' => $device->getRadio() ? $device->getRadio()->getConfigBand() : null,
                 'address' => $device->getAddress(),
@@ -1883,7 +1883,7 @@ class DefaultController extends AbstractController
                 $online[] = [
                     'mac' => $mac,
                     'ap' => $device->getRadio()->getAccessPoint()->getName(),
-                    'ifname' => $device->getIfname(),
+                    'ifname' => $device->ifname(),
                     'signal' => $signal,
                 ];
             }
@@ -2117,7 +2117,7 @@ class DefaultController extends AbstractController
 
                     $ssid = $device->getSsid();
                     $row['devices'][] = [
-                        'ifname' => $device->getIfname(),
+                        'ifname' => $device->ifname(),
                         'ssid_configured' => $ssid ? $ssid->getName() : null,
                         'bss_info' => is_array($bssInfo) ? $bssInfo : null,
                         'drift' => $this->bssDrift($device, $bssInfo),
@@ -2707,7 +2707,7 @@ class DefaultController extends AbstractController
                 $candidates[] = [
                     'id' => $device->getId(),
                     'ap' => $device->getRadio()->getAccessPoint()->getName(),
-                    'ifname' => $device->getIfname(),
+                    'ifname' => $device->ifname(),
                     'band' => $device->getRadio()->getConfigBand(),
                     'htmode' => method_exists($device->getRadio(), 'getConfigHtmode') ? $device->getRadio()->getConfigHtmode() : null,
                     'bssid' => $bssid ?: null,
@@ -2727,7 +2727,7 @@ class DefaultController extends AbstractController
         return $this->render('default/bss_transition_request.html.twig', [
             'mac' => $mac,
             'system' => $request->get('system', $current ? $current['device']->getRadio()->getAccessPoint()->getName() : ''),
-            'device' => $request->get('device', $current ? $current['device']->getIfname() : ''),
+            'device' => $request->get('device', $current ? $current['device']->ifname() : ''),
             'ssid' => $ssidEntity ? $ssidEntity->getName() : $request->get('ssid'),
             'current' => $current,
             'current_heard' => $currentHeard,
@@ -2776,7 +2776,7 @@ class DefaultController extends AbstractController
                 return $this->json(['ok' => false, 'error' => 'the target has no neighbour report yet, so it cannot be named']);
             }
             $opts->neighbors = [$rrm->value[2]];
-            $targetName = $targetDev->getRadio()->getAccessPoint()->getName().'/'.$targetDev->getIfname();
+            $targetName = $targetDev->getRadio()->getAccessPoint()->getName().'/'.$targetDev->ifname();
             if ($targetDev->getAddress()) {
                 $steering->markPending($mac, $targetDev->getAddress());
             }

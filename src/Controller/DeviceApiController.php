@@ -81,7 +81,13 @@ class DeviceApiController extends AbstractController
             }
             $devs_indexed = [];
             foreach ($devs as $device) {
-                $devs_indexed[$device->getIfname()] = $device;
+                // a bss nobody has reported and nobody named cannot be the one
+                // this report is about; indexing it under "" would only give
+                // the next nameless device somewhere to hide
+                if (null === $device->ifname()) {
+                    continue;
+                }
+                $devs_indexed[$device->ifname()] = $device;
             }
             foreach ($data->message->devices as $name => $device) {
                 if (!array_key_exists($name, $devs_indexed)) {
@@ -119,7 +125,7 @@ class DeviceApiController extends AbstractController
                 $device->stations = $stations;
                 $dev->setStatus(json_decode(json_encode($device), true));
                 $em->persist($dev);
-                $updated[] = $dev->getIfname();
+                $updated[] = $dev->ifname();
             }
         }
         $em->flush();

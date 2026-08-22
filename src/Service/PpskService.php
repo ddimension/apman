@@ -745,7 +745,7 @@ class PpskService
 
         $client = null;
         foreach ($targets as $device) {
-            if (!$device->getIfname()) {
+            if (!$device->ifname()) {
                 continue;
             }
             $ap = $device->getRadio() ? $device->getRadio()->getAccessPoint() : null;
@@ -776,10 +776,10 @@ class PpskService
             // Sent to every bss of the network when the status cache does not
             // know where the station is, so most of these find nothing. Not
             // worth stopping an access point over.
-            $cmd = $this->rpcService->createRpcRequest('ppsk-deauth-'.$device->getIfname(),
-                $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->getIfname(), 'del_client', $opts);
+            $cmd = $this->rpcService->createRpcRequest('ppsk-deauth-'.$device->ifname(),
+                $this->rpcService->asyncMethod($ap), null, 'hostapd.'.$device->ifname(), 'del_client', $opts);
             $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
-            $sent[] = ['ap' => $ap->getName(), 'ifname' => $device->getIfname()];
+            $sent[] = ['ap' => $ap->getName(), 'ifname' => $device->ifname()];
         }
         if ($client) {
             $client->disconnect();
@@ -1218,7 +1218,7 @@ class PpskService
                 }
                 $connected[$mac] = [
                     'ap' => $ap ? $ap->getName() : '?',
-                    'ifname' => $device->getIfname(),
+                    'ifname' => $device->ifname(),
                     // hostapd reports this for a station that used a key from
                     // the psk file — one that already has an identity
                     'keyid' => is_array($station) ? ($station['keyid'] ?? null) : null,
@@ -1393,8 +1393,8 @@ class PpskService
         foreach ($byAp as $apName => $apDevices) {
             $ifnamesByAp[$apName] = [];
             foreach ($apDevices as $device) {
-                if ($device->getIfname()) {
-                    $ifnamesByAp[$apName][] = $device->getIfname();
+                if ($device->ifname()) {
+                    $ifnamesByAp[$apName][] = $device->ifname();
                 }
             }
         }
@@ -1430,7 +1430,7 @@ class PpskService
             $expected = [];  // section name => uci add payload
             $targets = [];   // ifname => device
             foreach ($apDevices as $device) {
-                $ifname = $device->getIfname();
+                $ifname = $device->ifname();
                 if (!$ifname) {
                     $results[$apName][] = ['device' => $device->getName(), 'skipped' => 'no ifname yet'];
                     continue;
@@ -1908,8 +1908,8 @@ class PpskService
             $commands = ['list' => []];
             foreach ($devices as $device) {
                 $commands['list'][] = $this->rpcService->createRpcRequest(
-                    'ppsk-pmksa-'.$device->getIfname().'-'.$run, 'ctrl', null,
-                    $device->getIfname(), 'PMKSA_FLUSH'
+                    'ppsk-pmksa-'.$device->ifname().'-'.$run, 'ctrl', null,
+                    $device->ifname(), 'PMKSA_FLUSH'
                 );
                 ++$flushed;
             }
@@ -2082,7 +2082,7 @@ class PpskService
     {
         $em = $this->doctrine->getManager();
         $ap = $device->getRadio()->getAccessPoint();
-        $ifname = $device->getIfname();
+        $ifname = $device->ifname();
         $ssid = $device->getSsid();
         if (!$ifname || !$ssid) {
             return [];
@@ -2173,8 +2173,8 @@ class PpskService
         foreach ($ap->getRadios() as $radio) {
             foreach ($radio->getDevices() as $device) {
                 $devices[$device->getName()] = $device;
-                if ($device->getIfname()) {
-                    $devices[$device->getIfname()] = $device;
+                if ($device->ifname()) {
+                    $devices[$device->ifname()] = $device;
                 }
             }
         }
@@ -2251,7 +2251,7 @@ class PpskService
             ->setParameter('ssid', $ssid)->getResult();
         $byAp = [];
         foreach ($devices as $device) {
-            if (!$device->getIfname()) {
+            if (!$device->ifname()) {
                 continue;
             }
             $byAp[$device->getRadio()->getAccessPoint()->getName()][] = $device;
@@ -2318,9 +2318,9 @@ class PpskService
             foreach ($devices as $device) {
                 $id = $what.'-'.$device->getId();
                 $commands['list'][] = $this->rpcService->createRpcRequest(
-                    $id, 'call', null, 'hostapd.'.$device->getIfname(), $method, new \stdClass()
+                    $id, 'call', null, 'hostapd.'.$device->ifname(), $method, new \stdClass()
                 );
-                $expect[$id] = $apName.'/'.$device->getIfname();
+                $expect[$id] = $apName.'/'.$device->ifname();
             }
             $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);
         }
@@ -2404,11 +2404,11 @@ class PpskService
             foreach ($devices as $device) {
                 $opts = new \stdClass();
                 $opts->command = '/usr/sbin/hostapd_cli';
-                $opts->params = array_merge(['-i', $device->getIfname()], $args);
+                $opts->params = array_merge(['-i', $device->ifname()], $args);
                 $commands['list'][] = $this->rpcService->createRpcRequest(
-                    'wps-'.$what.'-'.$device->getIfname(), 'call', null, 'file', 'exec', $opts
+                    'wps-'.$what.'-'.$device->ifname(), 'call', null, 'file', 'exec', $opts
                 );
-                $targets[] = $apName.'/'.$device->getIfname();
+                $targets[] = $apName.'/'.$device->ifname();
                 ++$sent;
             }
             $client->publish('apman/ap/'.$apName.'/command/bulk', json_encode($commands), 1);

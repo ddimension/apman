@@ -294,7 +294,7 @@ class WlanConsistencyService
             foreach ($ap->getRadios() as $radio) {
                 foreach ($radio->getDevices() as $device) {
                     $ssid = $device->getSsid();
-                    $ifname = $device->getIfname();
+                    $ifname = $device->ifname();
                     if (!$ssid || !$ifname || !$device->getIsEnabled() || !$radio->getIsEnabled()) {
                         continue;
                     }

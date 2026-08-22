@@ -55,7 +55,7 @@ class ClientReportCommand extends Command
             if (!count($clients)) {
                 continue;
             }
-            if (empty($device->getIfname())) {
+            if (empty($device->ifname())) {
                 $output->writeln('ifname missing for '.$ap->getName().':'.$radio->getName().':'.$device->getName());
                 continue;
             }
@@ -79,7 +79,7 @@ class ClientReportCommand extends Command
                 $opts->duration = $duration * 10;
                 $opts->bssid = 'ff:ff:ff:ff:ff:ff';
                 $opts->ssid = $ssid->getName();
-                $stat = $session->call('hostapd.'.$device->getIfname(), 'rrm_beacon_req', $opts);
+                $stat = $session->call('hostapd.'.$device->ifname(), 'rrm_beacon_req', $opts);
                 usleep(250000);
             }
         }

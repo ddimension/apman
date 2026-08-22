@@ -145,9 +145,14 @@ class OweFeatureService implements iFeatureService
             return $config;
         }
 
-        if (strlen($other_device->getIfname())) {
+        // The name provisioning asks for, not the one currently running. This
+        // goes into a configuration that names the partner's intended name in
+        // the same breath, and both halves of the pair are written in one run —
+        // pointing at what the partner is called right now would be wrong for
+        // exactly the run that renames it.
+        if (strlen((string) $other_device->getIfname())) {
             $config['owe_transition_ifname'] = $other_device->getIfname();
-        } elseif (strlen($other_device->getAddress())) {
+        } elseif (strlen((string) $other_device->getAddress())) {
             $config['owe_transition_ssid'] = $other_ssid_name;
             $config['owe_transition_bssid'] = $other_device->getAddress();
         } else {
