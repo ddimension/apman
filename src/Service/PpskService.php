@@ -1766,7 +1766,12 @@ class PpskService
             // out the deadline for one the tree knows is not there.
             $ap = $devices[0]->getRadio()->getAccessPoint();
             if ($ap && !$this->worthWaitingFor($ap)) {
+                // skipped is a decision, not a failure: the key set went out
+                // above and the broker holds it. Only the confirmation is
+                // missing, and the caller must be able to tell the two apart
+                // without reading the sentence.
                 $results[$apName] = ['version' => $version, 'keys' => count($keys),
+                    'skipped' => true,
                     'ack' => 'not waited for, the access point is not reachable'];
                 $skipped[] = $apName;
                 continue;

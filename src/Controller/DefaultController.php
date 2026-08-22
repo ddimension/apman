@@ -982,6 +982,7 @@ class DefaultController extends AbstractController
             'ok' => $summary['ok'],
             'confirmed' => $summary['confirmed'],
             'pending' => $summary['pending'],
+            'skipped' => $summary['skipped'],
             'version' => $summary['version'],
             'detail' => $summary['detail'],
             'error' => $summary['error'],
@@ -1763,6 +1764,7 @@ class DefaultController extends AbstractController
             'distributed' => $summary['ok'],
             'confirmed' => $summary['confirmed'],
             'pending' => $summary['pending'],
+            'skipped' => $summary['skipped'],
             'version' => $summary['version'],
             'detail' => $summary['detail'],
             'dist_error' => $summary['error'],
@@ -1783,10 +1785,10 @@ class DefaultController extends AbstractController
      */
     private function distributionSummary($result)
     {
-        $out = ['ok' => true, 'confirmed' => 0, 'pending' => 0,
+        $out = ['ok' => true, 'confirmed' => 0, 'pending' => 0, 'skipped' => 0,
             'version' => null, 'detail' => [], 'error' => null];
         if (!is_array($result)) {
-            return ['ok' => false, 'confirmed' => 0, 'pending' => 0,
+            return ['ok' => false, 'confirmed' => 0, 'pending' => 0, 'skipped' => 0,
                 'version' => null, 'detail' => [], 'error' => 'no answer'];
         }
         if (isset($result['error'])) {
@@ -1805,6 +1807,13 @@ class DefaultController extends AbstractController
                 $out['detail'][$apName] = (string) $rows['ack'];
                 if ('ok' === $rows['ack']) {
                     ++$out['confirmed'];
+                } elseif (!empty($rows['skipped'])) {
+                    // Deliberately not waited for: the key set was published,
+                    // the access point is known to be down, and nobody sat out
+                    // the deadline for it. Counting that as a failure made a
+                    // distribution to seven healthy access points report
+                    // "failed" because the eighth had been off for a day.
+                    ++$out['skipped'];
                 } else {
                     ++$out['pending'];
                     $out['ok'] = false;
@@ -1824,9 +1833,16 @@ class DefaultController extends AbstractController
                 }
             }
         }
-        if (0 === $out['confirmed'] && 0 === $out['pending']) {
+        if (0 === $out['confirmed'] && 0 === $out['pending'] && 0 === $out['skipped']) {
             $out['ok'] = false;
             $out['error'] = $out['error'] ?: 'no access point carries this network';
+        }
+        // Every access point that carries this network was skipped: nothing was
+        // confirmed by anybody, and saying "ok" would be saying the key set is
+        // live when not one access point has said so.
+        if (0 === $out['confirmed'] && 0 === $out['pending'] && $out['skipped'] > 0) {
+            $out['ok'] = false;
+            $out['error'] = $out['error'] ?: 'no access point was reachable to confirm the key set';
         }
 
         return $out;
@@ -1965,6 +1981,10 @@ class DefaultController extends AbstractController
             $hint .= ' The key set did not reach every access point: '.$summary['error'].'.';
         } elseif ($summary['pending']) {
             $hint .= ' '.$summary['pending'].' access point(s) did not confirm the new key set.';
+        }
+        if ($summary['skipped']) {
+            $hint .= ' '.$summary['skipped'].' access point(s) were not waited for — they are '
+                .'not reachable, and the key set is waiting for them at the broker.';
         }
 
         return $this->json([

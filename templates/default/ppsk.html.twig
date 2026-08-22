@@ -146,9 +146,19 @@ document.querySelectorAll('button.dist').forEach((b) => {
 			// counted as a success
 			let msg = 'confirmed by ' + (d.confirmed || 0) + ' access point(s)';
 			if (d.version) { msg += ', key set ' + d.version; }
+			// an access point that was deliberately not waited for is not a
+			// failure: the key set went out and is waiting for it at the broker
 			if (d.pending) {
 				msg += ' — ' + d.pending + ' did not confirm: ' +
-					Object.entries(d.detail || {}).map(([k, v]) => k + ' (' + v + ')').join(', ');
+					Object.entries(d.detail || {})
+						.filter(([, v]) => !String(v).startsWith('not waited for'))
+						.map(([k, v]) => k + ' (' + v + ')').join(', ');
+			}
+			if (d.skipped) {
+				msg += ' — ' + d.skipped + ' not waited for (not reachable): ' +
+					Object.entries(d.detail || {})
+						.filter(([, v]) => String(v).startsWith('not waited for'))
+						.map(([k]) => k).join(', ');
 			}
 			show(d.ok ? msg : 'failed: ' + (d.error || msg || '?'), d.ok);
 		} catch (e) { show('failed: ' + e, false); }

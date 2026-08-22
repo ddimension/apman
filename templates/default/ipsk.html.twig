@@ -395,7 +395,8 @@ document.getElementById('new').addEventListener('submit', async (ev) => {
 			dist.innerHTML = d.confirmed
 				? '<span class="ok">live — confirmed by ' + d.confirmed + ' access point(s)' +
 				  (d.version ? ', key set ' + d.version : '') + '; it works at the next (re)association</span>' +
-				  (d.pending ? ' <span class="warn">(' + d.pending + ' did not confirm)</span>' : '')
+				  (d.pending ? ' <span class="warn">(' + d.pending + ' did not confirm)</span>' : '') +
+				  (d.skipped ? ' <span class="warn">(' + d.skipped + ' not reachable, waiting at the broker)</span>' : '')
 				: '<span class="warn">stored, but no access point confirmed the key set</span>';
 		} else {
 			dist.innerHTML = d.confirmed
