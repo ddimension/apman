@@ -2,13 +2,31 @@
 
 namespace ApManBundle\Service;
 
+use ApManBundle\Library\UbusResult;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Cache\Psr16Cache;
 use Symfony\Component\Stopwatch\Stopwatch;
 
+/**
+ * ubus over HTTP, straight to rpcd on the access point.
+ *
+ * The second of the two transports. New work goes over MQTT through the agent;
+ * this one carries what already used it — the consistency check reading the
+ * running hostapd configuration, neighbour scans, the radio refresh, LLDP and
+ * syslog. It is kept honest rather than extended.
+ */
 class wrtJsonRpc
 {
+    /** an access point that does not answer the TCP handshake in a second is not there */
+    public const CONNECT_TIMEOUT_MS = 1000;
+
+    /** and one that has not finished in twenty seconds is not going to */
+    public const TIMEOUT_MS = 20000;
+
     private $cacheFactory;
+
+    /** @var array<string,\CurlHandle> one per access point */
+    private array $handles = [];
 
     public function __construct(\Psr\Log\LoggerInterface $logger, \ApManBundle\Factory\CacheFactory $cacheFactory)
     {
@@ -113,35 +131,51 @@ class wrtJsonRpc
         return true;
     }
 
-    public function getHandle($url)
+    /**
+     * One curl handle per access point, not one for the whole process.
+     *
+     * There used to be a single handle in $GLOBALS shared by every URL. Two
+     * consequences: no two access points could be talked to at once without
+     * clobbering each other's options, and the options set by login() —
+     * timeouts and SSL_VERIFYPEER — leaked into every later call() and were
+     * absent when the session came from the cache and no login had run. A
+     * call() on a fresh handle therefore had curl's defaults: no transfer
+     * timeout at all.
+     */
+    private function getHandle($url)
     {
-        if (array_key_exists('curl_cache', $GLOBALS)) {
-            return $GLOBALS['curl_cache'];
+        $parts = parse_url((string) $url);
+        $host = is_array($parts)
+            ? (($parts['scheme'] ?? 'http').'://'.($parts['host'] ?? '').':'.($parts['port'] ?? ''))
+            : (string) $url;
+        if (isset($this->handles[$host])) {
+            return $this->handles[$host];
         }
-        $GLOBALS['curl_cache'] = \curl_init();
 
-        return $GLOBALS['curl_cache'];
-        /*
-                $parts = parse_url($url);
-                if (!is_array($parts)) {
-                    return false;
-                }
-                if (!array_key_exists('host', $parts)) {
-                    return false;
-                }
-                $ref = $parts['scheme'].$parts['host'];
-                if (array_key_exists('port', $parts)) {
-                    $ref.= $parts['port'];
-                }
-                if (!is_array($GLOBALS['curl_cache'])) {
-                    $GLOBALS['curl_cache'] = array();
-                }
-                if (array_key_exists($ref, $GLOBALS['curl_cache'])) {
-                    return $GLOBALS['curl_cache'][ $ref ];
-                }
-                $GLOBALS['curl_cache'][ $ref ] = \curl_init($url);
-                return $GLOBALS['curl_cache'][ $ref ];
-         */
+        return $this->handles[$host] = \curl_init();
+    }
+
+    /**
+     * The options every request needs, in one place.
+     *
+     * @param int $timeoutMs total budget for the whole exchange
+     */
+    private function configureHandle($ch, $url, $data, $timeoutMs = self::TIMEOUT_MS)
+    {
+        \curl_setopt($ch, CURLOPT_URL, $url);
+        \curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+        \curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+        \curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        \curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        // the access points answer with their own certificate
+        \curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        \curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        \curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, self::CONNECT_TIMEOUT_MS);
+        \curl_setopt($ch, CURLOPT_TIMEOUT_MS, $timeoutMs);
+        \curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Content-Length: '.strlen($data),
+        ]);
     }
 
     public function login($url, $user, $password)
@@ -162,22 +196,7 @@ class wrtJsonRpc
 
         $data_string = json_encode($login);
         $ch = $this->getHandle($url);
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1000);
-        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 20000);
-        curl_setopt($ch, CURLOPT_VERBOSE, 0);
-        curl_setopt(
-            $ch,
-            CURLOPT_HTTPHEADER,
-            [
-                'Content-Type: application/json',
-                'Content-Length: '.strlen($data_string), ]
-        );
+        $this->configureHandle($ch, $url, $data_string);
         $result_string = curl_exec($ch);
 	$result = json_decode($result_string);
 	/*
@@ -219,7 +238,13 @@ class wrtJsonRpc
         return $session;
     }
 
-    public function call($url, $session, $namespace, $procedure, $arguments = null)
+    /**
+     * One ubus call, with the reason it failed if it did.
+     *
+     * @param int|null $timeoutMs override the default budget for a call that is
+     *                            known to be slow, or known to have to be quick
+     */
+    public function callResult($url, $session, $namespace, $procedure, $arguments = null, $timeoutMs = null): UbusResult
     {
         $start = microtime(true);
         $stopwatch = new Stopwatch();
@@ -240,36 +265,48 @@ class wrtJsonRpc
         }
         $data_string = json_encode($cmd);
         $ch = $this->getHandle($url);
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt(
-            $ch,
-            CURLOPT_HTTPHEADER,
-            [
-                'Content-Type: application/json',
-                    'Content-Length: '.strlen($data_string), ]
-        );
-        $time_start = time();
+        $this->configureHandle($ch, $url, $data_string, $timeoutMs ?? self::TIMEOUT_MS);
         $result_string = curl_exec($ch);
-        $time_end = time();
         $stopwatch->stop('Call '.$url.' '.$procedure);
+        $where = $url.' '.$namespace.'.'.$procedure;
+        $took = ['duration' => microtime(true) - $start];
+
+        if (false === $result_string) {
+            $this->logger->warning('wrtJsonRpc: '.$where.' — '.curl_error($ch), $took);
+
+            return UbusResult::failed(UbusResult::TRANSPORT_FAILED, curl_error($ch));
+        }
         $result = json_decode($result_string);
         if (!self::checkResult($result)) {
-            $this->logger->warning('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure, ['duration' => microtime(true) - $start]);
+            $this->logger->warning('wrtJsonRpc: '.$where.' answered something that is not a ubus answer', $took);
 
-            return false;
+            return UbusResult::failed(UbusResult::MALFORMED_ANSWER);
         }
-        if ($result->result[0]) {
-            $this->logger->warning('wrtJsonRpc: Failed to call '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result), ['duration' => microtime(true) - $start]);
+        $status = (int) $result->result[0];
+        if (UbusResult::OK !== $status) {
+            $failure = UbusResult::failed($status);
+            // Not every non-zero status is a problem: a "not found" on a
+            // delete is the normal answer for a section that is not there.
+            // Whether it matters is the caller's to decide, which is the whole
+            // reason the code travels.
+            $this->logger->debug('wrtJsonRpc: '.$where.' — '.$failure->why(), $took);
 
-            return false;
+            return $failure;
         }
-        $this->logger->debug('wrtJsonRpc: Called '.$url.' namespace '.$namespace.' procedure '.$procedure.', result '.json_encode($result), ['duration' => microtime(true) - $start]);
-        if (array_key_exists(1, $result->result)) {
-            return $result->result[1];
-        }
+        $this->logger->debug('wrtJsonRpc: '.$where.' ok', $took);
+
+        return UbusResult::ok($result->result[1] ?? null);
+    }
+
+    /**
+     * The old contract: the payload, or false for anything that went wrong.
+     *
+     * Thirty call sites ask exactly this question and are right to. They keep
+     * asking it; callResult() is there for the ones that need the reason.
+     */
+    public function call($url, $session, $namespace, $procedure, $arguments = null)
+    {
+        return $this->callResult($url, $session, $namespace, $procedure, $arguments)->orFalse();
     }
 
     public function createRpcRequest($id, $rpcMethod, $session, $namespace, $procedure, $arguments = null)
