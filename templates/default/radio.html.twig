@@ -101,6 +101,53 @@
 </div>
 {% endif %}
 
+{% if plan %}
+<div class="card">
+	<h3 class="small" style="margin:0 0 .3em">What this radio may use</h3>
+	<p class="small stale">
+		Asked of {{ plan.ifname }} ({{ plan.phy ?: 'phy?' }}) in country {{ plan.country ?: '?' }},
+		{{ plan.channels|length }} channels.
+		A width is offered only where every channel of its block exists on this radio and the
+		regulation covering the block allows it — that is the part a free text field cannot know.
+		Click a cell to put it in the form below; nothing is saved until you do.
+		<a href="{{ path('radio_detail', {'id': radio.id, 'refresh': 1}) }}">ask again</a>
+	</p>
+	<div class="planwrap">
+	<table class="plan">
+		<tr>
+			<th></th>
+			{% for ch, c in plan.channels %}
+				<th class="{{ c.active ? 'now' : '' }}" title="{{ c.mhz }} MHz{% if c.dfs %}, radar detection{% endif %}{% if c.indoor %}, indoor only{% endif %}{% if c.no_ir %}, may not transmit{% endif %}">
+					{{ ch }}
+					<div class="marks">{% if c.dfs %}<span title="radar detection — up to 10 minutes of listening before it may be used">d</span>{% endif %}{% if c.indoor %}<span title="indoor only">i</span>{% endif %}</div>
+				</th>
+			{% endfor %}
+		</tr>
+		{% for w, r in plan.widths %}
+			<tr>
+				<th class="w">{{ w }} MHz</th>
+				{% for ch, c in plan.channels %}
+					{% if ch in r.ok %}
+						<td class="ok{{ c.active ? ' now' : '' }}" data-ch="{{ ch }}" data-w="{{ w }}"
+						    title="channel {{ ch }} at {{ w }} MHz">✓</td>
+					{% else %}
+						<td class="no" title="{{ r.no[ch]|default('not possible') }}">·</td>
+					{% endif %}
+				{% endfor %}
+			</tr>
+		{% endfor %}
+	</table>
+	</div>
+	<p class="small stale">
+		<b>d</b> radar detection — choosing it costs a listening period before the radio may
+		transmit, and it may be moved off again later ·
+		<b>i</b> indoor only ·
+		highlighted column is the channel in use ·
+		hover a <b>·</b> for the reason
+	</p>
+</div>
+{% endif %}
+
 <form id="editor" method="post" action="{{ path('radio_save', {'id': radio.id}) }}">
 	<div class="toolbar">
 		<input type="search" id="filter" placeholder="filter by name or description…">
@@ -131,6 +178,29 @@
 
 {% block javascripts %}
 {{ include('default/_option_filter.html.twig', {'storage_key': 'apman.radio.scope'}) }}
+<script>
+// Clicking a cell fills in the two fields it takes to mean it. The width is a
+// number inside a name — HE80, VHT40 — so the prefix already in the field is
+// kept and only the number replaced; a radio configured for VHT stays VHT.
+document.querySelectorAll('table.plan td.ok').forEach(function (cell) {
+	cell.addEventListener('click', function () {
+		var ch = document.querySelector('[name="opt[channel]"]');
+		var hm = document.querySelector('[name="opt[htmode]"]');
+		if (ch) { ch.value = cell.dataset.ch; ch.dispatchEvent(new Event('change', {bubbles: true})); }
+		if (hm) {
+			var prefix = (hm.value.match(/^[A-Za-z]+/) || ['HE'])[0].toUpperCase();
+			if (prefix === 'NOHT' || prefix === '') { prefix = 'HE'; }
+			hm.value = prefix + cell.dataset.w;
+			hm.dispatchEvent(new Event('change', {bubbles: true}));
+		}
+		document.querySelectorAll('table.plan td.picked').forEach(function (c) { c.classList.remove('picked'); });
+		cell.classList.add('picked');
+		var res = document.getElementById('result');
+		if (res) { res.textContent = 'channel ' + cell.dataset.ch + ' at ' + cell.dataset.w + ' MHz — not saved yet'; }
+		if (ch) { ch.scrollIntoView({block: 'center', behavior: 'smooth'}); }
+	});
+});
+</script>
 {% endblock %}
 
 {% block stylesheets %}
@@ -148,5 +218,16 @@ table.counters th, table.counters td { padding: .25em .8em .25em 0; text-align: 
 table.counters th { border-bottom: 1px solid #ddd; font-weight: 600; }
 table.counters .stale { color: #777; }
 table.counters .mono { font-family: ui-monospace, monospace; }
+.planwrap { overflow-x: auto; }
+table.plan { border-collapse: collapse; font-size: .8em; }
+table.plan th, table.plan td { border: 1px solid #e4e4e4; padding: .15em .35em; text-align: center; }
+table.plan th.w { text-align: right; white-space: nowrap; font-weight: 600; }
+table.plan th .marks { color: #b36b00; font-size: .8em; line-height: 1; }
+table.plan th.now { background: #eef6ff; }
+table.plan td.ok { color: #2a7d2a; cursor: pointer; }
+table.plan td.ok:hover { background: #e8f5e8; }
+table.plan td.ok.now { background: #eef6ff; }
+table.plan td.no { color: #ccc; cursor: help; }
+table.plan td.picked { background: #2a7d2a; color: #fff; }
 </style>
 {% endblock %}

@@ -1053,7 +1053,7 @@ class DefaultController extends AbstractController
      * was in the repository the whole time and nothing opened it.
      */
     #[Route(path: '/radio/{id}', name: 'radio_detail')]
-    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, $id)
+    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\ChannelPlanService $planner, \Symfony\Component\HttpFoundation\Request $request, $id)
     {
         $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->find($id);
         if (!$radio) {
@@ -1119,6 +1119,9 @@ class DefaultController extends AbstractController
             'columns' => array_keys(\ApManBundle\Entity\Radio::COLUMN_OPTIONS),
             'bss' => $bss,
             'running' => $running,
+            // asked of the radio, not of the schema: which channels exist here
+            // and how wide each of them may be
+            'plan' => $planner->plan($radio, $request->query->getBoolean('refresh')),
         ]);
     }
 
