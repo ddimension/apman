@@ -34,19 +34,24 @@ class wrtJsonRpc
     /**
      * The method name to address this access point's ubus with.
      *
-     * "call" blocks the agent: the lua ubus binding turns its own event loop
-     * until the answer is there, and that is the loop that also serves mqtt,
-     * the hostapd control channel monitors and the radius server. A call that
-     * takes five seconds — a beacon request waiting for a station that will
-     * never answer, say — makes the access point deaf for five seconds, and
-     * with macaddr_acl=2 every station that wants to associate in that window
-     * is turned away.
+     * "call" is one at a time. On an agent without the binding it is worse
+     * than that — the lua ubus binding turns its own event loop until the
+     * answer is there, and that is the loop that also serves mqtt, the hostapd
+     * control channel monitors and the radius server, so a call that takes
+     * five seconds makes the access point deaf for five seconds and with
+     * macaddr_acl=2 turns away every station that tries to associate in that
+     * window. Where the binding is there the agent runs them through a queue
+     * instead: still strictly in the order they were sent, one outstanding at
+     * a time, but the process keeps working in between. The answer says which
+     * way it came — "queued": true from the queue, nothing from the blocking
+     * path.
      *
-     * "call_async" hands the answer back through a callback instead, so the
-     * agent keeps working while ubus does. What it does not give is order:
-     * nothing may be sent async that another command in the same batch builds
-     * on. Provisioning — uci add, uci commit, reload — therefore stays on
-     * "call" everywhere, deliberately.
+     * "call_async" is the one that gives up the order, and that is the whole
+     * difference: several at once instead of one after another. So nothing may
+     * be sent this way that another command in the same batch builds on.
+     * Provisioning — uci add, uci commit, reload — stays on "call" everywhere,
+     * deliberately, and gets its sequence either from the queue or from the
+     * blocking call, depending on what the access point has.
      *
      * The capability is not the agent's: it comes from libubus-lua-async, a
      * package of its own, so the agent version says nothing about it and the
