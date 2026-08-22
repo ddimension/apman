@@ -15,6 +15,7 @@
         "friendsofphp/php-cs-fixer": "^3.4",
         "phpdocumentor/reflection-docblock": "^5.2",
         "psr/simple-cache": "^3.0",
+        "react/async": "^4",
         "sonata-project/admin-bundle": "^4.43",
         "sonata-project/doctrine-orm-admin-bundle": "^4.17",
         "symfony/asset": "7.3.*",
