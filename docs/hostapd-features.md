@@ -26,32 +26,61 @@ other, until this was cleaned up.
 
 **`custom_cfg` is not one of the three.** It is not a uci option and appears in
 neither schema, so `ap.uc` does not know it and none of it reaches an access
-point. See the commit that says so.
+point.
+
+Measured both ways on 2026-08-22. kalinfra carried `wpa_strict_rekey=0` in
+`custom_cfg`, and `grep -c wpa_strict_rekey` over the running configuration of
+every access point that runs kalinfra returned 0 — it had never arrived. Moved
+to the option of the same name, it renders on the next provisioning run:
+
+```
+/var/run/hostapd-phy1.conf:340: wpa_strict_rekey=0     inside the kalinfra bss
+```
+
+So the option was right, the container was not, and the effect appeared for the
+first time years after somebody asked for it. That is the shape of the whole
+problem with a raw passthrough: it fails silently and looks like a setting.
 
 ## Where the fleet stands
 
-Measured, not assumed:
+Measured, not assumed. First on 2026-08-22 before anything was set:
 
 ```
-ap-av-attic    phy1 5 GHz ch100  6 bss   he_bss_color=128
-               phy2 2.4 GHz ch1  5 bss   he_bss_color=128
-ap-outdoor     phy1 5 GHz ch116  6 bss   he_bss_color=128
-               phy2 2.4 GHz      5 bss   he_bss_color=128
-ap-outdoor2    phy0 2.4 GHz ch7  5 bss   he_bss_color=128
-               phy1 5 GHz ch116  5 bss   he_bss_color=128
+ap-av-attic    ch100:128   ch1:128
+ap-av-grwz     ch36:128    (2.4 and 6 GHz on auto)
+ap-hv-grwz     ch36:128    ch11:128
+ap-outdoor     ch116:128   (2.4 GHz on auto)
+ap-outdoor2    ch116:128   ch7:128
 ```
 
-Two things fall out of that table.
+**Every radio used colour 128** — the schema default and the top of the 1..128
+range, so not a choice anybody made: `ap.uc` writes the default and nothing
+overrode it. Which meant two collisions, because a colour exists precisely so a
+receiver can tell overlapping networks on one channel apart and decide it may
+transmit anyway. Two co-channel access points sharing one is the single case the
+mechanism cannot handle:
 
-**Every radio in the fleet uses colour 128.** It is the schema default and the
-top of the 1..128 range, so it is not a choice anybody made — `ap.uc` writes the
-default and nothing here overrides it.
+```
+channel 116   ap-outdoor + ap-outdoor2
+channel  36   ap-av-grwz + ap-hv-grwz
+```
 
-**ap-outdoor and ap-outdoor2 are both on channel 116, both with colour 128.**
-BSS colour exists so a receiver can tell overlapping networks on one channel
-apart and decide it may transmit anyway. Two co-channel access points sharing a
-colour is the one case the mechanism cannot handle: it is a collision, and
-spatial reuse is off for both of them.
+Both are resolved, and the first one resolved itself: ap-outdoor radio1 had
+carried `he_bss_color=8` in a column since long before this, in a column
+`exportConfig()` could not read because it lacked the `config_` prefix. The
+moment the radio json column existed, the value someone had chosen years ago
+arrived — and it happened to be exactly the fix. ap-hv-grwz radio1 was given 16
+by hand.
+
+```
+ap-outdoor     ch116:8
+ap-hv-grwz     ch36:16
+everything else            128, the default
+```
+
+The rule for the next one: colours have to differ between radios that share a
+channel, and may repeat across channels. `WlanConsistencyService` says so when
+they do not.
 
 ## Worth switching on
 
