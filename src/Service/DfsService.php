@@ -171,7 +171,7 @@ class DfsService
 
             $this->logger->notice('dfs: '.$this->where($episode).' finished after '.$took
                 .' seconds of '.$episode['expected'].' expected — '
-                .($moved ? 'on '.$freq.' MHz now, so radar moved it'
+                .($moved ? 'and the radio is on '.$freq.' MHz now — radar, or somebody moved it'
                     : ($enabled ? 'the radio is carrying traffic'
                         : 'and the radio is not enabled, so it is not carrying traffic')));
             $this->cacheFactory->addCacheItem($key, $episode, self::KEEP_SECONDS);
