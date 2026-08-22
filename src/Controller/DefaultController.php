@@ -1822,6 +1822,210 @@ class DefaultController extends AbstractController
     }
 
     /**
+     * What is worth looking at first.
+     *
+     * The start page was the client table, which answers a question nobody
+     * opens the tool to ask. These are the ones somebody does: is anything
+     * broken, has anything drifted from what we configured, is anything waiting
+     * to be rolled out, and what has the fleet been doing.
+     *
+     * Everything here is already computed for some other page — this only puts
+     * the numbers in one place and links into the page that explains each.
+     */
+    #[Route(path: '/overview', name: 'overview')]
+    public function overviewAction(\ApManBundle\Service\StateTreeService $stateTree,
+        \ApManBundle\Service\WlanConsistencyService $consistency,
+        \ApManBundle\Service\DfsService $dfs)
+    {
+        $em = $this->doctrine->getManager();
+        $aps = $em->createQuery('SELECT a,r,d FROM ApManBundle\Entity\AccessPoint a
+                LEFT JOIN a.radios r LEFT JOIN r.devices d ORDER BY a.name')->getResult();
+
+        $tree = ['ap' => [], 'radio' => [], 'bss' => []];
+        $trouble = [];
+        $listening = [];
+        $drift = [];
+        foreach ($aps as $ap) {
+            $node = $stateTree->ap($ap);
+            $name = \ApManBundle\Library\NodeState::name(\ApManBundle\Library\NodeState::TYPE_AP, $node['state']);
+            $tree['ap'][$name] = ($tree['ap'][$name] ?? 0) + 1;
+            if (!in_array($name, ['ACTIVE', 'ONLINE'], true) && $ap->getIsProductive()) {
+                $trouble[] = ['what' => $ap->getName(), 'state' => $name, 'kind' => 'ap',
+                    'link' => $this->generateUrl('ap_detail', ['name' => $ap->getName()])];
+            }
+            foreach ($node['children'] as $radioNode) {
+                $rn = \ApManBundle\Library\NodeState::name(
+                    \ApManBundle\Library\NodeState::TYPE_RADIO, $radioNode['state']);
+                $tree['radio'][$rn] = ($tree['radio'][$rn] ?? 0) + 1;
+                foreach ($radioNode['children'] as $bssNode) {
+                    $bn = \ApManBundle\Library\NodeState::name(
+                        \ApManBundle\Library\NodeState::TYPE_BSS, $bssNode['state']);
+                    $tree['bss'][$bn] = ($tree['bss'][$bn] ?? 0) + 1;
+                }
+            }
+            // the radios, for the two things that are not a state: a check that
+            // is running, and a channel that is not the one we asked for
+            foreach ($ap->getRadios() as $radio) {
+                $state = $dfs->state($radio);
+                if ($state['active'] ?? false) {
+                    $listening[] = ['ap' => $ap->getName(), 'radio' => $radio->getName(),
+                        'id' => $radio->getId(), 'elapsed' => $state['elapsed'],
+                        'expected' => $state['expected'], 'overdue' => $state['overdue']];
+                }
+                $wanted = (string) $radio->getConfigChannel();
+                if ('' === $wanted || 'auto' === strtolower($wanted)) {
+                    continue;
+                }
+                foreach ($radio->getDevices() as $device) {
+                    $st = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+                    $running = is_array($st) && isset($st['ap_status']['channel'])
+                        ? (string) $st['ap_status']['channel'] : null;
+                    if (null !== $running) {
+                        if ($running !== $wanted) {
+                            $drift[] = ['ap' => $ap->getName(), 'radio' => $radio->getName(),
+                                'id' => $radio->getId(), 'wanted' => $wanted, 'running' => $running];
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // the audit, from its cache; never fetched here
+        $audit = $consistency->check(86400);
+        $open = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\SSID')->findAll() as $ssid) {
+            $n = 0;
+            foreach ($this->doctrine->getRepository('ApManBundle\Entity\Radio')->findAll() as $radio) {
+                $ap = $radio->getAccessPoint();
+                if (!$ap || !$ap->getIsProductive() || '1' === (string) $radio->getConfigDisabled()) {
+                    continue;
+                }
+                $has = $this->doctrine->getRepository('ApManBundle\Entity\Device')
+                    ->findOneBy(['ssid' => $ssid, 'radio' => $radio]);
+                if (!$has && !$this->doctrine->getRepository('ApManBundle\Entity\SsidRadioOptOut')
+                    ->findOneBy(['ssid' => $ssid, 'radio' => $radio])) {
+                    ++$n;
+                }
+            }
+            if ($n) {
+                $open[] = ['ssid' => $ssid->getName(), 'id' => $ssid->getId(), 'radios' => $n];
+            }
+        }
+        usort($open, function ($a, $b) { return $b['radios'] <=> $a['radios']; });
+
+        return $this->render('default/overview.html.twig', [
+            'tree' => $tree,
+            'trouble' => $trouble,
+            'listening' => $listening,
+            'drift' => $drift,
+            'findings' => $audit['findings'] ?? [],
+            'audit_age' => isset($audit['ts']) ? time() - (int) $audit['ts'] : null,
+            'open' => array_slice($open, 0, 8),
+            'open_total' => count($open),
+        ]);
+    }
+
+    /**
+     * The whole fleet as one matrix: every network against every radio.
+     *
+     * The per network rollout page answers "where is this network", and there
+     * was no page that answered "what does this access point carry" or "where
+     * are the holes". Planning happens in the second question — a network on
+     * five of six access points is either deliberate or an oversight, and the
+     * only way to see which was to open six pages.
+     *
+     * Same three states as the per network page, same actions, and the counts
+     * per row and per column so an outlier stands out without being looked for.
+     */
+    #[Route(path: '/rollout', name: 'rollout_matrix')]
+    public function rolloutMatrixAction(\ApManBundle\Service\RolloutService $rollout)
+    {
+        $em = $this->doctrine->getManager();
+        $ssids = $em->createQuery('SELECT s FROM ApManBundle\Entity\SSID s ORDER BY s.name')
+            ->getResult();
+        $aps = $em->createQuery('SELECT a,r FROM ApManBundle\Entity\AccessPoint a
+                LEFT JOIN a.radios r ORDER BY a.name')->getResult();
+
+        // one query for the lot rather than one per cell
+        $carried = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll() as $device) {
+            $radio = $device->getRadio();
+            if ($radio && $device->getSsid()) {
+                $carried[$device->getSsid()->getId()][$radio->getId()] = $device;
+            }
+        }
+        $optedOut = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\SsidRadioOptOut')->findAll() as $out) {
+            if ($out->getSsid() && $out->getRadio()) {
+                $optedOut[$out->getSsid()->getId()][$out->getRadio()->getId()] = $out;
+            }
+        }
+
+        // columns: every radio of every access point, in a stable order
+        $columns = [];
+        foreach ($aps as $ap) {
+            $radios = $ap->getRadios()->toArray();
+            usort($radios, function ($a, $b) {
+                return [(string) $a->getConfigBand(), (string) $a->getName()]
+                    <=> [(string) $b->getConfigBand(), (string) $b->getName()];
+            });
+            foreach ($radios as $radio) {
+                $columns[] = [
+                    'ap' => $ap->getName(),
+                    'productive' => (bool) $ap->getIsProductive(),
+                    'radio' => $radio->getName(),
+                    'id' => $radio->getId(),
+                    'band' => $radio->getConfigBand(),
+                    'disabled' => '1' === (string) $radio->getConfigDisabled(),
+                    'first_of_ap' => true,
+                ];
+            }
+        }
+        // mark only the first column of each access point, for the grouping line
+        $seenAp = [];
+        foreach ($columns as $i => $c) {
+            $columns[$i]['first_of_ap'] = !isset($seenAp[$c['ap']]);
+            $seenAp[$c['ap']] = true;
+        }
+
+        $rows = [];
+        $perColumn = [];
+        foreach ($ssids as $ssid) {
+            $cells = [];
+            $counts = ['carries' => 0, 'opted out' => 0, 'open' => 0];
+            foreach ($columns as $c) {
+                $device = $carried[$ssid->getId()][$c['id']] ?? null;
+                $out = $optedOut[$ssid->getId()][$c['id']] ?? null;
+                $state = $device ? 'carries' : ($out ? 'opted out' : 'open');
+                ++$counts[$state];
+                $perColumn[$c['id']][$state] = ($perColumn[$c['id']][$state] ?? 0) + 1;
+                $cells[] = [
+                    'radio' => $c['id'],
+                    'state' => $state,
+                    'device' => $device ? $device->getId() : null,
+                    'ifname' => $device ? $device->ifname() : null,
+                    'reason' => $out ? $out->getReason() : null,
+                ];
+            }
+            $rows[] = [
+                'ssid' => $ssid,
+                'name' => $ssid->getName(),
+                'enabled' => $ssid->getIsEnabled(),
+                'short' => $ssid->getShortName(),
+                'cells' => $cells,
+                'counts' => $counts,
+            ];
+        }
+
+        return $this->render('default/rollout_matrix.html.twig', [
+            'columns' => $columns,
+            'rows' => $rows,
+            'per_column' => $perColumn,
+        ]);
+    }
+
+    /**
      * Add a bss, remove one and remember that it was meant, or forget that.
      *
      * Nothing here reaches an access point. The rows change; the access point

@@ -105,13 +105,16 @@
         {% set group = {
             'apman_default_index': 'clients', 'client_detail': 'clients',
             'aps': 'aps', 'ap_detail': 'aps', 'radio_detail': 'aps',
+            'overview': 'overview',
             'ssids': 'ssids', 'ssid_detail': 'ssids', 'ssid_rollout': 'ssids',
+            'rollout_matrix': 'ssids',
             'apman_default_indexold': 'details',
             'ppsk': 'ppsk', 'ipsk': 'ipsk', 'radius': 'radius',
             'consistency': 'consistency',
         }[here]|default(null) %}
         <nav class="top" aria-label="Main">
             <span class="brand">AP Manager</span>
+            <a href="{{ path('overview') }}" class="{{ group == 'overview' ? 'active' }}">Overview</a>
             <a href="{{ path('apman_default_index') }}" class="{{ group == 'clients' ? 'active' }}">Clients</a>
             <a href="{{ path('aps') }}" class="{{ group == 'aps' ? 'active' }}">Access Points</a>
             <a href="{{ path('ssids') }}" class="{{ group == 'ssids' ? 'active' }}">Networks</a>

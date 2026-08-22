@@ -1,0 +1,110 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Overview{% endblock %}
+
+{% block body %}
+<h2>Overview</h2>
+
+<div class="cards">
+	<div class="card big">
+		<h3 class="small">Access points</h3>
+		<div class="stats">
+			{% for state, n in tree.ap %}
+				<div class="stat"><b class="{{ state in ['ACTIVE','ONLINE'] ? 'ok' : 'warn' }}">{{ n }}</b>
+					<span>{{ state|lower }}</span></div>
+			{% endfor %}
+		</div>
+		<p class="small stale">radios: {% for s, n in tree.radio %}{{ n }} {{ s|lower }}{{ not loop.last ? ' · ' }}{% endfor %}</p>
+		<p class="small stale">bss: {% for s, n in tree.bss %}{{ n }} {{ s|lower }}{{ not loop.last ? ' · ' }}{% endfor %}</p>
+		<p class="small"><a href="{{ path('aps') }}">the fleet</a></p>
+	</div>
+
+	<div class="card big">
+		<h3 class="small">Audit</h3>
+		<div class="stats">
+			<div class="stat"><b class="{{ findings|length ? 'warn' : 'ok' }}">{{ findings|length }}</b>
+				<span>finding{{ findings|length == 1 ? '' : 's' }}</span>
+				<span class="stale">{% if audit_age is not null %}checked {{ (audit_age / 60)|round }} min ago{% else %}never checked{% endif %}</span></div>
+		</div>
+		{% if findings|length %}
+			<ul class="small">
+				{% for f in findings|slice(0, 5) %}
+					<li><b>{{ f.option }}</b> <span class="stale">{{ f.group }}</span></li>
+				{% endfor %}
+			</ul>
+		{% else %}
+			<p class="small stale">Nothing set that does not arrive, nothing running that we did not
+				ask for, no two bsses sharing an address or a name.</p>
+		{% endif %}
+		<p class="small"><a href="{{ path('consistency') }}">what was compared</a></p>
+	</div>
+
+	<div class="card big">
+		<h3 class="small">Waiting to be rolled out</h3>
+		<div class="stats">
+			<div class="stat"><b class="{{ open_total ? 'warn' : 'ok' }}">{{ open_total }}</b>
+				<span>network{{ open_total == 1 ? '' : 's' }} with an open radio</span>
+				<span class="stale">neither carried nor deliberately left out</span></div>
+		</div>
+		{% if open %}
+			<ul class="small">
+				{% for o in open %}
+					<li><a href="{{ path('ssid_rollout', {'id': o.id}) }}">{{ o.ssid }}</a>
+						<span class="stale">{{ o.radios }} radio{{ o.radios == 1 ? '' : 's' }}</span></li>
+				{% endfor %}
+			</ul>
+		{% endif %}
+		<p class="small"><a href="{{ path('rollout_matrix') }}">the whole matrix</a></p>
+	</div>
+</div>
+
+{% if trouble or listening or drift %}
+<div class="card">
+	<h3 class="small" style="margin:0 0 .4em">What is not as it should be</h3>
+	<table class="counters small">
+		{% for t in trouble %}
+			<tr><td><span class="pill down">{{ t.state }}</span></td>
+				<td><a href="{{ t.link }}">{{ t.what }}</a></td>
+				<td class="stale">the access point is not carrying traffic</td></tr>
+		{% endfor %}
+		{% for l in listening %}
+			<tr><td><span class="pill {{ l.overdue ? 'down' : '' }}">CAC</span></td>
+				<td><a href="{{ path('radio_detail', {'id': l.id}) }}">{{ l.ap }}/{{ l.radio }}</a></td>
+				<td class="stale">listening for {{ l.elapsed }}s of {{ l.expected }} expected{% if l.overdue %} —
+					<span class="warn">past its deadline</span>{% endif %}</td></tr>
+		{% endfor %}
+		{% for d in drift %}
+			<tr><td><span class="pill">channel</span></td>
+				<td><a href="{{ path('radio_detail', {'id': d.id}) }}">{{ d.ap }}/{{ d.radio }}</a></td>
+				<td class="stale">configured {{ d.wanted }}, running {{ d.running }} — usually dfs moved it</td></tr>
+		{% endfor %}
+	</table>
+</div>
+{% else %}
+<div class="card">
+	<p class="small ok">Every productive access point is carrying traffic, no radio is listening,
+		and none is on a channel other than the one it was given.</p>
+</div>
+{% endif %}
+
+<p class="small stale">
+	Everything here is computed for some other page; this only puts the numbers in one place. The
+	audit is read from its cache and not fetched — <a href="{{ path('consistency') }}?refresh=1">run it now</a>
+	if you want it fresh.
+</p>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; }
+.card.big { flex: 1 1 20rem; min-width: 18rem; }
+.card.big h3 { margin: 0 0 .4em; }
+.card.big ul { margin: .3em 0 .4em 1.1em; padding: 0; }
+.stats { display: flex; flex-wrap: wrap; gap: 1rem 1.6rem; }
+.stat { min-width: 5em; }
+.stat b { display: block; font-size: 1.8em; line-height: 1.1; }
+.stat span { display: block; font-size: .8em; }
+.stat span + span { color: var(--ink-mute); }
+table.counters { border-collapse: collapse; }
+table.counters td { padding: .2em .8em .2em 0; vertical-align: top; }
+</style>
+{% endblock %}

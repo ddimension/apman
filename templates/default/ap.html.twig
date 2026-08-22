@@ -53,7 +53,16 @@
 <p>
 	<button type="button" id="dryrun">Show pending changes</button>
 	<button type="button" id="provision">Provision (rollback armed)</button>
+	<button type="button" id="restart">Provision with restart</button>
+	<span class="small stale">
+		with restart: radios down, wait until the netdevs are really gone, one second, configure,
+		radios up — the order a bss rebuild needs. A radio listening on a dfs channel is waited
+		for rather than called a failure.
+	</span>
 </p>
+<table id="phases" class="counters small" style="display:none">
+	<tr><th>step</th><th>took</th><th></th></tr>
+</table>
 <div id="actionresult" class="small"></div>
 <pre id="diff" class="small" style="display:none; background:#f6f6f6; padding:.5rem; overflow:auto"></pre>
 
@@ -254,6 +263,47 @@ async function provision(dry) {
 }
 document.getElementById('dryrun').addEventListener('click', () => provision(true));
 document.getElementById('provision').addEventListener('click', () => provision(false));
+
+// The restart flow answers with a step per phase and what each one cost, which
+// is the point of it: a step two that took nineteen seconds is worth seeing,
+// and so is a radio that is lawfully listening rather than missing.
+async function provisionRestart() {
+	const out = document.getElementById('actionresult');
+	const phases = document.getElementById('phases');
+	const diff = document.getElementById('diff');
+	out.className = 'small';
+	out.textContent = 'radios down, waiting for the interfaces to go…';
+	diff.style.display = 'none';
+	phases.style.display = 'none';
+	while (phases.rows.length > 1) { phases.deleteRow(1); }
+	try {
+		const res = await fetch('{{ path('ap_provision', {'name': ap.name}) }}', {
+			method: 'POST', body: new URLSearchParams({ restart: '1' })
+		});
+		const d = await res.json();
+		out.className = 'small ' + (d.ok ? 'ok' : 'warn');
+		out.textContent = d.error || (d.cac
+			? 'done — still listening on ' + Object.keys(d.cac).join(', ')
+			: 'done');
+		(d.steps || []).forEach((s) => {
+			const row = phases.insertRow(-1);
+			row.insertCell(-1).textContent = s.step;
+			row.insertCell(-1).textContent = s.ms + ' ms';
+			const c = row.insertCell(-1);
+			c.textContent = (s.ok ? '' : 'failed — ') + (s.detail || '');
+			c.className = s.ok ? 'stale' : 'warn';
+		});
+		if (phases.rows.length > 1) { phases.style.display = ''; }
+		if (d.config && (d.config.changes || d.config.staged)) {
+			diff.textContent = JSON.stringify(d.config.changes || d.config.staged, null, 1);
+			diff.style.display = 'block';
+		}
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+}
+document.getElementById('restart').addEventListener('click', provisionRestart);
 
 // every action goes through the agent and reports back what actually happened:
 // command channel v2 answers with a result or an error object

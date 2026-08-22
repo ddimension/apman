@@ -1,0 +1,129 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Rollout{% endblock %}
+
+{% block body %}
+<h2>Rollout <span class="small">every network against every radio</span></h2>
+
+<p class="small">
+	The per network page answers "where is this network". This answers the other two: what does
+	this access point carry, and where are the holes. A network on five radios of six is either
+	deliberate or an oversight, and the difference is the middle state —
+	<b class="s-carries">carries</b>, <b class="s-out">deliberately without</b>,
+	<b class="s-open">open</b>. Only an open radio is touched by an assignment run.
+	Click a cell to change it.
+</p>
+
+<div class="matrixwrap">
+<table class="matrix">
+	<tr class="aps">
+		<th></th>
+		{% for c in columns %}
+			<th class="{{ c.first_of_ap ? 'apstart' : '' }}{{ c.productive ? '' : ' np' }}">
+				{% if c.first_of_ap %}<a href="{{ path('ap_detail', {'name': c.ap}) }}">{{ c.ap }}</a>{% endif %}
+			</th>
+		{% endfor %}
+		<th class="sum">carries</th>
+	</tr>
+	<tr class="radios">
+		<th></th>
+		{% for c in columns %}
+			<th class="{{ c.first_of_ap ? 'apstart' : '' }}">
+				<a href="{{ path('radio_detail', {'id': c.id}) }}" title="{{ c.ap }}/{{ c.radio }}">{{ c.band ?: c.radio }}</a>
+				{% if c.disabled %}<div class="stale" title="this radio is switched off">off</div>{% endif %}
+			</th>
+		{% endfor %}
+		<th class="sum"></th>
+	</tr>
+	{% for row in rows %}
+		<tr class="{{ row.enabled ? '' : 'dim' }}">
+			<th class="name">
+				<a href="{{ path('ssid_rollout', {'id': row.ssid.id}) }}">{{ row.name }}</a>
+				{% if not row.enabled %}<div class="stale small">switched off</div>{% endif %}
+				{% if not row.short %}<div class="warn small" title="without one a new bss is named by the access point">no short name</div>{% endif %}
+			</th>
+			{% for cell in row.cells %}
+				<td class="cell s-{{ cell.state|replace({' ': '-'}) }}{{ columns[loop.index0].first_of_ap ? ' apstart' : '' }}"
+				    data-ssid="{{ row.ssid.id }}" data-radio="{{ cell.radio }}" data-state="{{ cell.state }}"
+				    title="{{ columns[loop.index0].ap }}/{{ columns[loop.index0].radio }} — {{ cell.state }}{% if cell.ifname %} as {{ cell.ifname }}{% endif %}{% if cell.reason %} — {{ cell.reason }}{% endif %}">
+					{% if cell.state == 'carries' %}●{% elseif cell.state == 'opted out' %}·{% else %}○{% endif %}
+				</td>
+			{% endfor %}
+			<td class="sum">{{ row.counts.carries }}</td>
+		</tr>
+	{% endfor %}
+	<tr class="sums">
+		<th class="name">carries</th>
+		{% for c in columns %}
+			<td class="{{ c.first_of_ap ? 'apstart' : '' }}">{{ per_column[c.id]['carries']|default(0) }}</td>
+		{% endfor %}
+		<td class="sum"></td>
+	</tr>
+</table>
+</div>
+
+<p class="small stale">
+	● carries · ○ open, an assignment run would add it · · deliberately without, and it stays that
+	way. Hover a cell for the access point, the radio and the reason.
+	Nothing here reaches an access point — provision it afterwards.
+</p>
+<p id="result" class="small"></p>
+{% endblock %}
+
+{% block javascripts %}
+<script>
+// One endpoint per network, the same the per network page uses — so the two
+// cannot disagree about what adding and removing mean.
+const applyUrl = (ssid) => '/apman/ssid/' + ssid + '/rollout/apply';
+function say(text, bad) {
+	const el = document.getElementById('result');
+	el.textContent = text;
+	el.className = 'small ' + (bad ? 'warn' : 'stale');
+}
+document.querySelectorAll('td.cell').forEach((cell) => {
+	cell.addEventListener('click', () => {
+		const state = cell.dataset.state;
+		let action = 'add';
+		let body = { radio: cell.dataset.radio, action: 'add' };
+		if (state === 'carries') {
+			const why = window.prompt('Why does this radio not carry the network?', '');
+			if (why === null) { return; }
+			body = { radio: cell.dataset.radio, action: 'remove', reason: why };
+		} else if (state === 'opted out') {
+			body = { radio: cell.dataset.radio, action: 'reopen' };
+		}
+		say('…');
+		fetch(applyUrl(cell.dataset.ssid), { method: 'POST', body: new URLSearchParams(body) })
+			.then((r) => r.json())
+			.then((d) => {
+				if (!d.ok) { say(d.error || 'that did not work', true); return; }
+				say('done — provision the access point to make it real');
+				window.location.reload();
+			})
+			.catch((e) => say(String(e), true));
+	});
+});
+</script>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+.matrixwrap { overflow-x: auto; }
+table.matrix { border-collapse: collapse; font-size: .85em; }
+table.matrix th, table.matrix td { padding: .15em .35em; text-align: center; border: 1px solid var(--line-soft); }
+table.matrix th.name { text-align: left; white-space: nowrap; padding-right: .8em; }
+table.matrix tr.aps th { font-size: .9em; white-space: nowrap; border-bottom: none; }
+table.matrix tr.aps th.np { color: var(--ink-faint); }
+table.matrix tr.radios th { font-weight: 400; color: var(--ink-mute); border-top: none; }
+table.matrix .apstart { border-left: 2px solid var(--line-strong); }
+table.matrix td.cell { cursor: pointer; font-size: 1.1em; line-height: 1; }
+table.matrix td.cell:hover { background: var(--accent-bg); }
+table.matrix td.s-carries { color: var(--good); }
+table.matrix td.s-opted-out { color: var(--line-strong); }
+table.matrix td.s-open { color: var(--warn-strong); }
+table.matrix tr.dim { opacity: .55; }
+table.matrix .sum, table.matrix tr.sums td { color: var(--ink-mute); font-variant-numeric: tabular-nums; }
+table.matrix tr.sums th, table.matrix tr.sums td { border-top: 2px solid var(--line-strong); }
+table.matrix .stale { color: var(--ink-faint); font-size: .8em; }
+table.matrix .warn { color: var(--warn-strong); font-size: .8em; }
+</style>
+{% endblock %}
