@@ -165,6 +165,14 @@ class ProvisioningService
     {
         $names = [];
         foreach ($ap->getRadios() as $radio) {
+            // A bss on a switched off radio cannot come up, and waiting for it
+            // is waiting for something that will not happen. ap-av-klwz radio0
+            // is disabled and carries one bss; without this the flow reported
+            // a failure on every run and spent the whole forty second deadline
+            // getting there.
+            if ((string) $radio->getConfigDisabled() === '1') {
+                continue;
+            }
             foreach ($radio->getDevices() as $device) {
                 if (!$device->getIsEnabled()) {
                     continue;

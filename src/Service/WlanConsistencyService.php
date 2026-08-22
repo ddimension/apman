@@ -767,6 +767,9 @@ class WlanConsistencyService
             $rows[] = [
                 'ap' => $ap ? $ap->getName() : null,
                 'productive' => $ap ? (bool) $ap->getIsProductive() : false,
+                // a bss on a switched off radio is configured and cannot run,
+                // which is a decision rather than a fault
+                'radio_off' => $radio && '1' === (string) $radio->getConfigDisabled(),
                 'name' => $device->getName(),
                 'ifname' => (string) $device->ifname(),
                 'address' => (string) $device->getAddress(),
@@ -828,6 +831,9 @@ class WlanConsistencyService
         $unset = [];
         foreach ($rows as $r) {
             if (!$r['ap'] || !$r['productive']) {
+                continue;
+            }
+            if ($r['radio_off'] ?? false) {
                 continue;
             }
             $where = $r['ap'].'/'.$r['name'];
@@ -908,6 +914,7 @@ class WlanConsistencyService
             $rows[] = [
                 'ap' => $ap ? $ap->getName() : null,
                 'productive' => $ap ? (bool) $ap->getIsProductive() : false,
+                'radio_off' => $radio && '1' === (string) $radio->getConfigDisabled(),
                 'name' => $device->getName(),
                 'wanted' => (string) $device->getIfname(),
                 'seen' => (string) $device->getIfnameSeen(),
@@ -957,7 +964,7 @@ class WlanConsistencyService
                 ];
             }
 
-            if (!$r['ap'] || !$r['productive']) {
+            if (!$r['ap'] || !$r['productive'] || ($r['radio_off'] ?? false)) {
                 continue;
             }
             if ('' === $wanted && $r['enabled']) {
