@@ -184,6 +184,12 @@ class WlanConsistencyService
                 $findings[] = $f;
             }
         }
+        foreach ($this->fleetRules($blocks) as $f) {
+            $findings[] = $f;
+        }
+        foreach ($this->ifnameRules() as $f) {
+            $findings[] = $f;
+        }
         foreach ($this->macListRules() as $f) {
             $findings[] = $f;
         }
@@ -293,6 +299,134 @@ class WlanConsistencyService
                 if (null !== $path && !empty($b['keyfiles'][$path])) {
                     $say($opt, $b['keyfiles'][$path].' bytes of stale keys — should be empty');
                 }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Rules that need more than one bss to see.
+     *
+     * @param array $blocks every bss of every access point
+     */
+    private function fleetRules(array $blocks)
+    {
+        $out = [];
+
+        // A bss colour shared by two access points on one channel.
+        //
+        // The colour exists so a receiver can tell overlapping networks on the
+        // same channel apart and decide it may transmit anyway. Two co-channel
+        // access points with the same colour is the one case the mechanism
+        // cannot handle, and it is the case the fleet is in: every radio
+        // carries he_bss_color=128, which is the schema default and the top of
+        // the range, and ap-outdoor and ap-outdoor2 are both on channel 116.
+        $byChannel = [];
+        foreach ($blocks as $b) {
+            $radio = $b['cfg']['_radio'] ?? [];
+            $channel = $radio['channel'] ?? null;
+            $colour = $radio['he_bss_color'] ?? null;
+            if (null === $channel || null === $colour || '0' === $channel) {
+                continue;
+            }
+            $byChannel[$channel][$colour][$b['ap']] = true;
+        }
+        foreach ($byChannel as $channel => $colours) {
+            foreach ($colours as $colour => $aps) {
+                if (count($aps) < 2) {
+                    continue;
+                }
+                $out[] = [
+                    'group' => 'channel '.$channel.' / bss colour',
+                    'option' => 'he_bss_color',
+                    'values' => [$colour => array_keys($aps)],
+                    'roaming' => false,
+                ];
+            }
+        }
+
+        // The other half of an owe transition pair, named and not there. An
+        // owe_transition_ifname pointing at nothing turns the encrypted half
+        // into a network nobody finds.
+        $byAp = [];
+        foreach ($blocks as $b) {
+            $byAp[$b['ap']][$b['bss']] = true;
+        }
+        foreach ($blocks as $b) {
+            $partner = $b['cfg']['owe_transition_ifname'] ?? null;
+            if (null === $partner || '' === $partner) {
+                continue;
+            }
+            if (!isset($byAp[$b['ap']][$partner])) {
+                $out[] = [
+                    'group' => ($b['cfg']['ssid'] ?? '?').' / owe transition',
+                    'option' => 'owe_transition_ifname',
+                    'values' => [$partner.' — no such bss on this access point' => [$b['ap'].'/'.$b['bss']]],
+                    'roaming' => false,
+                ];
+            }
+        }
+
+        // Logging at the most verbose level hostapd has. Level 0 is everything;
+        // the schema default is 2. Every radio in the fleet ran at 0 until
+        // 2026-08-22, on machines whose agent shares the log chain with the
+        // radius server.
+        $noisy = [];
+        foreach ($blocks as $b) {
+            $radio = $b['cfg']['_radio'] ?? [];
+            foreach (['logger_syslog_level', 'logger_stdout_level'] as $opt) {
+                if (isset($radio[$opt]) && '0' === $radio[$opt]) {
+                    $noisy[$opt][$b['ap']] = true;
+                }
+            }
+        }
+        foreach ($noisy as $opt => $aps) {
+            $out[] = [
+                'group' => 'logging',
+                'option' => $opt,
+                'values' => ['0 — everything hostapd has to say' => array_keys($aps)],
+                'roaming' => false,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The name we asked for and the name that is running.
+     *
+     * Two columns since 2026-08-22, and a difference between them means an
+     * access point did not take the name provisioning gave it — which used to
+     * be invisible, because the status message wrote over the wish.
+     */
+    private function ifnameRules()
+    {
+        $out = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll() as $device) {
+            $radio = $device->getRadio();
+            $ap = $radio ? $radio->getAccessPoint() : null;
+            $where = ($ap ? $ap->getName() : '?').'/'.$device->getName();
+            $wanted = (string) $device->getIfname();
+            $seen = (string) $device->getIfnameSeen();
+
+            if ('' !== $wanted && strlen($wanted) > \ApManBundle\Library\IfnameScheme::MAX_LENGTH) {
+                $out[] = [
+                    'group' => 'interface names',
+                    'option' => $wanted,
+                    'values' => [strlen($wanted).' characters — the kernel takes at most '
+                        .\ApManBundle\Library\IfnameScheme::MAX_LENGTH
+                        .', and the uci add that fails reverts the whole access point' => [$where]],
+                    'roaming' => false,
+                ];
+            }
+            if ('' !== $wanted && '' !== $seen && $wanted !== $seen) {
+                $out[] = [
+                    'group' => 'interface names',
+                    'option' => $device->getName(),
+                    'values' => ['configured '.$wanted.', running '.$seen => [$where]],
+                    'roaming' => false,
+                ];
             }
         }
 
@@ -558,7 +692,10 @@ class WlanConsistencyService
                 if (null !== $cur && null !== $name) {
                     $out[$name] = $cur;
                 }
-                $cur = ['_band' => $this->bandOf($preamble)];
+                // the radio level settings travel with every bss of that
+                // radio: channel, colour and the log level are per phy, and a
+                // rule about them has only a bss to hold on to
+                $cur = ['_band' => $this->bandOf($preamble), '_radio' => $preamble];
                 $name = $v;
                 $cur[$k] = $v;
                 continue;
