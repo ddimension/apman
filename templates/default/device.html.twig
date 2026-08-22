@@ -56,6 +56,25 @@
 				<span class="stale">802.11k</span>
 			</div>
 		{% endif %}
+		<div class="stat">
+			<b>{{ clients|length }}</b>
+			<span>stations on it</span>
+			<span class="stale">{% if survey %}channel {{ survey.channels }} surveyed{% else %}from the association list{% endif %}</span>
+		</div>
+		{% if ap_status.airtime is defined and ap_status.airtime.utilization is defined %}
+			<div class="stat">
+				<b>{{ (ap_status.airtime.utilization * 100 / 255)|round }}%</b>
+				<span>airtime on this radio</span>
+				<span class="stale">shared with every bss on it</span>
+			</div>
+		{% endif %}
+		{% if mib %}
+			<div class="stat">
+				<b>{{ mib.first|default('—') }}</b>
+				<span>{{ mib.label|default('mib') }}</span>
+				<span class="stale">{{ mib.note|default('') }}</span>
+			</div>
+		{% endif %}
 	</div>
 	{% if bss_info %}
 		<p class="small stale" style="margin-top:.6em">
@@ -68,6 +87,33 @@
 		</p>
 	{% endif %}
 </div>
+
+{% if clients|length %}
+<div class="card">
+	<h3 class="small" style="margin:0 0 .3em">Stations on this bss</h3>
+	<table class="counters small">
+		<tr><th>station</th><th>identity</th><th>key</th><th>signal</th><th>noise</th>
+			<th>rx</th><th>tx</th><th>idle</th></tr>
+		{% for mac, c in clients %}
+			<tr>
+				<td class="mono"><a href="{{ path('client_detail', {'mac': mac}) }}">{{ mac }}</a></td>
+				<td>{{ c.identity ?: '—' }}</td>
+				<td>{{ c.akm ?: '—' }}</td>
+				<td>{{ c.signal is not null ? c.signal ~ ' dBm' : '—' }}</td>
+				<td class="stale">{{ c.noise is not null ? c.noise ~ ' dBm' : '—' }}</td>
+				<td>{{ c.rx_rate ? (c.rx_rate / 1000)|round ~ ' M' : '—' }}</td>
+				<td>{{ c.tx_rate ? (c.tx_rate / 1000)|round ~ ' M' : '—' }}</td>
+				<td class="stale">{{ c.inactive is not null ? (c.inactive / 1000)|round ~ ' s' : '—' }}</td>
+			</tr>
+		{% endfor %}
+	</table>
+	<p class="small stale">
+		From the association list of the last status cycle. The identity is the iPSK the station
+		used, where hostapd told us which one — that is what turns "a key was handed out" into
+		"the key is in use".
+	</p>
+</div>
+{% endif %}
 
 {% if own|length %}
 <div class="card">
@@ -85,7 +131,45 @@
 
 {% if running_config %}
 <div class="card">
-	<p class="small"><b>What the access point generated</b> — {{ running_config|length }} lines in the
+	{% set watch = {
+		'ocv': 'ties the handshake to the channel it happens on',
+		'beacon_prot': 'signs beacons; ap.uc defaults it to 1 where pmf applies',
+		'rnr': 'advertises the other bands of this access point',
+		'wnm_sleep_mode': 'lets a station sleep and be told what it missed',
+		'wnm_sleep_mode_no_keys': 'workaround for clients that lose keys on waking',
+		'ieee80211w': 'protected management frames; 2 is required',
+		'wpa': 'the rsn version',
+		'wpa_key_mgmt': 'which handshakes are offered',
+		'wpa_pairwise': 'the cipher',
+		'sae_require_mfp': 'sae without pmf is not sae',
+		'sae_pwe': 'never set where keys come from radius',
+		'wpa_psk_radius': '2 means the key comes from the access-accept',
+		'macaddr_acl': 'how the filter list is read',
+		'bss_load_update_period': 'how often the load element is refreshed',
+		'chan_util_avg_period': 'the window that load is averaged over',
+		'mbo': 'multiband operation',
+		'proxy_arp': 'answers arp for sleeping stations',
+		'multicast_to_unicast': 'turns multicast into unicast per station',
+		'bss_transition': '802.11v transitions offered',
+		'ieee80211k': 'neighbour reports offered',
+		'ignore_broadcast_ssid': 'hidden network',
+		'max_num_sta': 'a ceiling on stations',
+		'no_probe_resp_if_max_sta': 'stop answering probes at the ceiling'
+	} %}
+	<h3 class="small" style="margin:0 0 .3em">What these options became on the device</h3>
+	<table class="counters small">
+		<tr><th>option</th><th>running</th><th></th></tr>
+		{% for name, why in watch %}
+			{% if running_config[name] is defined %}
+				<tr>
+					<td class="mono">{{ name }}</td>
+					<td><b>{{ running_config[name] }}</b></td>
+					<td class="stale">{{ why }}</td>
+				</tr>
+			{% endif %}
+		{% endfor %}
+	</table>
+	<p class="small"><b>Everything else</b> — {{ running_config|length }} lines in the
 		running hostapd configuration for this bss, as the consistency check last read it.
 		An option set above and missing here did not arrive.</p>
 	<details class="group">
@@ -111,9 +195,20 @@
 	{% if probes %}
 		<h3 class="small" style="margin:0 0 .3em">What this bss hears</h3>
 		<p class="small stale">
-			{{ probes.stations }} stations, one entry each at its strongest. Strongest {{ probes.max }},
-			median {{ probes.median }}, weakest {{ probes.min }} dBm.
+			{{ probes.stations }} stations, one entry each at its <b>strongest</b> — a threshold above
+			that is a station turned away for good rather than now and then. Strongest
+			{{ probes.max }}, median {{ probes.median }}, weakest {{ probes.min }} dBm.
+			From the probe requests of the last week.
 		</p>
+		<table class="hist small">
+			{% for edge, n in probes.bins|reverse(true) %}
+				<tr>
+					<th>{{ edge }}…{{ edge + 4 }}</th>
+					<td class="bar"><span style="width: {{ probes.peak ? (n * 100 / probes.peak)|round : 0 }}%">&nbsp;</span></td>
+					<td class="n">{{ n ?: '' }}</td>
+				</tr>
+			{% endfor %}
+		</table>
 		<table class="thresh small">
 			<tr><th>threshold</th>{% for t, r in probes.thresholds %}<th>{{ t }}</th>{% endfor %}</tr>
 			<tr><th>would keep</th>{% for t, r in probes.thresholds %}<td>{{ r.kept }}</td>{% endfor %}</tr>
@@ -140,6 +235,23 @@
 </div>
 {% endif %}
 
+{% if events %}
+<div class="card">
+	<h3 class="small" style="margin:0 0 .3em">The last things hostapd said about it</h3>
+	<table class="counters small">
+		<tr><th>when</th><th>event</th><th>station</th><th>detail</th></tr>
+		{% for e in events %}
+			<tr>
+				<td class="stale">{{ e.ts ? (e.ts|date('H:i:s')) : '—' }}</td>
+				<td class="mono">{{ e.event }}</td>
+				<td class="mono">{{ e.address ?: '' }}</td>
+				<td class="stale">{{ e.fields is defined and e.fields ? e.fields|json_encode : (e.raw|default('')) }}</td>
+			</tr>
+		{% endfor %}
+	</table>
+</div>
+{% endif %}
+
 <form id="editor" method="post" action="{{ path('device_save', {'id': device.id}) }}">
 	<div class="toolbar sticky">
 		<input type="search" id="filter" placeholder="filter by name or description…">
@@ -157,6 +269,12 @@
 		<span id="result" class="small"></span>
 	</div>
 
+	<p class="small legend">
+		<span class="tag set">set</span> stored and written to the access point ·
+		<span class="tag def">default</span> not stored, the shown OpenWrt default applies ·
+		<span class="tag off">off</span> a switch that is not written, so the function is off ·
+		<span class="tag un">not written</span> hostapd's own built-in value applies
+	</p>
 	<p class="small legend">
 		The values shown are what this bss would be given — the network's, with this bss's own
 		written over them and the features applied. Saving stores only what differs from the
@@ -186,5 +304,10 @@ table.counters th { border-bottom: 1px solid var(--line-strong); font-weight: 60
 table.thresh { border-collapse: collapse; margin: .3em 0 .5em; }
 table.thresh th, table.thresh td { padding: .2em .9em .2em 0; text-align: left; }
 table.thresh td.warn { color: var(--warn-strong); font-weight: 600; }
+table.hist { border-collapse: collapse; margin: .5em 0; }
+table.hist th { text-align: right; padding: .05em .6em .05em 0; font-weight: 400; white-space: nowrap; }
+table.hist td.bar { width: 18em; height: auto; background: none; border-radius: 0; display: table-cell; }
+table.hist td.bar span { display: block; background: var(--bar-plain); height: .9em; min-width: 0; }
+table.hist td.n { padding-left: .6em; }
 </style>
 {% endblock %}

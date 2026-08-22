@@ -1412,11 +1412,38 @@ class DefaultController extends AbstractController
             is_array($device->getConfig()) ? $device->getConfig() : [],
             array_flip(self::DEVICE_COLUMN_KEYS));
 
-        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
-        $apStatus = is_array($status) && is_array($status['ap_status'] ?? null) ? $status['ap_status'] : [];
-        $bssInfo = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId().'.bss_info');
-        $counts = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
-        $signals = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].probe_signals');
+        $cf = $this->cacheFactory;
+        $status = $cf->getCacheItemValue('status.device.'.$device->getId());
+        $status = is_array($status) ? $status : [];
+        $apStatus = is_array($status['ap_status'] ?? null) ? $status['ap_status'] : [];
+        $bssInfo = $cf->getCacheItemValue('status.device.'.$device->getId().'.bss_info');
+        $counts = $cf->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
+        $signals = $cf->getCacheItemValue('status.device['.$device->getId().'].probe_signals');
+
+        // the stations on it, the same rows the access point page builds
+        $clients = [];
+        if (isset($status['assoclist']['results']) && is_array($status['assoclist']['results'])) {
+            foreach ($status['assoclist']['results'] as $entry) {
+                if (!isset($entry['mac'])) {
+                    continue;
+                }
+                $mac = strtolower($entry['mac']);
+                $ctrl = $status['sta_ctrl'][$mac] ?? null;
+                $identity = is_array($ctrl) && isset($ctrl['keyid'])
+                    ? $this->identityFor($ctrl['keyid']) : null;
+                $clients[$mac] = [
+                    'mac' => $mac,
+                    'identity' => $identity ? ($identity['name'] ?: $identity['keyid']) : null,
+                    'akm' => is_array($ctrl) && isset($ctrl['AKMSuiteSelector'])
+                        ? self::akmName($ctrl['AKMSuiteSelector']) : null,
+                    'signal' => $entry['signal'] ?? null,
+                    'noise' => $entry['noise'] ?? null,
+                    'inactive' => $entry['inactive'] ?? null,
+                    'rx_rate' => $entry['rx']['rate'] ?? null,
+                    'tx_rate' => $entry['tx']['rate'] ?? null,
+                ];
+            }
+        }
 
         $heard = [];
         if (is_array($signals)) {
@@ -1439,8 +1466,15 @@ class DefaultController extends AbstractController
             'ap_status' => $apStatus,
             'bss_info' => is_array($bssInfo) ? $bssInfo : null,
             'ctrlcounts' => $this->mergedCtrlCounts([['ctrlcounts' => is_array($counts) ? $counts : []]]),
+            'events' => $this->ctrlEvents($cf->getCacheItemValue(
+                'status.device['.$device->getId().'].ctrlevents'), 12),
             'probes' => $this->probeHistogram($heard),
-            'age' => is_array($status) && isset($status['received']) ? time() - (int) $status['received'] : null,
+            'clients' => $clients,
+            'mib' => $this->mibSummary($status['mib'] ?? null),
+            'survey' => $this->surveySummary(
+                $cf->getCacheItemValue('status.device.'.$device->getId().'.survey'),
+                $apStatus['channel'] ?? null),
+            'age' => isset($status['received']) ? time() - (int) $status['received'] : null,
         ]);
     }
 
