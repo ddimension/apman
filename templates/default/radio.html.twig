@@ -148,6 +148,71 @@
 </div>
 {% endif %}
 
+{% if probes or ctrlcounts %}
+<div class="card">
+	{% if probes %}
+		<h3 class="small" style="margin:0 0 .3em">What this radio hears, and what a threshold would cost</h3>
+		<p class="small stale">
+			{{ probes.stations }} stations, one entry each at its <b>strongest</b> — a threshold above
+			that is a station turned away for good rather than now and then. Strongest
+			{{ probes.max }}, median {{ probes.median }}, weakest {{ probes.min }} dBm.
+			From the probe requests of the last week.
+		</p>
+		<table class="hist small">
+			{% for edge, n in probes.bins|reverse(true) %}
+				<tr>
+					<th>{{ edge }}…{{ edge + 4 }}</th>
+					<td class="bar"><span style="width: {{ probes.peak ? (n * 100 / probes.peak)|round : 0 }}%">&nbsp;</span></td>
+					<td class="n">{{ n ?: '' }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+		<p class="small">
+			<b>rssi_ignore_probe_request</b> and <b>rssi_reject_assoc_rssi</b> take one of these:
+		</p>
+		<table class="thresh small">
+			<tr><th>threshold</th>{% for t, r in probes.thresholds %}<th>{{ t }}</th>{% endfor %}</tr>
+			<tr><th>would keep</th>{% for t, r in probes.thresholds %}<td>{{ r.kept }}</td>{% endfor %}</tr>
+			<tr><th>would turn away</th>{% for t, r in probes.thresholds %}
+				<td class="{{ r.turned_away ? 'warn' : '' }}">{{ r.turned_away }}</td>{% endfor %}</tr>
+		</table>
+		<p class="small stale">
+			A station turned away is not told why — it simply cannot connect. Start below what you
+			think the edge is, and read this again a week later.
+		</p>
+	{% endif %}
+
+	{% if ctrlcounts %}
+		<h3 class="small" style="margin:1em 0 .3em">What the bsses on this radio have reported</h3>
+		<table class="counters small">
+			<tr><th>event</th><th>count</th><th>last</th><th>since</th></tr>
+			{% for name, c in ctrlcounts %}
+				<tr>
+					<td class="mono">{{ name }}</td>
+					<td>{{ c.n }}</td>
+					<td>{{ c.last ? (c.last|date('Y-m-d H:i')) : '—' }}</td>
+					<td class="stale">{{ c.first ? (c.first|date('Y-m-d H:i')) : '—' }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+		<p class="small stale">
+			Counted for a week, per name, from hostapd's own control channel. Every name is counted
+			rather than a chosen few, so an event nobody thought of appears here by itself —
+			<span class="mono">OCV-FAILURE</span> will show up the day <span class="mono">ocv</span>
+			is switched on. There is no access point side event for beacon protection in this
+			hostapd build, so that one cannot be counted at all.
+		</p>
+	{% endif %}
+</div>
+{% endif %}
+
+{% if hints %}
+<div class="card warn-card">
+	<p class="small"><b>Worth knowing about what is set here</b></p>
+	<ul class="small">{% for h in hints %}<li>{{ h }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
 <form id="editor" method="post" action="{{ path('radio_save', {'id': radio.id}) }}">
 	<div class="toolbar">
 		<input type="search" id="filter" placeholder="filter by name or description…">
@@ -206,6 +271,8 @@ document.querySelectorAll('table.plan td.ok').forEach(function (cell) {
 {% block stylesheets %}
 {{ include('default/_option_styles.html.twig') }}
 <style>
+.warn-card { border-left: 3px solid #d9a441; }
+.warn-card ul { margin: .3em 0 0 1.2em; padding: 0; }
 .stats { display: flex; flex-wrap: wrap; gap: 1.2em 2em; }
 .stat { min-width: 8em; max-width: 22em; }
 .stat b { display: block; font-size: 1.6em; line-height: 1.1; }
@@ -229,5 +296,14 @@ table.plan td.ok:hover { background: #e8f5e8; }
 table.plan td.ok.now { background: #eef6ff; }
 table.plan td.no { color: #ccc; cursor: help; }
 table.plan td.picked { background: #2a7d2a; color: #fff; }
+table.hist { border-collapse: collapse; margin: .5em 0; }
+table.hist th { text-align: right; padding: .05em .6em .05em 0; font-weight: 400; white-space: nowrap; }
+table.hist td.bar { width: 18em; }
+table.hist td.bar span { display: block; background: #7aa7d8; height: .9em; min-width: 0; }
+table.hist td.n { padding-left: .6em; }
+table.thresh { border-collapse: collapse; margin: .3em 0 .5em; }
+table.thresh th, table.thresh td { padding: .2em .9em .2em 0; text-align: left; }
+table.thresh th { font-weight: 600; }
+table.thresh td.warn { color: #b36b00; font-weight: 600; }
 </style>
 {% endblock %}

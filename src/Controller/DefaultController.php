@@ -1120,10 +1120,12 @@ class DefaultController extends AbstractController
         // the cache unread by this page.
         $bss = [];
         $running = [];
+        $heard = [];
         foreach ($radio->getDevices() as $device) {
             $node = $stateTree->bss($device);
             $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
             $ap_status = is_array($status) && is_array($status['ap_status'] ?? null) ? $status['ap_status'] : [];
+            $counts = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
             $bss[] = [
                 'name' => $device->getName(),
                 'ssid' => $device->getSsid() ? $device->getSsid()->getName() : null,
@@ -1131,7 +1133,19 @@ class DefaultController extends AbstractController
                 'wanted' => $device->getIfname(),
                 'state' => $node['state_name'],
                 'status' => $ap_status,
+                'ctrlcounts' => is_array($counts) ? $counts : [],
             ];
+            $signals = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].probe_signals');
+            if (is_array($signals)) {
+                foreach ($signals as $mac => $entry) {
+                    // A station probes every bss of a radio, so it is the same
+                    // radio hearing it; keep the strongest and count it once.
+                    $best = (int) ($entry['best'] ?? 0);
+                    if (!isset($heard[$mac]) || $best > $heard[$mac]) {
+                        $heard[$mac] = $best;
+                    }
+                }
+            }
             // Frequency, colour, airtime and dfs belong to the radio; every bss
             // on it repeats them. Take them from the first one that answered,
             // and note it if the others disagree — they should not, and if they
@@ -1168,7 +1182,102 @@ class DefaultController extends AbstractController
             // asked of the radio, not of the schema: which channels exist here
             // and how wide each of them may be
             'plan' => $planner->plan($radio, $request->query->getBoolean('refresh')),
+            // the numbers behind rssi_ignore_probe_request and
+            // rssi_reject_assoc_rssi, which are otherwise guessed
+            'hints' => $schema->hints($values),
+            'probes' => $this->probeHistogram($heard),
+            'ctrlcounts' => $this->mergedCtrlCounts($bss),
         ]);
+    }
+
+    /**
+     * What the radio hears, and what a threshold would cost.
+     *
+     * `rssi_ignore_probe_request` and `rssi_reject_assoc_rssi` turn a station
+     * away at the door. Set too high, a station in a corner cannot connect at
+     * all and will not be told why — so the useful question is not "what is a
+     * sensible number" but "how many of the stations this radio has heard are
+     * below it", and that is answerable from the probes that have been arriving
+     * all along.
+     *
+     * One entry per station, its best signal, because a threshold above that is
+     * a station turned away for good rather than occasionally.
+     *
+     * @param array<string,int> $heard mac => best dBm
+     */
+    private function probeHistogram(array $heard): ?array
+    {
+        if (!$heard) {
+            return null;
+        }
+        $values = array_values($heard);
+        sort($values);
+        $min = $values[0];
+        $max = end($values);
+
+        $bins = [];
+        // floor on both ends: a bin is named by its lower edge, so the last one
+        // is the bin the strongest station falls in and not the empty one above it
+        for ($edge = (int) (floor($min / 5) * 5); $edge <= (int) (floor($max / 5) * 5); $edge += 5) {
+            $bins[$edge] = 0;
+        }
+        foreach ($values as $v) {
+            $edge = (int) (floor($v / 5) * 5);
+            $bins[$edge] = ($bins[$edge] ?? 0) + 1;
+        }
+        $peak = $bins ? max($bins) : 0;
+
+        // What each candidate threshold would turn away. The thresholds are the
+        // ones anybody would actually try; a station exactly at the value is
+        // kept, which is how hostapd reads it.
+        $thresholds = [];
+        foreach ([-60, -65, -70, -75, -80, -85] as $t) {
+            $below = 0;
+            foreach ($values as $v) {
+                if ($v < $t) {
+                    ++$below;
+                }
+            }
+            $thresholds[$t] = ['turned_away' => $below, 'kept' => count($values) - $below];
+        }
+
+        return [
+            'stations' => count($values),
+            'min' => $min,
+            'max' => $max,
+            'median' => $values[intdiv(count($values), 2)],
+            'bins' => $bins,
+            'peak' => $peak,
+            'thresholds' => $thresholds,
+        ];
+    }
+
+    /**
+     * The control channel events of every bss on one radio, added up.
+     *
+     * Every event name is counted, not a chosen few, so an event nobody thought
+     * of appears by itself — OCV-FAILURE will show up the day OCV is switched
+     * on without a line of code being written for it.
+     */
+    private function mergedCtrlCounts(array $bss): array
+    {
+        $out = [];
+        foreach ($bss as $b) {
+            foreach ($b['ctrlcounts'] ?? [] as $name => $c) {
+                if (!isset($out[$name])) {
+                    $out[$name] = ['n' => 0, 'last' => 0, 'first' => null];
+                }
+                $out[$name]['n'] += (int) ($c['n'] ?? 0);
+                $out[$name]['last'] = max($out[$name]['last'], (int) ($c['last'] ?? 0));
+                $first = (int) ($c['first'] ?? 0);
+                if ($first && (null === $out[$name]['first'] || $first < $out[$name]['first'])) {
+                    $out[$name]['first'] = $first;
+                }
+            }
+        }
+        uasort($out, function ($a, $b) { return $b['n'] <=> $a['n']; });
+
+        return $out;
     }
 
     /**

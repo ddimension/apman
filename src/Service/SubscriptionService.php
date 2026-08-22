@@ -502,6 +502,9 @@ class SubscriptionService
                 }
 
                 $this->cacheFactory->addCacheItem('status.device['.$device->getId().'].probe.'.$data->address, $obj, 86400);
+                if (property_exists($data, 'signal')) {
+                    $this->recordProbeSignal($device, $data->address, (int) $data->signal);
+                }
                 if (property_exists($data, 'raw_elements')) {
                     $key = 'status.client['.str_replace(':', '', $data->address).'].raw_elements';
                     $this->cacheFactory->addCacheItem($key, $data->raw_elements, 86400);
@@ -618,6 +621,67 @@ class SubscriptionService
      * They are kept per device and per station so the interface can show a
      * short history without a database table that would grow forever.
      */
+    /**
+     * How strongly this station is heard here, kept per station rather than per
+     * probe.
+     *
+     * `rssi_ignore_probe_request` and `rssi_reject_assoc_rssi` are only as good
+     * as the number somebody puts in them, and that number is guessed. The
+     * probes have been arriving all along — one cache entry per station per
+     * bss, a day long — but they can only be read back by asking for a station
+     * by name, so there was no way to ask "how many stations are below -75 dBm
+     * here". This keeps the answer.
+     *
+     * Best and last, because they answer different questions: the best is how
+     * well the station can be heard when it is where it usually is, and a
+     * threshold set above it turns that station away for good. The last is
+     * where it was a moment ago.
+     */
+    private function recordProbeSignal($device, string $address, int $signal): void
+    {
+        $key = 'status.device['.$device->getId().'].probe_signals';
+        $map = $this->cacheFactory->getCacheItemValue($key);
+        if (!is_array($map)) {
+            $map = [];
+        }
+        $mac = strtolower($address);
+        $now = time();
+        $best = isset($map[$mac]['best']) ? max((int) $map[$mac]['best'], $signal) : $signal;
+        $map[$mac] = ['best' => $best, 'last' => $signal, 'ts' => $now,
+            'n' => 1 + (int) ($map[$mac]['n'] ?? 0)];
+
+        // A bss that has heard six hundred stations in a week is a bss next to
+        // a road. Keep the ones seen most recently rather than growing without
+        // end; the oldest entries are the least useful for choosing a threshold
+        // anyway.
+        if (count($map) > 400) {
+            uasort($map, function ($a, $b) { return $b['ts'] <=> $a['ts']; });
+            $map = array_slice($map, 0, 300, true);
+        }
+        $this->cacheFactory->addCacheItem($key, $map, 7 * 86400);
+    }
+
+    /**
+     * Every control channel event, counted per bss.
+     *
+     * The ring buffer next to this keeps the last forty, which answers "what
+     * just happened" and nothing about how often. Counting every name rather
+     * than a chosen few means an event nobody thought of appears by itself —
+     * which is how OCV-FAILURE will show up the day OCV is switched on, without
+     * a line of code being added for it.
+     */
+    private function countCtrlEvent($device, string $name): void
+    {
+        $key = 'status.device['.$device->getId().'].ctrlcounts';
+        $counts = $this->cacheFactory->getCacheItemValue($key);
+        if (!is_array($counts)) {
+            $counts = [];
+        }
+        $counts[$name] = ['n' => 1 + (int) ($counts[$name]['n'] ?? 0), 'last' => time(),
+            'first' => $counts[$name]['first'] ?? time()];
+        $this->cacheFactory->addCacheItem($key, $counts, 7 * 86400);
+    }
+
     private function handleCtrlEvent($ap, $device, $name, $data)
     {
         if (!is_array($data)) {
@@ -637,6 +701,7 @@ class SubscriptionService
 
         if ($device) {
             $this->pushCtrlEvent('status.device['.$device->getId().'].ctrlevents', $entry, 40);
+            $this->countCtrlEvent($device, $name);
         }
         if ($address) {
             $this->pushCtrlEvent('status.client['.str_replace(':', '', $address).'].ctrlevents', $entry, 20);
@@ -681,6 +746,18 @@ class SubscriptionService
             case 'AP-REJECTED-MAX-STA':
             case 'AP-REJECTED-BLOCKED-STA':
                 $this->logger->warning('ctrlEvent(): '.$entry['ifname'].' refused '.$address.' ('.$name.')');
+                break;
+
+            case 'OCV-FAILURE':
+                // Operating Channel Validation said the handshake claimed a
+                // channel it did not happen on. Either an attack or a client
+                // that gets it wrong, and the frame says which handshake.
+                // hostapd writes this one as addr=, not address=, so the
+                // station is in the fields where every other event has it at
+                // the top level.
+                $this->logger->warning('ctrlEvent(): ocv rejected '
+                    .($address ?: ($fields['addr'] ?? 'a station')).' on '.$entry['ifname']
+                    .' — frame '.($fields['frame'] ?? '?').', '.($fields['error'] ?? 'no reason given'));
                 break;
 
             case 'CTRL-EVENT-EAP-FAILURE2':

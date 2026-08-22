@@ -263,6 +263,37 @@ class WirelessSchemaService
         ['when' => ['dynamic_vlan' => '/^[12]$/'], 'need' => ['vlan_naming'],
             'text' => 'Dynamic VLANs without a naming scheme produce interface names that are '.
                 'hard to predict; set vlan_naming explicitly.'],
+
+        // The radio side. All three come from reading hostapd.uc on the access
+        // points rather than from the schema, which does not describe the
+        // conditions under which it writes a line.
+        ['when' => ['he_bss_color_enabled' => '/^(0|false|off)$/'], 'always' => true,
+            'text' => 'That switch is the gate on the whole block: with it off hostapd.uc writes '.
+                'neither he_bss_color nor he_spr_non_srg_obss_pd_max_offset nor he_spr_sr_control, '.
+                'so anything set in them is inert. It defaults to on, so this is a decision '.
+                'somebody made.'],
+        ['when' => ['he_bss_color' => '/./'], 'always' => true,
+            'text' => 'hostapd assigns the colour itself and changes it when it sees a collision, '.
+                'so this is a starting point rather than the answer. What the radio actually runs '.
+                'is at the top of this page and on the fleet map.'],
+        ['when' => ['he_spr_sr_control' => '/./'], 'always' => true,
+            'text' => 'he_spr_sr_control is ORed onto by hostapd.uc — bit 2 when '.
+                'he_spr_non_srg_obss_pd_max_offset is set, bit 0 when he_spr_psr_enabled is not — '.
+                'so a value set by hand is a floor, not the result. The schema default is already '.
+                '3.'],
+        ['when' => ['mbssid' => '/^[12]$/'], 'need' => ['ieee80211ax'],
+            'text' => 'mbssid is written only on a radio with ieee80211ax or ieee80211be. '.
+                'Without one of them the line is skipped and the beacons stay separate.'],
+        ['when' => ['mbssid' => '/^[12]$/'], 'always' => true,
+            'text' => 'MBSSID depends on the driver, and the fleet runs two of them. Try it on '.
+                'one radio and check in a scan from a phone and a laptop that every bss is still '.
+                'there before it goes anywhere else.'],
+        ['when' => ['rssi_ignore_probe_request' => '/./'], 'always' => true,
+            'text' => 'A station below this is not answered and is not told why. The histogram '.
+                'above says how many of the stations this radio has heard that would be.'],
+        ['when' => ['rssi_reject_assoc_rssi' => '/./'], 'always' => true,
+            'text' => 'A station below this is refused association. Pair it with '.
+                'rssi_reject_assoc_timeout so the station is told when to try again.'],
     ];
 
     /** the section type an option belongs to */
@@ -569,6 +600,13 @@ class WirelessSchemaService
                 }
             }
             if (!$applies) {
+                continue;
+            }
+            // A hint that has nothing to require: the condition alone is the
+            // reason to say something. Setting a value that another line
+            // overwrites is worth a word even though nothing is missing.
+            if ($hint['always'] ?? false) {
+                $out[] = $hint['text'];
                 continue;
             }
             foreach ($hint['need'] ?? [] as $name) {
