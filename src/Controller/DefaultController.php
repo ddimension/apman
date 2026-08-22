@@ -1891,6 +1891,84 @@ class DefaultController extends AbstractController
             }
         }
 
+        // Stations, airtime and the busiest radios — from the same cached status
+        // every other page reads, so this costs reads and no round trips.
+        $stations = 0;
+        $byBand = [];
+        $perAp = [];
+        $busiest = [];
+        foreach ($aps as $ap) {
+            foreach ($ap->getRadios() as $radio) {
+                $band = (string) $radio->getConfigBand() ?: '?';
+                $seenAirtime = false;
+                foreach ($radio->getDevices() as $device) {
+                    $st = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+                    if (!is_array($st)) {
+                        continue;
+                    }
+                    $n = isset($st['assoclist']['results']) && is_array($st['assoclist']['results'])
+                        ? count($st['assoclist']['results']) : 0;
+                    $stations += $n;
+                    $byBand[$band] = ($byBand[$band] ?? 0) + $n;
+                    $perAp[$ap->getName()] = ($perAp[$ap->getName()] ?? 0) + $n;
+                    if (!$seenAirtime && isset($st['ap_status']['airtime']['utilization'])) {
+                        $seenAirtime = true;
+                        $busiest[] = [
+                            'ap' => $ap->getName(), 'radio' => $radio->getName(),
+                            'id' => $radio->getId(), 'band' => $band,
+                            'pct' => (int) round($st['ap_status']['airtime']['utilization'] * 100 / 255),
+                            'channel' => $st['ap_status']['channel'] ?? null,
+                        ];
+                    }
+                }
+            }
+        }
+        arsort($perAp);
+        usort($busiest, function ($a, $b) { return $b['pct'] <=> $a['pct']; });
+
+        // What hostapd has been saying, fleet wide, with what it costs us
+        $ctrl = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\Device')->findAll() as $device) {
+            $c = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
+            if (is_array($c)) {
+                $ctrl[] = ['ctrlcounts' => $c];
+            }
+        }
+        $ctrlCounts = $this->mergedCtrlCounts($ctrl);
+
+        // RADIUS, one query rather than the six the radius page runs
+        $radius = null;
+        try {
+            $radius = $this->doctrine->getManager()->getConnection()->fetchAssociative(
+                'SELECT COUNT(*) AS n, SUM(result = \'accept\') AS ok,'
+                .' SUM(result <> \'accept\') AS bad, ROUND(AVG(duration_ms), 2) AS ms,'
+                .' ROUND(MAX(duration_ms), 2) AS msmax'
+                .' FROM radius_auth WHERE created > DATE_SUB(NOW(), INTERVAL 24 HOUR)');
+        } catch (\Throwable $e) {
+            $this->logger->info('overview: radius numbers unavailable: '.$e->getMessage());
+        }
+
+        // Keys: how many exist, how many have ever been used. A key that was
+        // handed out and never seen is either a device nobody set up or one
+        // that cannot get on, and both are worth a number.
+        $keys = null;
+        try {
+            $keys = $this->doctrine->getManager()->getConnection()->fetchAssociative(
+                'SELECT COUNT(*) AS n, SUM(first_seen IS NOT NULL) AS used,'
+                .' SUM(enabled = 1) AS enabled FROM ppsk');
+        } catch (\Throwable $e) {
+            $this->logger->info('overview: key numbers unavailable: '.$e->getMessage());
+        }
+
+        // Which agent versions are out there; one machine behind is worth seeing
+        $agents = [];
+        foreach ($aps as $ap) {
+            $agent = $this->cacheFactory->getCacheItemValue('status.ap.'.$ap->getId().'.agent');
+            $v = is_array($agent) ? ($agent['version'] ?? null) : null;
+            $agents[$v ?: 'unknown'][] = $ap->getName();
+        }
+        ksort($agents);
+
         // the audit, from its cache; never fetched here
         $audit = $consistency->check(86400);
         $open = [];
@@ -1923,6 +2001,15 @@ class DefaultController extends AbstractController
             'audit_age' => isset($audit['ts']) ? time() - (int) $audit['ts'] : null,
             'open' => array_slice($open, 0, 8),
             'open_total' => count($open),
+            'stations' => $stations,
+            'by_band' => $byBand,
+            'per_ap' => array_slice($perAp, 0, 6, true),
+            'busiest' => array_slice($busiest, 0, 6),
+            'ctrl' => array_slice($ctrlCounts, 0, 6, true),
+            'radius' => $radius,
+            'keys' => $keys,
+            'agents' => $agents,
+            'steering' => $this->steeringStats(),
         ]);
     }
 

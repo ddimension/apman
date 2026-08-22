@@ -57,6 +57,135 @@
 	</div>
 </div>
 
+<div class="cards">
+	<div class="card big">
+		<h3 class="small">Stations</h3>
+		<div class="stats">
+			<div class="stat"><b>{{ stations }}</b><span>on the air now</span></div>
+			{% for band, n in by_band %}
+				<div class="stat"><b>{{ n }}</b><span>{{ band }}</span></div>
+			{% endfor %}
+		</div>
+		{% if per_ap %}
+			<table class="counters small">
+				{% for name, n in per_ap %}
+					<tr><td><a href="{{ path('ap_detail', {'name': name}) }}">{{ name }}</a></td>
+						<td>{{ n }}</td></tr>
+				{% endfor %}
+			</table>
+		{% endif %}
+		<p class="small"><a href="{{ path('apman_default_index') }}">every station</a></p>
+	</div>
+
+	<div class="card big">
+		<h3 class="small">Busiest radios</h3>
+		{% if busiest %}
+			<table class="counters small">
+				{% for b in busiest %}
+					<tr>
+						<td><a href="{{ path('radio_detail', {'id': b.id}) }}">{{ b.ap }}/{{ b.radio }}</a></td>
+						<td class="stale">{{ b.band }}{% if b.channel %} ch {{ b.channel }}{% endif %}</td>
+						<td><span class="bar {{ b.pct > 60 ? 'bad' : (b.pct > 30 ? 'weak' : '') }}"><span
+							style="width: {{ b.pct }}%"></span></span> {{ b.pct }}%</td>
+					</tr>
+				{% endfor %}
+			</table>
+			<p class="small stale">Airtime the radio reports as in use — shared by every bss on it.</p>
+		{% else %}
+			<p class="small stale">No radio has reported its airtime yet.</p>
+		{% endif %}
+		<p class="small"><a href="{{ path('aps') }}">the channel map</a></p>
+	</div>
+
+	<div class="card big">
+		<h3 class="small">Who got let in</h3>
+		{% if radius and radius.n %}
+			<div class="stats">
+				<div class="stat"><b>{{ radius.n }}</b><span>requests, 24 h</span></div>
+				<div class="stat"><b class="{{ radius.bad > 0 ? 'warn' : 'ok' }}">{{ radius.bad ?: 0 }}</b>
+					<span>turned away</span></div>
+				<div class="stat"><b>{{ radius.ms ?: '—' }}</b><span>ms average</span>
+					<span class="stale">worst {{ radius.msmax ?: '—' }} ms</span></div>
+			</div>
+			<p class="small stale">Answered on the access point itself, out of the key store this
+				controller distributes.</p>
+		{% else %}
+			<p class="small stale">Nothing asked in the last day.</p>
+		{% endif %}
+		{% if keys and keys.n %}
+			<p class="small">
+				<b>{{ keys.n }}</b> keys, {{ keys.used ?: 0 }} ever used,
+				<span class="{{ (keys.n - (keys.used ?: 0)) > 0 ? 'warn' : '' }}">{{ keys.n - (keys.used ?: 0) }}</span>
+				never — a key handed out and never seen is a device nobody set up, or one that
+				cannot get on.
+			</p>
+		{% endif %}
+		<p class="small"><a href="{{ path('radius') }}">what was asked</a> ·
+			<a href="{{ path('ipsk') }}">the keys</a></p>
+	</div>
+</div>
+
+<div class="cards">
+	<div class="card big">
+		<h3 class="small">What hostapd has been saying</h3>
+		{% if ctrl %}
+			<table class="counters small">
+				<tr><th>event</th><th>n</th><th>per hour</th><th>avg</th></tr>
+				{% for name, c in ctrl %}
+					<tr><td class="mono">{{ name }}</td><td>{{ c.n }}</td>
+						<td>{{ c.rate is not null ? c.rate : '—' }}</td>
+						<td class="stale">{{ c.ms_avg is not null ? c.ms_avg|round(2) ~ ' ms' : '—' }}</td></tr>
+				{% endfor %}
+			</table>
+			<p class="small stale">Counted per bss for a week, with what handling one costs the
+				subscriber loop.</p>
+		{% else %}
+			<p class="small stale">Nothing counted yet.</p>
+		{% endif %}
+	</div>
+
+	<div class="card big">
+		<h3 class="small">Steering</h3>
+		{% if steering.total %}
+			<div class="stats">
+				<div class="stat"><b>{{ steering.total }}</b><span>answers, 24 h</span></div>
+				<div class="stat"><b class="ok">{{ steering.accepted }}</b><span>moved</span></div>
+				<div class="stat"><b class="{{ steering.rejected ? 'warn' : '' }}">{{ steering.rejected }}</b>
+					<span>refused</span></div>
+			</div>
+			<p class="small stale">A station that answers status 0 went where it was asked. One that
+				refuses is either busy or does not do 802.11v.</p>
+		{% else %}
+			<p class="small stale">No station has been asked to move in the last day.</p>
+		{% endif %}
+	</div>
+
+	<div class="card big">
+		<h3 class="small">Agents</h3>
+		<table class="counters small">
+			{% for version, names in agents %}
+				<tr>
+					<td><b>{{ version }}</b></td>
+					<td>{{ names|length }}</td>
+					<td class="stale">{{ names|join(', ') }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+		{% set known = agents|keys|filter(v => v != 'unknown')|length %}
+		{% if known > 1 %}
+			<p class="small warn">More than one version in the fleet — a measurement on one access
+				point then says nothing certain about the others.</p>
+		{% elseif agents['unknown'] is defined %}
+			<p class="small stale">One version among the access points that answer.
+				{{ agents['unknown']|length }} has not said which it runs, which is what an access
+				point that is not reachable looks like.</p>
+		{% else %}
+			<p class="small stale">One version everywhere, which is what makes a measurement on one
+				access point mean something about the others.</p>
+		{% endif %}
+	</div>
+</div>
+
 {% if trouble or listening or drift %}
 <div class="card">
 	<h3 class="small" style="margin:0 0 .4em">What is not as it should be</h3>
@@ -105,6 +234,8 @@
 .stat span { display: block; font-size: .8em; }
 .stat span + span { color: var(--ink-mute); }
 table.counters { border-collapse: collapse; }
-table.counters td { padding: .2em .8em .2em 0; vertical-align: top; }
+table.counters td, table.counters th { padding: .2em .8em .2em 0; vertical-align: top; text-align: left; }
+table.counters th { font-weight: 600; }
+.mono { font-family: var(--mono); }
 </style>
 {% endblock %}
