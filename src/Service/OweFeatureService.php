@@ -111,7 +111,6 @@ class OweFeatureService implements iFeatureService
 
         // get other SSID
         $em = $this->doctrine->getManager();
-        $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT c FROM ApManBundle\Entity\SSIDConfigOption c
 		LEFT JOIN c.ssid s
@@ -167,7 +166,6 @@ class OweFeatureService implements iFeatureService
     {
         $this->logger->info('OweFeatureService:applyConstraints(): called.');
         $em = $this->doctrine->getManager();
-        $qb = $em->createQueryBuilder();
         $query = $em->createQuery(
             'SELECT m
 			FROM ApManBundle\Entity\SSIDFeatureMap m

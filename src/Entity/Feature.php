@@ -132,20 +132,8 @@ class Feature
         return $this->config;
     }
 
-    /**
-     * Get instance.
-     *
-     * @return \object|\null
-     */
-    public function getInstance()
-    {
-        if (empty($this->instance)) {
-            return null;
-        }
-        if (!class_exists($this->instance)) {
-            return null;
-        }
-
-        return new $this->instance($this);
-    }
+    // getInstance() used to live here and always returned null: it read
+    // $this->instance, and there is no such property — the column is called
+    // implementation. Nothing called it. It also implied a constructor that
+    // takes the Feature, which is not how the implementations are built.
 }

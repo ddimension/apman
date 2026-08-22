@@ -110,7 +110,10 @@ class AccessPointService
         if (!empty($address)) {
             $config->macaddr = $address;
         }
-        $config->device = $device->getRadio()->getName();
+        // A uci list, per the schema, even though it only ever holds one radio.
+        // uci took the bare string as well, but the editor showed the option as
+        // a type mismatch against wifi-iface.json and could not render it.
+        $config->device = [$device->getRadio()->getName()];
 
         // An SSID pointing its ppsk auth at the AP itself is answered by the
         // AP's own RADIUS server, whose secret is per AP and lives in
@@ -153,8 +156,9 @@ class AccessPointService
                 $config->$name = $configFile->getFileName();
             }
         }
-        $maps = $device->getSsid()->getSSIDFeatureMaps();
-        $qb = $em->createQueryBuilder();
+        // Not $ssid->getSSIDFeatureMaps(): the order the features run in is
+        // the whole point, and the collection has none. Ask for it sorted, and
+        // only for the ones that are switched on.
         $query = $em->createQuery(
             'SELECT fm
 			     FROM ApManBundle\Entity\SSIDFeatureMap fm
@@ -533,25 +537,10 @@ class AccessPointService
                 $changed = true;
                 $logger->debug($ap->getName().': Configured device '.$device->getName());
 
-                continue;
-                if (!is_array($vlans)) {
-                    continue;
-                }
-                if (!count($vlans)) {
-                    continue;
-                }
-                foreach ($vlans as $vlan) {
-                    $opts = new \stdClass();
-                    $opts->config = 'wireless';
-                    $opts->type = 'wifi-vlan';
-                    // $opts->name = 'vlan_'.$vlan->vid;
-                    $opts->name = $device->getName().'_'.$vlan->vid;
-                    $vlan->iface = $device->getName();
-                    $opts->values = $vlan;
-                    $commands['list'][] = $this->rpcService->createRpcRequest(1, 'call', null, 'uci', 'add', $opts);
-                    $changed = true;
-                    $logger->debug($ap->getName().': Configured device '.$device->getName().' vlan '.$vlan->vid);
-                }
+                // A wifi-vlan block used to sit here behind an unconditional
+                // continue, reading a $vlans that no line in this method ever
+                // assigns. VlanFeatureService produces those sections now, and
+                // they arrive through $extraConfigs above.
             }
         }
 
