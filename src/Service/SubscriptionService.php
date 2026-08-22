@@ -240,10 +240,16 @@ class SubscriptionService
     {
         $em = $this->doctrine->getManager();
         if (!$em->isOpen()) {
-            $em = $em->create(
-                $em->getConnection(),
-                $em->getConfiguration()
-            );
+            // A failed insert closes the manager and every later message dies
+            // on it — this loop does not end, so there is no request boundary
+            // to reopen it. The recovery here called EntityManager::create(),
+            // which ORM 3 removed, so it threw "call to undefined method" and
+            // the daemon processed nothing at all until somebody restarted it.
+            // Measured 2026-08-23: one control event without a station address
+            // took the whole fleet's command path down for three minutes.
+            $this->logger->error('handleMessage(): the entity manager was closed, reopening');
+            $this->doctrine->resetManager();
+            $em = $this->doctrine->getManager();
         }
         /*
                 if (strpos($message->topic, 'ap-outdoor.kalnet.hooya.de') !== false) {
@@ -535,6 +541,19 @@ class SubscriptionService
                     $this->apService->getSteering()->recordResponse(
                         $data->address, json_decode(json_encode($data), true)
                     );
+                }
+                // Not every notification is about a station. A channel switch
+                // is the radio's business — AP-CSA-FINISHED and
+                // CTRL-EVENT-CHANNEL-SWITCH arrive once per bss with no
+                // address at all, and Event.address is NOT NULL. Storing one
+                // threw, and the throw closed the entity manager.
+                if (!is_object($data) || !property_exists($data, 'address')
+                    || '' === (string) $data->address) {
+                    $this->logger->info('handleMessage(): '.$event.' on '.$device->ifname()
+                        .' names no station, so it is kept as a control channel event and not '
+                        .'as one');
+
+                    return true;
                 }
                 $devent = new \ApManBundle\Entity\Event();
                 $devent->setTs(new \DateTime('now'));
