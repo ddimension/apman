@@ -409,12 +409,19 @@ class ProvisioningService
                 ? $this->waitForNames($ap, $falling, false, self::FORCED_DOWN_TIMEOUT)
                 : ['ok' => true, 'left' => []];
             $report['forced'] = $forcedRadios;
+            // Not catching them down is not evidence that they stayed up. The
+            // netdevs are gone for a second or two and the poll is most of a
+            // second, so a quick restart slips between two looks — measured on
+            // ap-av-grwz and ap-hv-grwz, where this said the phy had not
+            // restarted and the interface indices said all five bsses had. Only
+            // the indices can settle it, and they are compared below.
             $report['steps'][] = $this->step('radios down', $started, true,
                 $fell['ok']
                     ? implode(', ', $forcedRadios).' went down with '.count($falling).' network(s)'
-                    : implode(', ', $forcedRadios).' did not go down — hostapd applied the change '
-                        .'without restarting the phy');
-            $report['phy_restarted'] = $fell['ok'];
+                    : 'did not catch '.implode(', ', $forcedRadios).' down — either hostapd applied '
+                        .'the change without restarting the phy, or it was quicker than the polling. '
+                        .'The interface indices say which.');
+            $report['caught_down'] = $fell['ok'];
             $started = microtime(true);
         }
         $back = $this->waitForInterfaces($ap, true,
