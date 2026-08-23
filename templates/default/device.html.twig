@@ -78,12 +78,11 @@
 	</div>
 	<div id="spark" class="spark">
 		<svg viewBox="0 0 300 46" preserveAspectRatio="none" aria-label="throughput">
-			<path id="sp-rx" fill="none" stroke="var(--bar-plain)" stroke-width="1.2"/>
-			<path id="sp-tx" fill="none" stroke="var(--bar-good)" stroke-width="1.2"/>
+			<path id="sp-tx" fill="var(--bar-good)" fill-opacity=".65"/>
+			<path id="sp-rx" fill="var(--bar-plain)" fill-opacity=".65"/>
+			<line x1="0" y1="23" x2="300" y2="23" stroke="var(--line-strong)" stroke-width=".5"/>
 		</svg>
 		<p class="small stale" id="sp-label">
-			<span style="color: var(--bar-plain)">▬</span> from the stations ·
-			<span style="color: var(--bar-good)">▬</span> to them ·
 			reading…
 		</p>
 	</div>
@@ -322,14 +321,18 @@
 (function () {
 	var url = {{ path('device_series', {'id': device.id})|json_encode|raw }};
 	var W = 300, H = 46;
-	function path(points, key, max) {
-		if (!points.length || !max) { return ''; }
-		var n = points.length;
-		return points.map(function (p, i) {
-			var x = n > 1 ? (i * W / (n - 1)) : 0;
-			var y = H - (p[key] / max) * (H - 2) - 1;
-			return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
-		}).join(' ');
+	// Mirrored around the middle, the same as the client list and the client
+	// page: up is to the stations, down is from them. One visual language for
+	// one measurement.
+	var MID = H / 2;
+	function path(points, key, max, dir) {
+		if (points.length < 2 || !max) { return ''; }
+		var n = points.length, d = 'M0 ' + MID;
+		for (var i = 0; i < n; i++) {
+			d += ' L' + (i * W / (n - 1)).toFixed(1) + ' '
+				+ (MID + dir * (points[i][key] / max) * (MID - 1)).toFixed(1);
+		}
+		return d + ' L' + W + ' ' + MID + ' Z';
 	}
 	function human(bps) {
 		if (bps >= 1000000) { return (bps / 1000000).toFixed(1) + ' Mbit/s'; }
@@ -347,13 +350,13 @@
 			}
 			var max = 0;
 			pts.forEach(function (p) { max = Math.max(max, p.rx, p.tx); });
-			document.getElementById('sp-rx').setAttribute('d', path(pts, 'rx', max));
-			document.getElementById('sp-tx').setAttribute('d', path(pts, 'tx', max));
+			document.getElementById('sp-rx').setAttribute('d', path(pts, 'rx', max, 1));
+			document.getElementById('sp-tx').setAttribute('d', path(pts, 'tx', max, -1));
 			var last = pts[pts.length - 1];
 			var span = pts.length > 1 ? (last.ts - pts[0].ts) : 0;
 			label.innerHTML =
-				'<span style="color: var(--bar-plain)">▬</span> from the stations ' + human(last.rx)
-				+ ' · <span style="color: var(--bar-good)">▬</span> to them ' + human(last.tx)
+				'<span style="color: var(--bar-good)">▲</span> to the stations ' + human(last.tx)
+				+ ' · <span style="color: var(--bar-plain)">▼</span> from them ' + human(last.rx)
 				+ ' · peak ' + human(max)
 				+ ' · ' + pts.length + ' points over ' + Math.round(span / 60) + ' min';
 		}).catch(function () {});

@@ -35,6 +35,16 @@
 	{% endif %}
 </p>
 
+<div class="card" id="trafficbox">
+	<h3 class="small" style="margin:0 0 .3em">What this station is moving</h3>
+	<svg id="cspark" viewBox="0 0 200 60" preserveAspectRatio="none" aria-label="throughput">
+		<path id="cs-tx" fill="var(--bar-good)" fill-opacity=".65"/>
+		<path id="cs-rx" fill="var(--bar-plain)" fill-opacity=".65"/>
+		<line id="cs-mid" x1="0" y1="30" x2="200" y2="30" stroke="var(--line-strong)" stroke-width=".5"/>
+	</svg>
+	<p class="small stale" id="cs-label">reading…</p>
+</div>
+
 {% if current|length > 1 %}
 	<p class="small">
 		This client is listed on {{ current|length }} access points. Only the first one is live —
@@ -419,8 +429,64 @@ document.querySelectorAll('button.act').forEach((btn) => {
 </script>
 {% endblock %}
 
+{% block javascripts %}
+<script>
+// Mirrored around the middle, the same way the client list draws it: up is to
+// the station, down is from it. One scale for both directions, because the
+// question is which way the traffic went and two scales answer it wrong.
+(function () {
+	var url = {{ path('client_series', {'mac': mac})|json_encode|raw }};
+	var W = 200, H = 60, MID = H / 2;
+	function human(bps) {
+		if (bps >= 1000000) { return (bps / 1000000).toFixed(1) + ' Mbit/s'; }
+		if (bps >= 1000) { return Math.round(bps / 1000) + ' kbit/s'; }
+		return (bps || 0) + ' bit/s';
+	}
+	function area(a, max, dir) {
+		var n = a.length, d = 'M0 ' + MID;
+		for (var i = 0; i < n; i++) {
+			d += ' L' + (i * W / (n - 1)).toFixed(1) + ' '
+				+ (MID + dir * (a[i] / max) * (MID - 1)).toFixed(1);
+		}
+		return d + ' L' + W + ' ' + MID + ' Z';
+	}
+	function draw() {
+		fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+			var label = document.getElementById('cs-label');
+			var rx = d.rx || [], tx = d.tx || [];
+			if (rx.length < 2) {
+				label.textContent = 'nothing measured yet — a line needs two status cycles, and '
+					+ 'the station has to be associated for them to arrive';
+				return;
+			}
+			var max = 0;
+			for (var i = 0; i < rx.length; i++) { max = Math.max(max, rx[i], tx[i]); }
+			if (!max) {
+				document.getElementById('cs-rx').setAttribute('d', '');
+				document.getElementById('cs-tx').setAttribute('d', '');
+				label.textContent = 'associated and idle — nothing has moved in the last minutes';
+				return;
+			}
+			document.getElementById('cs-tx').setAttribute('d', area(tx, max, -1));
+			document.getElementById('cs-rx').setAttribute('d', area(rx, max, 1));
+			label.innerHTML = '<span style="color: var(--bar-good)">▲</span> to the station '
+				+ human(tx[tx.length - 1])
+				+ ' · <span style="color: var(--bar-plain)">▼</span> from it '
+				+ human(rx[rx.length - 1])
+				+ ' · peak ' + human(max) + ' · ' + rx.length + ' points, newest on the right';
+		}).catch(function () {});
+	}
+	draw();
+	window.setInterval(draw, 10000);
+})();
+</script>
+{% endblock %}
+
 {% block stylesheets %}
 <style>
+#cspark { width: 100%; max-width: 30em; height: 60px; display: block;
+          background: var(--bg-sunken); border-radius: var(--r-sm); }
+#trafficbox p { margin: .3em 0 0; }
 
 	.grid { display: flex; flex-wrap: wrap; gap: 1.5rem; }
 	.grid > div { flex: 1 1 240px; min-width: 240px; }

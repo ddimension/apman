@@ -1524,6 +1524,25 @@ class DefaultController extends AbstractController
     }
 
     /**
+     * One station's throughput, as a series a page can redraw.
+     *
+     * Keyed by the station, so it follows the client across access points —
+     * which is the whole reason it is kept per station rather than per bss.
+     */
+    #[Route(path: '/client/{mac}/series', name: 'client_series')]
+    public function clientSeriesAction($mac)
+    {
+        $series = $this->stationSeries(strtolower($mac));
+
+        return $this->json([
+            'ok' => true,
+            'mac' => strtolower($mac),
+            'rx' => $series['rx'] ?? [],
+            'tx' => $series['tx'] ?? [],
+        ]);
+    }
+
+    /**
      * One station's throughput over the last minutes, ready to draw.
      *
      * The counters are differenced here rather than in the browser: a status
