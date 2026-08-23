@@ -111,7 +111,7 @@
             'rollout_matrix': 'ssids',
             'apman_default_indexold': 'details',
             'ppsk': 'ppsk', 'ipsk': 'ipsk', 'radius': 'radius',
-            'consistency': 'consistency',
+            'consistency': 'consistency', 'syslog': 'syslog',
         }[here]|default(null) %}
         <nav class="top" aria-label="Main">
             <span class="brand">AP Manager</span>
@@ -125,6 +125,7 @@
             <a href="{{ path('ipsk') }}" class="{{ group == 'ipsk' ? 'active' }}">iPSK</a>
             <a href="{{ path('radius') }}" class="{{ group == 'radius' ? 'active' }}">RADIUS</a>
             <a href="{{ path('consistency') }}" class="{{ group == 'consistency' ? 'active' }}">Consistency</a>
+            <a href="{{ path('syslog') }}" class="{{ group == 'syslog' ? 'active' }}">Syslog</a>
             <a href="{{ path('admin_apman_accesspoint_list') }}" class="{{ admin_active|default(false) ? 'active' }}">Admin</a>
             <span class="spacer"></span>
             {% block navextra %}{% endblock %}

@@ -1,0 +1,148 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Syslog{% endblock %}
+
+{% macro age(ts) %}
+	{%- if ts is null %}—
+	{%- else %}{{ ts|date('d.m. H:i:s') }}{% endif %}
+{% endmacro %}
+{% import _self as fmt %}
+
+{% block body %}
+<h2>Syslog <span class="small">what the access points have been saying</span></h2>
+
+<p class="small">
+	Not an archive — the syslog server has that, and every access point forwards its full log there
+	over tcp/514. This is the window in which a line can still be held against the control channel
+	events and the state tree, with what the agent threw away next to it.
+</p>
+
+{% if not anywhere %}
+	<div class="card">
+		<p class="small warn">No access point is publishing its log.</p>
+		<p class="small stale">
+			It is off by default and needs two things: a <span class="mono">libubus-lua-async</span>
+			built with the descriptor patch, because the log arrives over a file descriptor that the
+			Lua binding could not hand out before, and then
+			<span class="mono">uci set apman.main.syslog_enabled=1</span> on the access point. An
+			agent without the first says so once in its own log and carries on; the table below is
+			how you tell which of the two is missing.
+		</p>
+	</div>
+{% endif %}
+
+<div class="card">
+	<h3 class="small" style="margin:0 0 .4em">What each agent reads, and what it drops</h3>
+	<table class="counters small">
+		<tr><th>access point</th><th>state</th><th>read</th><th>forwarded</th><th>its own</th>
+			<th>kernel</th><th>dropped</th><th>here</th><th></th></tr>
+		{% for name, c in counters %}
+			<tr class="{{ c.productive ? '' : 'dim' }}">
+				<td><a href="{{ path('ap_detail', {'name': name}) }}">{{ name }}</a></td>
+				{% if c.counters is null %}
+					<td class="stale" colspan="6">has not published anything</td>
+				{% else %}
+					<td class="{{ c.counters.attended is defined or c.counters.attached ? 'ok' : 'warn' }}">
+						{{ c.counters.enabled ? (c.counters.attached ? 'attached' : 'enabled, not attached') : 'off' }}</td>
+					<td class="mono">{{ c.counters.records|default(0) }}</td>
+					<td class="mono">{{ c.counters.forwarded|default(0) }}</td>
+					<td class="mono stale">{{ c.counters.own|default(0) }}</td>
+					<td class="mono stale">{{ c.counters.kernel_forwarded|default(0) }}</td>
+					<td class="mono">{{ c.counters.dropped|default(0) }}</td>
+					<td class="mono">{{ c.kept }}</td>
+				{% endif %}
+				<td class="stale small">
+					{% if c.counters and c.counters.restarts|default(0) > 0 %}
+						<span class="warn">{{ c.counters.restarts }}× lost the record boundary</span>
+					{% elseif c.age is not null %}{{ c.age }} s ago{% endif %}
+				</td>
+			</tr>
+		{% endfor %}
+	</table>
+	<p class="small stale">
+		"Its own" is the agent's own lines, which never leave the access point — a line about having
+		published a line is a loop. On a busy agent that is most of the stream, so a large number
+		there is the filter working and not a fault.
+	</p>
+</div>
+
+<form class="card small" method="get">
+	<label>access point
+		<select name="ap">
+			<option value="">all</option>
+			{% for name, c in counters %}
+				<option value="{{ name }}" {{ filter.ap == name ? 'selected' }}>{{ name }}</option>
+			{% endfor %}
+		</select>
+	</label>
+	<label>level and worse
+		<select name="level">
+			<option value="">all</option>
+			{% for n, label in levels %}
+				<option value="{{ n }}" {{ filter.level == n ~ '' ? 'selected' }}>{{ label }}</option>
+			{% endfor %}
+		</select>
+	</label>
+	<label>from
+		<select name="ident">
+			<option value="">anything</option>
+			{% for ident, count in idents %}
+				<option value="{{ ident }}" {{ filter.ident == ident ? 'selected' }}>{{ ident }} ({{ count }})</option>
+			{% endfor %}
+		</select>
+	</label>
+	<label>containing <input name="text" value="{{ filter.text }}" size="18" placeholder="any text"></label>
+	<label>at most <input name="limit" value="{{ limit }}" size="4"></label>
+	<button type="submit">show</button>
+	{% if filter.ap or filter.level or filter.ident or filter.text %}
+		<a href="{{ path('syslog') }}">clear</a>
+	{% endif %}
+</form>
+
+<p class="small stale">
+	{{ lines|length }} line{{ lines|length == 1 ? '' : 's' }}
+	{%- if missed %}, and the numbering says {{ missed }} more went by between them — the agents'
+		"dropped" column above is where most of that should be accounted for{% endif %}
+</p>
+
+<table class="syslog">
+	<tr><th>when</th><th>access point</th><th>level</th><th>from</th><th>said</th></tr>
+	{% for line in lines %}
+		{% if line.missed %}
+			<tr class="gap"><td colspan="5" class="small">
+				{{ line.missed }} record{{ line.missed == 1 ? '' : 's' }} on {{ line.ap }} between this
+				line and the one after it, not forwarded
+			</td></tr>
+		{% endif %}
+		<tr class="lvl-{{ line.level is null ? 'x' : line.level }}">
+			<td class="mono small">{{ fmt.age(line.ts) }}</td>
+			<td class="small"><a href="{{ path('ap_detail', {'name': line.ap}) }}">{{ line.ap }}</a></td>
+			<td class="small">{{ line.level_name ?: '—' }}
+				{%- if line.facility_name %}<div class="stale">{{ line.facility_name }}</div>{% endif %}</td>
+			<td class="mono small">{{ line.ident ?: (line.source == 'kernel' ? 'kernel' : '—') }}</td>
+			<td class="mono small text">{{ line.text }}{% if line.truncated %}<span class="stale"> …cut</span>{% endif %}</td>
+		</tr>
+	{% else %}
+		<tr><td colspan="5" class="small stale">Nothing matches.</td></tr>
+	{% endfor %}
+</table>
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+	table.syslog { border-collapse: collapse; width: 100%; }
+	table.syslog th, table.syslog td { padding: .2em .8em .2em 0; text-align: left;
+	                                   vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+	table.syslog th { border-bottom: 1px solid var(--line-strong); font-weight: 600; }
+	table.syslog td.text { white-space: pre-wrap; word-break: break-word; }
+	table.syslog .stale { color: var(--ink-mute); }
+	/* syslog counts down, so the low numbers are the ones to notice */
+	table.syslog tr.lvl-0 td, table.syslog tr.lvl-1 td, table.syslog tr.lvl-2 td,
+	table.syslog tr.lvl-3 td { color: var(--bad, #b3261e); }
+	table.syslog tr.lvl-4 td { color: var(--warn-strong); }
+	table.syslog tr.lvl-7 td { opacity: .7; }
+	table.syslog tr.gap td { color: var(--ink-mute); font-style: italic;
+	                         border-bottom: 1px dashed var(--line-soft); }
+	form.card label { margin-right: 1em; display: inline-block; }
+	table.counters tr.dim { opacity: .55; }
+</style>
+{% endblock %}

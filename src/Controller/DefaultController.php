@@ -299,7 +299,8 @@ class DefaultController extends AbstractController
      */
     #[Route(path: '/ap/{name}', name: 'ap_detail')]
     public function apDetailAction($name, \ApManBundle\Service\StateTreeService $stateTree,
-        \ApManBundle\Service\TopologyService $topology)
+        \ApManBundle\Service\TopologyService $topology,
+        \ApManBundle\Service\SyslogService $syslog)
     {
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
@@ -379,6 +380,8 @@ class DefaultController extends AbstractController
             // where it is plugged in, from the hour long cache — the same
             // answer the topology page shows, asked once for the fleet
             'uplinks' => $topology->of($ap)['links'] ?? [],
+            'syslog' => array_slice($syslog->lines($ap), 0, 25),
+            'syslog_counters' => $syslog->counters($ap),
         ]);
     }
 
@@ -2435,6 +2438,49 @@ class DefaultController extends AbstractController
             'keys' => $keys,
             'agents' => $agents,
             'steering' => $this->steeringStats(),
+        ]);
+    }
+
+    /**
+     * The fleet's log, as far as it reaches here.
+     *
+     * Deliberately not an archive — the syslog server has that. This is the
+     * window in which a line can still be held against the control channel
+     * events and the state tree, with the agent's own counters next to it so
+     * that a quiet page can be told from a filter eating everything.
+     */
+    #[Route(path: '/syslog', name: 'syslog')]
+    public function syslogAction(Request $request, \ApManBundle\Service\SyslogService $syslog)
+    {
+        $filter = [
+            'ap' => trim((string) $request->query->get('ap', '')),
+            'level' => (string) $request->query->get('level', ''),
+            'ident' => trim((string) $request->query->get('ident', '')),
+            'text' => trim((string) $request->query->get('text', '')),
+        ];
+        $limit = min(1000, max(20, (int) $request->query->get('limit', 200)));
+
+        $counters = $syslog->fleetCounters();
+        $lines = $syslog->recent($filter, $limit);
+
+        // How much of what the numbering says went missing the agents own up
+        // to having dropped. The two rarely match exactly — the counters are a
+        // running total since the agent started and the lines are a window —
+        // but an order of magnitude apart is worth seeing.
+        $missed = 0;
+        foreach ($lines as $line) {
+            $missed += (int) ($line['missed'] ?? 0);
+        }
+
+        return $this->render('default/syslog.html.twig', [
+            'lines' => $lines,
+            'filter' => $filter,
+            'limit' => $limit,
+            'counters' => $counters,
+            'idents' => array_slice($syslog->idents(), 0, 25, true),
+            'levels' => \ApManBundle\Service\SyslogService::LEVELS,
+            'missed' => $missed,
+            'anywhere' => (bool) array_filter($counters, fn ($c) => null !== $c['counters']),
         ]);
     }
 

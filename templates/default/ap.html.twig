@@ -80,6 +80,38 @@
 <div id="actionresult" class="small"></div>
 <pre id="diff" class="small" style="display:none; background:#f6f6f6; padding:.5rem; overflow:auto"></pre>
 
+{% if syslog_counters or syslog|length %}
+<div class="card">
+	<h3 class="small" style="margin:0 0 .3em">
+		What it has been saying
+		<a href="{{ path('syslog', {'ap': ap.name}) }}" class="small">all of it</a>
+	</h3>
+	{% if syslog_counters %}
+		<p class="small stale" style="margin:0 0 .5em">
+			{{ syslog_counters.enabled ? (syslog_counters.attached ? 'attached to the log stream' : 'switched on, not attached') : 'switched off' }}
+			· read {{ syslog_counters.records|default(0) }}
+			· forwarded {{ syslog_counters.forwarded|default(0) }}
+			· its own {{ syslog_counters.own|default(0) }}
+			· dropped {{ syslog_counters.dropped|default(0) }}
+		</p>
+	{% endif %}
+	{% if syslog|length %}
+		<table class="counters small">
+			{% for line in syslog %}
+				<tr>
+					<td class="mono">{{ line.ts|date('d.m. H:i:s') }}</td>
+					<td class="{{ line.level is not null and line.level <= 4 ? 'warn' : 'stale' }}">{{ line.level_name ?: '' }}</td>
+					<td class="mono">{{ line.ident ?: (line.source == 'kernel' ? 'kernel' : '') }}</td>
+					<td class="mono">{{ line.text }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+	{% else %}
+		<p class="small stale">Nothing has arrived yet.</p>
+	{% endif %}
+</div>
+{% endif %}
+
 {% for dev in devices %}
 	<h3><a href="{{ path('device_detail', {'id': dev.id}) }}">{{ dev.ifname }}</a>
 		{% if dev.ssid %}<span class="small">{{ dev.ssid }}</span>{% endif %}

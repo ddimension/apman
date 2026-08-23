@@ -48,6 +48,7 @@ class SubscriptionService
 
     private AirtimeService $airtime;
     private BlocklistService $blocklist;
+    private SyslogService $syslog;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -62,10 +63,12 @@ class SubscriptionService
         StateTreeService $stateTree,
         DfsService $dfs,
         AirtimeService $airtime,
-        BlocklistService $blocklist
+        BlocklistService $blocklist,
+        SyslogService $syslog
     ) {
         $this->airtime = $airtime;
         $this->blocklist = $blocklist;
+        $this->syslog = $syslog;
         $this->ppskService = $ppskService;
         $this->radiusAuthService = $radiusAuthService;
         $this->apContext = $apContext;
@@ -288,7 +291,10 @@ class SubscriptionService
             } elseif ('notifications' == $tp[3]) {
                 if ('hostapd' == $tp[4]) {
                     $device = $tp[5];
-                } else {
+                } elseif ('syslog' !== $tp[4]) {
+                    // the log belongs to the access point, not to a bss, and
+                    // taking 'syslog' for an interface name sends every line
+                    // looking for a device that cannot exist
                     $device = $tp[4];
                 }
             } elseif ('properties' == $tp[3]) {
@@ -377,6 +383,23 @@ class SubscriptionService
             $agent['received'] = time();
             $this->cacheFactory->addCacheItem('status.ap.'.$ap->getId().'.agent', $agent, 180 * 86400);
             $this->logger->info('handleMessage(): agent '.($agent['version'] ?? '?').' on '.$hostname);
+
+            return true;
+        }
+        if ('notifications' == $tp[3] && 'syslog' == $tp[4]) {
+            $line = json_decode($message->payload, true);
+            if (!is_array($line)) {
+                return false;
+            }
+
+            return $this->syslog->record($ap, $line);
+        }
+        if ('properties' == $tp[3] && 'syslog' == $tp[4]) {
+            $counters = json_decode($message->payload, true);
+            if (!is_array($counters)) {
+                return false;
+            }
+            $this->syslog->setCounters($ap, $counters);
 
             return true;
         }
