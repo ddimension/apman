@@ -540,7 +540,8 @@ class DefaultController extends AbstractController
      */
     #[Route(path: '/client/{mac}', name: 'client_detail')]
     public function clientDetailAction($mac, \ApManBundle\Service\AirtimeService $airtime,
-        \ApManBundle\Service\BlocklistService $blocklist)
+        \ApManBundle\Service\BlocklistService $blocklist,
+        \ApManBundle\Service\HistoryService $history)
     {
         $mac = strtolower($mac);
         $em = $this->doctrine->getManager();
@@ -718,6 +719,7 @@ class DefaultController extends AbstractController
             'ies' => $ies,
             'airtime_default' => \ApManBundle\Service\AirtimeService::DEFAULT_WEIGHT,
             'ban_seconds' => (int) (\ApManBundle\Service\BlocklistService::BAN_MS / 1000),
+            'days' => $history->clientDays($mac, 30),
         ]);
     }
 
@@ -2411,6 +2413,7 @@ class DefaultController extends AbstractController
         return $this->render('default/overview.html.twig', [
             'airtime' => $airtimeRows,
             'blocked' => $blocklist->blocked(),
+            'busiest_clients' => $history->busiestClients(7, 10),
             'fleet_history' => $history->fleetSeries($fleetSpans[$fleetSpan]),
             'fleet_span' => $fleetSpan,
             'fleet_spans' => array_keys($fleetSpans),

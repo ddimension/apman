@@ -26,6 +26,12 @@ class HistoryService
     public const KEEP_DAYS = 400;
 
     /**
+     * where the running byte counters of each station are remembered between
+     * runs, so that a difference can be taken
+     */
+    public const STATION_MARK = 'history.sta.';
+
+    /**
      * A sample is refused if one was taken this recently, so that a cron that
      * fires twice, or a run by hand next to the cron, does not double the
      * series.
@@ -83,6 +89,193 @@ class HistoryService
         $em->flush();
 
         return ['ok' => true, 'written' => $written, 'skipped' => $skipped, 'ts' => $now];
+    }
+
+    /**
+     * Add what every associated station has moved since the last run to its day.
+     *
+     * The counters come from the station dump the agent already publishes, and
+     * they are the station's own, so they start again from zero whenever it
+     * reassociates and they mean nothing across a roam to another bss. Both
+     * cases are the same case, and neither loses anything: the mark records
+     * which bss the numbers came from, and when they do not line up the counter
+     * is read as an absolute rather than as one end of a difference. A station
+     * that has just arrived on a bss has counters that started at zero when it
+     * did, so what they read now is exactly what it has moved since.
+     *
+     * Only a mark too old to reason from is given up on, and then the run just
+     * sets a new one: the counter might hold a day of traffic from before the
+     * controller was restarted, and putting that on today would be worse than
+     * missing it.
+     *
+     * @return array how many stations were counted, and how many started over
+     */
+    public function sampleClients(?int $now = null): array
+    {
+        $now ??= time();
+        $em = $this->doctrine->getManager();
+        $devices = $em->createQuery('SELECT d,r,a FROM ApManBundle\Entity\Device d
+                JOIN d.radio r JOIN r.accesspoint a')->getResult();
+
+        $day = (new \DateTime())->setTimestamp($now)->setTime(0, 0);
+        $rows = [];
+        $counted = 0;
+        $restarted = 0;
+
+        foreach ($devices as $device) {
+            $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+            $stations = is_array($status) ? ($status['stations'] ?? null) : null;
+            if (!is_array($stations)) {
+                continue;
+            }
+            $radio = $device->getRadio();
+            $ap = $radio ? $radio->getAccessPoint() : null;
+            $ifname = (string) $device->ifname();
+
+            foreach ($stations as $mac => $sta) {
+                if (!is_array($sta)) {
+                    continue;
+                }
+                $mac = strtolower((string) $mac);
+                $rx = (int) ($sta['rx_bytes'] ?? 0);
+                $tx = (int) ($sta['tx_bytes'] ?? 0);
+
+                $key = self::STATION_MARK.str_replace(':', '', $mac);
+                $mark = $this->cacheFactory->getCacheItemValue($key);
+                $step = self::since($mark, $ifname, $rx, $tx, $now);
+                $dRx = $step['rx'];
+                $dTx = $step['tx'];
+                if ('restarted' === $step['how']) {
+                    ++$restarted;
+                }
+                $this->cacheFactory->addCacheItem($key,
+                    ['if' => $ifname, 'rx' => $rx, 'tx' => $tx, 'ts' => $now], 2 * 86400);
+
+                $row = $rows[$mac] ??= $this->dayRow($mac, $day);
+                $row->setRxBytes($row->getRxBytes() + $dRx);
+                $row->setTxBytes($row->getTxBytes() + $dTx);
+                $row->setSecondsSeen($row->getSecondsSeen() + self::INTERVAL);
+                $row->setLastIfname($ifname);
+                $row->setLastAp($ap ? $ap->getName() : null);
+
+                $signal = isset($sta['signal']) ? (int) $sta['signal'] : null;
+                if (null !== $signal && $signal < 0) {
+                    if (null === $row->getMinSignal() || $signal < $row->getMinSignal()) {
+                        $row->setMinSignal($signal);
+                    }
+                    if (null === $row->getMaxSignal() || $signal > $row->getMaxSignal()) {
+                        $row->setMaxSignal($signal);
+                    }
+                }
+                ++$counted;
+            }
+        }
+        $em->flush();
+
+        return ['ok' => true, 'stations' => $counted, 'restarted' => $restarted,
+            'rows' => count($rows)];
+    }
+
+    /**
+     * How much this station has moved since the last run, and how we know.
+     *
+     * Pure, because this is the whole of the accounting and every one of its
+     * three answers is a decision that can be wrong.
+     *
+     * **It continued.** Same bss, counters no lower than they were, mark recent
+     * enough: the difference is the traffic.
+     *
+     * **It restarted.** A different bss, or counters that went down. Its
+     * counters on the bss it is on now began at zero when it got there, so what
+     * they read is what it has moved since — all of it, and not nothing.
+     * Reading this as zero threw away about a sixth of a fleet's stations on
+     * every run.
+     *
+     * **We cannot say.** No mark, or one too old to reason from. The counter
+     * might hold a day of traffic from before the controller was restarted, and
+     * putting that on today would be worse than missing it, so the run only
+     * leaves a new mark behind.
+     *
+     * @param array|null $mark what the last run wrote down, if anything
+     */
+    public static function since($mark, string $ifname, int $rx, int $tx, int $now): array
+    {
+        if (!is_array($mark) || !isset($mark['ts'])
+            || $now - (int) $mark['ts'] > self::INTERVAL * 4) {
+            return ['rx' => 0, 'tx' => 0, 'how' => 'unknown'];
+        }
+        if (($mark['if'] ?? null) === $ifname
+            && $rx >= (int) ($mark['rx'] ?? 0) && $tx >= (int) ($mark['tx'] ?? 0)) {
+            return ['rx' => $rx - (int) $mark['rx'], 'tx' => $tx - (int) $mark['tx'],
+                'how' => 'continued'];
+        }
+
+        return ['rx' => $rx, 'tx' => $tx, 'how' => 'restarted'];
+    }
+
+    /**
+     * Today's row for this station, made if it is the first sighting today.
+     */
+    private function dayRow(string $mac, \DateTimeInterface $day): \ApManBundle\Entity\ClientDay
+    {
+        $em = $this->doctrine->getManager();
+        $row = $em->getRepository('ApManBundle\Entity\ClientDay')
+            ->findOneBy(['mac' => $mac, 'day' => $day]);
+        if ($row) {
+            return $row;
+        }
+        $row = new \ApManBundle\Entity\ClientDay();
+        $row->setMac($mac);
+        $row->setDay($day);
+        $em->persist($row);
+
+        return $row;
+    }
+
+    /**
+     * What every station moved over the last few days, busiest first.
+     *
+     * @return array one entry per station
+     */
+    public function busiestClients(int $days = 7, int $limit = 25): array
+    {
+        $from = (new \DateTime())->modify('-'.max(0, $days - 1).' days')->setTime(0, 0);
+        $rows = $this->doctrine->getManager()->createQuery(
+            'SELECT c.mac AS mac, SUM(c.rxBytes) AS rx, SUM(c.txBytes) AS tx,
+                    SUM(c.secondsSeen) AS seen, MAX(c.day) AS last_day
+             FROM ApManBundle\Entity\ClientDay c
+             WHERE c.day >= :from
+             GROUP BY c.mac ORDER BY SUM(c.rxBytes) + SUM(c.txBytes) DESC'
+        )->setParameter('from', $from)->setMaxResults($limit)->getResult();
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[] = [
+                'mac' => $row['mac'],
+                'rx' => (int) $row['rx'],
+                'tx' => (int) $row['tx'],
+                'total' => (int) $row['rx'] + (int) $row['tx'],
+                'seen' => (int) $row['seen'],
+                'last_day' => $row['last_day'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * One station, day by day.
+     *
+     * @return \ApManBundle\Entity\ClientDay[]
+     */
+    public function clientDays(string $mac, int $days = 30): array
+    {
+        $from = (new \DateTime())->modify('-'.max(0, $days - 1).' days')->setTime(0, 0);
+
+        return $this->doctrine->getManager()->createQuery(
+            'SELECT c FROM ApManBundle\Entity\ClientDay c
+             WHERE c.mac = :mac AND c.day >= :from ORDER BY c.day ASC'
+        )->setParameter('mac', strtolower($mac))->setParameter('from', $from)->getResult();
     }
 
     /**
@@ -366,9 +559,16 @@ class HistoryService
     {
         $cutoff = $olderThan ?? (time() - self::KEEP_DAYS * 86400);
 
-        return (int) $this->doctrine->getManager()->createQuery(
+        $gone = (int) $this->doctrine->getManager()->createQuery(
             'DELETE FROM ApManBundle\Entity\RadioSample s WHERE s.ts < :cutoff'
         )->setParameter('cutoff', $cutoff)->execute();
+
+        $day = (new \DateTime())->setTimestamp($cutoff)->setTime(0, 0);
+        $gone += (int) $this->doctrine->getManager()->createQuery(
+            'DELETE FROM ApManBundle\Entity\ClientDay c WHERE c.day < :day'
+        )->setParameter('day', $day)->execute();
+
+        return $gone;
     }
 
     private function lastTs(Radio $radio): ?int

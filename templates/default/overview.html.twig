@@ -187,6 +187,29 @@
 		{% endif %}
 	</div>
 
+	{% if busiest_clients|length %}
+	<div class="card big">
+		<h3 class="small">Who used it <span class="small stale">last 7 days</span></h3>
+		<table class="counters small">
+			<tr><th>client</th><th>up</th><th>down</th><th>together</th><th>seen</th></tr>
+			{% for c in busiest_clients %}
+				<tr>
+					<td><a href="{{ path('client_detail', {'mac': c.mac}) }}" class="mono">{{ c.mac }}</a></td>
+					<td class="mono stale">{{ (c.rx / 1048576)|round(1) }} MiB</td>
+					<td class="mono stale">{{ (c.tx / 1048576)|round(1) }} MiB</td>
+					<td class="mono"><b>{{ c.total > 1073741824
+						? (c.total / 1073741824)|round(1) ~ ' GiB'
+						: (c.total / 1048576)|round(1) ~ ' MiB' }}</b></td>
+					<td class="stale">{{ (c.seen / 3600)|round(1) }} h</td>
+				</tr>
+			{% endfor %}
+		</table>
+		<p class="small stale">Up is what the station sent and down is what it was given, from the
+			access point's side. Counted from the interface counters every five minutes, so a station
+			that was on for two of them is accounted to five minutes and no better.</p>
+	</div>
+	{% endif %}
+
 	{% if blocked|length %}
 	<div class="card big">
 		<h3 class="small">Kept off</h3>

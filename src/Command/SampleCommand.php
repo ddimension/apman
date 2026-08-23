@@ -42,6 +42,12 @@ class SampleCommand extends Command
         $report = $this->history->sample();
         $output->writeln($report['written'].' radio(s) recorded'
             .($report['skipped'] ? ', '.count($report['skipped']).' passed over' : ''));
+
+        $clients = $this->history->sampleClients();
+        $output->writeln($clients['rows'].' station(s) added to today'
+            .($clients['restarted']
+                ? ', '.$clients['restarted'].' started counting again after a roam or a reconnect'
+                : ''));
         if (!$input->getOption('quiet-skips')) {
             foreach ($report['skipped'] as $what => $why) {
                 $output->writeln('  <comment>'.$what.'</comment> '.$why);

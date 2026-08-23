@@ -74,6 +74,32 @@
 </div>
 {% endif %}
 
+{% if days|length %}
+<div class="card" id="daybox">
+	<h3 class="small" style="margin:0 0 .3em">Day by day <span class="small stale">last 30 days</span></h3>
+	<table class="counters small">
+		<tr><th>day</th><th>received</th><th>sent</th><th>together</th><th>seen</th><th>where</th><th>signal</th></tr>
+		{% for d in days|reverse %}
+			<tr>
+				<td>{{ d.day|date('D d.m.') }}</td>
+				<td class="mono">{{ fmt.bytes(d.rxBytes) }}</td>
+				<td class="mono">{{ fmt.bytes(d.txBytes) }}</td>
+				<td class="mono"><b>{{ fmt.bytes(d.totalBytes) }}</b></td>
+				<td class="stale">{{ (d.secondsSeen / 3600)|round(1) }} h</td>
+				<td class="stale small">{{ d.lastAp }}{% if d.lastIfname %} · <span class="mono">{{ d.lastIfname }}</span>{% endif %}</td>
+				<td class="stale mono">{% if d.maxSignal %}{{ d.minSignal }}…{{ d.maxSignal }} dBm{% endif %}</td>
+			</tr>
+		{% endfor %}
+	</table>
+	<p class="small stale">
+		Received is what this station sent up and sent is what it was given — from the access point's
+		side, the opposite way round from how a download feels. "Seen" counts the sampling runs that
+		found it associated, so it is accurate to five minutes and no better. A day it spent entirely
+		elsewhere has no row at all.
+	</p>
+</div>
+{% endif %}
+
 <div class="card" id="trafficbox">
 	<h3 class="small" style="margin:0 0 .3em">What this station is moving</h3>
 	<svg id="cspark" viewBox="0 0 200 60" preserveAspectRatio="none" aria-label="throughput">
