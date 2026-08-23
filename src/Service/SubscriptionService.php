@@ -28,6 +28,13 @@ class SubscriptionService
 
     /** seconds between two rounds of asking, when there is anything to ask */
     private const DFS_CHECK_INTERVAL = 20;
+
+    /**
+     * How many byte counter samples to keep per bss. At a ten second status
+     * cycle that is half an hour, which is what a small graph can show without
+     * every point being a pixel.
+     */
+    private const SERIES_SAMPLES = 180;
     /** ssid ids whose keys changed and have to go out again */
     private $ppskPending = [];
     private const CACHE_REFRESH_INTERVAL = 60;
@@ -648,6 +655,43 @@ class SubscriptionService
      * short history without a database table that would grow forever.
      */
     /**
+     * A rolling series of byte counters, so a page can draw a line.
+     *
+     * The status carries one previous snapshot in `history`, which is enough to
+     * work out a rate and not enough to draw anything. Nothing else in the
+     * controller keeps a series — collectd runs on the access point and pushes
+     * elsewhere — so this keeps a short one: the counters, not the rates, so
+     * the reader can divide by whatever interval it actually got rather than
+     * trusting an interval that was assumed.
+     *
+     * One cache read and write per bss per status cycle, an hour deep.
+     */
+    private function recordThroughput($device, array $data): void
+    {
+        $results = $data['assoclist']['results'] ?? null;
+        if (!is_array($results)) {
+            return;
+        }
+        $rx = 0;
+        $tx = 0;
+        foreach ($results as $sta) {
+            $rx += (int) ($sta['rx']['bytes'] ?? 0);
+            $tx += (int) ($sta['tx']['bytes'] ?? 0);
+        }
+
+        $key = 'status.device['.$device->getId().'].series';
+        $series = $this->cacheFactory->getCacheItemValue($key);
+        if (!is_array($series)) {
+            $series = [];
+        }
+        $series[] = [(int) $data['received'], $rx, $tx, count($results)];
+        if (count($series) > self::SERIES_SAMPLES) {
+            $series = array_slice($series, -self::SERIES_SAMPLES);
+        }
+        $this->cacheFactory->addCacheItem($key, $series, 3600);
+    }
+
+    /**
      * How strongly this station is heard here, kept per station rather than per
      * probe.
      *
@@ -1201,6 +1245,7 @@ class SubscriptionService
         // from 1970, which made every age reading nonsense right after a boot.
         $data['received'] = time();
         $this->cacheFactory->addCacheItem($key, $data);
+        $this->recordThroughput($device, $data);
         // State tree, stage one. hostapd reports the channel availability check
         // per bss even though the channel belongs to the radio — the tree rolls
         // it up there rather than to the access point, which is where the old

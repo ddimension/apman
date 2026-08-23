@@ -1420,6 +1420,37 @@ class DefaultController extends AbstractController
         $counts = $cf->getCacheItemValue('status.device['.$device->getId().'].ctrlcounts');
         $signals = $cf->getCacheItemValue('status.device['.$device->getId().'].probe_signals');
 
+        // The rate that matters is not the one the link negotiated but the one
+        // that went over it. The status carries the previous snapshot, so the
+        // counters can be differenced against it — the same arithmetic the old
+        // status page does, and the reason it is the page people trust.
+        $prevBytes = [];
+        $prev = is_array($status['history'][0] ?? null) ? $status['history'][0] : null;
+        $span = $prev && isset($prev['received'], $status['received'])
+            ? (int) $status['received'] - (int) $prev['received'] : 0;
+        if ($span > 0 && isset($prev['assoclist']['results']) && is_array($prev['assoclist']['results'])) {
+            $before = [];
+            foreach ($prev['assoclist']['results'] as $sta) {
+                if (isset($sta['mac'])) {
+                    $before[strtolower($sta['mac'])] = [
+                        (int) ($sta['rx']['bytes'] ?? 0), (int) ($sta['tx']['bytes'] ?? 0)];
+                }
+            }
+            foreach ($status['assoclist']['results'] ?? [] as $sta) {
+                $mac = isset($sta['mac']) ? strtolower($sta['mac']) : null;
+                if (null === $mac || !isset($before[$mac])) {
+                    continue;
+                }
+                // a counter that went backwards is a station that reconnected
+                $dRx = (int) ($sta['rx']['bytes'] ?? 0) - $before[$mac][0];
+                $dTx = (int) ($sta['tx']['bytes'] ?? 0) - $before[$mac][1];
+                $prevBytes[$mac] = [
+                    $dRx >= 0 ? (int) round($dRx * 8 / $span) : null,
+                    $dTx >= 0 ? (int) round($dTx * 8 / $span) : null,
+                ];
+            }
+        }
+
         // the stations on it, the same rows the access point page builds
         $clients = [];
         if (isset($status['assoclist']['results']) && is_array($status['assoclist']['results'])) {
@@ -1437,10 +1468,23 @@ class DefaultController extends AbstractController
                     'akm' => is_array($ctrl) && isset($ctrl['AKMSuiteSelector'])
                         ? self::akmName($ctrl['AKMSuiteSelector']) : null,
                     'signal' => $entry['signal'] ?? null,
+                    'signal_avg' => $entry['signal_avg'] ?? null,
                     'noise' => $entry['noise'] ?? null,
                     'inactive' => $entry['inactive'] ?? null,
+                    // what the link negotiated
                     'rx_rate' => $entry['rx']['rate'] ?? null,
                     'tx_rate' => $entry['tx']['rate'] ?? null,
+                    'rx_mcs' => $entry['rx']['mcs'] ?? null,
+                    'tx_mcs' => $entry['tx']['mcs'] ?? null,
+                    'mhz' => $entry['rx']['mhz'] ?? ($entry['tx']['mhz'] ?? null),
+                    // what the driver thinks it could carry
+                    'thr' => $entry['thr'] ?? null,
+                    // and what actually went over it, from the counters
+                    'rx_bytes' => $entry['rx']['bytes'] ?? null,
+                    'tx_bytes' => $entry['tx']['bytes'] ?? null,
+                    'rx_bps' => $prevBytes[$mac][0] ?? null,
+                    'tx_bps' => $prevBytes[$mac][1] ?? null,
+                    'connected' => $entry['connected_time'] ?? null,
                 ];
             }
         }
@@ -1470,11 +1514,59 @@ class DefaultController extends AbstractController
                 'status.device['.$device->getId().'].ctrlevents'), 12),
             'probes' => $this->probeHistogram($heard),
             'clients' => $clients,
+            'span' => $span,
             'mib' => $this->mibSummary($status['mib'] ?? null),
             'survey' => $this->surveySummary(
                 $cf->getCacheItemValue('status.device.'.$device->getId().'.survey'),
                 $apStatus['channel'] ?? null),
             'age' => isset($status['received']) ? time() - (int) $status['received'] : null,
+        ]);
+    }
+
+    /**
+     * The throughput of one bss over the last half hour, as a series.
+     *
+     * Counters go out, not rates: the caller divides by the interval it
+     * actually got. A status cycle that was late would otherwise show as a
+     * spike, which is the graph lying about the network to cover for the
+     * collector.
+     */
+    #[Route(path: '/device/{id}/series', name: 'device_series')]
+    public function deviceSeriesAction($id)
+    {
+        $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->find($id);
+        if (!$device) {
+            return $this->json(['ok' => false, 'error' => 'no such bss'], 404);
+        }
+        $series = $this->cacheFactory->getCacheItemValue('status.device['.$device->getId().'].series');
+        $series = is_array($series) ? $series : [];
+
+        $points = [];
+        $prev = null;
+        foreach ($series as $sample) {
+            [$ts, $rx, $tx, $stations] = $sample + [null, null, null, null];
+            if (null !== $prev) {
+                $span = $ts - $prev[0];
+                // a counter that went backwards is hostapd restarting, not
+                // traffic; a gap longer than a minute is the collector, not the
+                // network, and neither belongs in a line
+                if ($span > 0 && $span <= 60 && $rx >= $prev[1] && $tx >= $prev[2]) {
+                    $points[] = [
+                        'ts' => $ts,
+                        'rx' => (int) round(($rx - $prev[1]) * 8 / $span),
+                        'tx' => (int) round(($tx - $prev[2]) * 8 / $span),
+                        'sta' => (int) $stations,
+                    ];
+                }
+            }
+            $prev = [$ts, $rx, $tx];
+        }
+
+        return $this->json([
+            'ok' => true,
+            'ifname' => $device->ifname(),
+            'points' => $points,
+            'samples' => count($series),
         ]);
     }
 

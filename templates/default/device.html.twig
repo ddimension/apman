@@ -76,6 +76,18 @@
 			</div>
 		{% endif %}
 	</div>
+	<div id="spark" class="spark">
+		<svg viewBox="0 0 300 46" preserveAspectRatio="none" aria-label="throughput">
+			<path id="sp-rx" fill="none" stroke="var(--bar-plain)" stroke-width="1.2"/>
+			<path id="sp-tx" fill="none" stroke="var(--bar-good)" stroke-width="1.2"/>
+		</svg>
+		<p class="small stale" id="sp-label">
+			<span style="color: var(--bar-plain)">▬</span> from the stations ·
+			<span style="color: var(--bar-good)">▬</span> to them ·
+			reading…
+		</p>
+	</div>
+
 	{% if bss_info %}
 		<p class="small stale" style="margin-top:.6em">
 			hostapd runs it as
@@ -92,25 +104,40 @@
 <div class="card">
 	<h3 class="small" style="margin:0 0 .3em">Stations on this bss</h3>
 	<table class="counters small">
-		<tr><th>station</th><th>identity</th><th>key</th><th>signal</th><th>noise</th>
-			<th>rx</th><th>tx</th><th>idle</th></tr>
+		<tr><th>station</th><th>identity</th><th>key</th><th>signal</th>
+			<th title="what actually went over the link since the last status cycle">rx now</th>
+			<th title="what actually went over the link since the last status cycle">tx now</th>
+			<th title="the rate the link negotiated">link</th>
+			<th title="what the driver thinks the link could carry">est.</th>
+			<th>idle</th><th>connected</th></tr>
 		{% for mac, c in clients %}
 			<tr>
 				<td class="mono"><a href="{{ path('client_detail', {'mac': mac}) }}">{{ mac }}</a></td>
 				<td>{{ c.identity ?: '—' }}</td>
 				<td>{{ c.akm ?: '—' }}</td>
-				<td>{{ c.signal is not null ? c.signal ~ ' dBm' : '—' }}</td>
-				<td class="stale">{{ c.noise is not null ? c.noise ~ ' dBm' : '—' }}</td>
-				<td>{{ c.rx_rate ? (c.rx_rate / 1000)|round ~ ' M' : '—' }}</td>
-				<td>{{ c.tx_rate ? (c.tx_rate / 1000)|round ~ ' M' : '—' }}</td>
+				<td>{{ c.signal is not null ? c.signal ~ ' dBm' : '—' }}
+					{% if c.signal_avg is not null and c.signal_avg != c.signal %}
+						<div class="stale">ø {{ c.signal_avg }}</div>{% endif %}</td>
+				<td class="{{ c.rx_bps ? 'live' : '' }}">{{ c.rx_bps is not null ? (c.rx_bps > 1000000
+					? (c.rx_bps / 1000000)|round(1) ~ ' Mbit/s' : (c.rx_bps / 1000)|round ~ ' kbit/s') : '—' }}</td>
+				<td class="{{ c.tx_bps ? 'live' : '' }}">{{ c.tx_bps is not null ? (c.tx_bps > 1000000
+					? (c.tx_bps / 1000000)|round(1) ~ ' Mbit/s' : (c.tx_bps / 1000)|round ~ ' kbit/s') : '—' }}</td>
+				<td class="stale">{{ c.rx_rate ? (c.rx_rate / 1000)|round ~ '/' : '' }}{{ c.tx_rate ? (c.tx_rate / 1000)|round ~ ' M' : '—' }}
+					{% if c.mhz %}<div class="stale">{{ c.mhz }} MHz</div>{% endif %}</td>
+				<td class="stale">{{ c.thr ? (c.thr / 1000)|round ~ ' M' : '—' }}</td>
 				<td class="stale">{{ c.inactive is not null ? (c.inactive / 1000)|round ~ ' s' : '—' }}</td>
+				<td class="stale">{{ c.connected ? (c.connected / 3600)|round ~ ' h' : '—' }}</td>
 			</tr>
 		{% endfor %}
 	</table>
 	<p class="small stale">
-		From the association list of the last status cycle. The identity is the iPSK the station
-		used, where hostapd told us which one — that is what turns "a key was handed out" into
-		"the key is in use".
+		<b>rx now</b> and <b>tx now</b> are what actually went over the link{% if span %}, measured
+		over the {{ span }} seconds between the last two status cycles{% endif %} — the byte
+		counters differenced, the way the old status page does it. <b>link</b> is the rate the two
+		agreed on and <b>est.</b> what the driver thinks it could carry; a link that negotiated
+		866 M and moved 40 kbit/s is a quiet station, not a broken one.
+		The identity is the iPSK the station used, where hostapd told us which one — that is what
+		turns "a key was handed out" into "the key is in use".
 	</p>
 </div>
 {% endif %}
@@ -288,6 +315,53 @@
 
 {% block javascripts %}
 {{ include('default/_option_filter.html.twig', {'storage_key': 'apman.device.scope'}) }}
+<script>
+// The endpoint hands over counters, not rates, and the arithmetic happens here
+// — a status cycle that arrived late would otherwise draw as a spike, which is
+// the graph lying about the network to cover for the collector.
+(function () {
+	var url = {{ path('device_series', {'id': device.id})|json_encode|raw }};
+	var W = 300, H = 46;
+	function path(points, key, max) {
+		if (!points.length || !max) { return ''; }
+		var n = points.length;
+		return points.map(function (p, i) {
+			var x = n > 1 ? (i * W / (n - 1)) : 0;
+			var y = H - (p[key] / max) * (H - 2) - 1;
+			return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+		}).join(' ');
+	}
+	function human(bps) {
+		if (bps >= 1000000) { return (bps / 1000000).toFixed(1) + ' Mbit/s'; }
+		if (bps >= 1000) { return Math.round(bps / 1000) + ' kbit/s'; }
+		return bps + ' bit/s';
+	}
+	function draw() {
+		fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+			var label = document.getElementById('sp-label');
+			var pts = d.points || [];
+			if (!pts.length) {
+				label.innerHTML = 'nothing measured yet — a line needs two status cycles'
+					+ (d.samples ? ' (' + d.samples + ' so far)' : '');
+				return;
+			}
+			var max = 0;
+			pts.forEach(function (p) { max = Math.max(max, p.rx, p.tx); });
+			document.getElementById('sp-rx').setAttribute('d', path(pts, 'rx', max));
+			document.getElementById('sp-tx').setAttribute('d', path(pts, 'tx', max));
+			var last = pts[pts.length - 1];
+			var span = pts.length > 1 ? (last.ts - pts[0].ts) : 0;
+			label.innerHTML =
+				'<span style="color: var(--bar-plain)">▬</span> from the stations ' + human(last.rx)
+				+ ' · <span style="color: var(--bar-good)">▬</span> to them ' + human(last.tx)
+				+ ' · peak ' + human(max)
+				+ ' · ' + pts.length + ' points over ' + Math.round(span / 60) + ' min';
+		}).catch(function () {});
+	}
+	draw();
+	window.setInterval(draw, 10000);
+})();
+</script>
 {% endblock %}
 
 {% block stylesheets %}
@@ -304,6 +378,11 @@ table.counters th { border-bottom: 1px solid var(--line-strong); font-weight: 60
 table.thresh { border-collapse: collapse; margin: .3em 0 .5em; }
 table.thresh th, table.thresh td { padding: .2em .9em .2em 0; text-align: left; }
 table.thresh td.warn { color: var(--warn-strong); font-weight: 600; }
+.spark { margin-top: .6em; max-width: 34em; }
+.spark svg { width: 100%; height: 46px; display: block; background: var(--bg-sunken);
+             border-radius: var(--r-sm); }
+.spark p { margin: .25em 0 0; }
+table.counters td.live { font-variant-numeric: tabular-nums; }
 table.hist { border-collapse: collapse; margin: .5em 0; }
 table.hist th { text-align: right; padding: .05em .6em .05em 0; font-weight: 400; white-space: nowrap; }
 table.hist td.bar { width: 18em; height: auto; background: none; border-radius: 0; display: table-cell; }
