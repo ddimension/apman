@@ -104,7 +104,8 @@
            survive the loop. #}
         {% set group = {
             'apman_default_index': 'clients', 'client_detail': 'clients',
-            'aps': 'aps', 'ap_detail': 'aps', 'radio_detail': 'aps',
+            'aps': 'aps', 'ap_detail': 'aps', 'radio_detail': 'aps', 'device_detail': 'aps',
+            'topology': 'aps',
             'overview': 'overview',
             'ssids': 'ssids', 'ssid_detail': 'ssids', 'ssid_rollout': 'ssids',
             'rollout_matrix': 'ssids',
@@ -117,6 +118,7 @@
             <a href="{{ path('overview') }}" class="{{ group == 'overview' ? 'active' }}">Overview</a>
             <a href="{{ path('apman_default_index') }}" class="{{ group == 'clients' ? 'active' }}">Clients</a>
             <a href="{{ path('aps') }}" class="{{ group == 'aps' ? 'active' }}">Access Points</a>
+            <a href="{{ path('topology') }}" class="{{ here == 'topology' ? 'active' }}">Topology</a>
             <a href="{{ path('ssids') }}" class="{{ group == 'ssids' ? 'active' }}">Networks</a>
             <a href="{{ path('apman_default_indexold') }}" class="{{ group == 'details' ? 'active' }}">Details</a>
             <a href="{{ path('ppsk') }}" class="{{ group == 'ppsk' ? 'active' }}">PPSK</a>

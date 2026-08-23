@@ -298,7 +298,8 @@ class DefaultController extends AbstractController
      * plus the actions that can be run against it with feedback.
      */
     #[Route(path: '/ap/{name}', name: 'ap_detail')]
-    public function apDetailAction($name, \ApManBundle\Service\StateTreeService $stateTree)
+    public function apDetailAction($name, \ApManBundle\Service\StateTreeService $stateTree,
+        \ApManBundle\Service\TopologyService $topology)
     {
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
@@ -375,6 +376,9 @@ class DefaultController extends AbstractController
             // them its bsses, every node with its own state
             'tree' => $stateTree->ap($ap),
             'devices' => $devices,
+            // where it is plugged in, from the hour long cache — the same
+            // answer the topology page shows, asked once for the fleet
+            'uplinks' => $topology->of($ap)['links'] ?? [],
         ]);
     }
 
@@ -2406,6 +2410,24 @@ class DefaultController extends AbstractController
             'keys' => $keys,
             'agents' => $agents,
             'steering' => $this->steeringStats(),
+        ]);
+    }
+
+    /**
+     * What each access point is plugged into.
+     *
+     * `?fresh=1` asks the access points again instead of reading the hour long
+     * cache — for when somebody has just moved a cable and is standing there
+     * waiting to see it.
+     */
+    #[Route(path: '/topology', name: 'topology')]
+    public function topologyAction(Request $request, \ApManBundle\Service\TopologyService $topology)
+    {
+        $fleet = $topology->fleet($request->query->getBoolean('fresh'));
+
+        return $this->render('default/topology.html.twig', [
+            'switches' => $fleet['switches'],
+            'unknown' => $fleet['unknown'],
         ]);
     }
 

@@ -1,0 +1,76 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Topology{% endblock %}
+
+{% block body %}
+<h2>Topology <span class="small">what each access point is plugged into</span></h2>
+
+<p class="small">
+	From LLDP, asked of each access point and kept for an hour — cabling does not move on its own.
+	Where the switch feeds the access point, the class and the power it has set aside are shown as
+	well; that is the switch's own account of it, not a measurement of what is being drawn.
+	<a href="{{ path('topology', {'fresh': 1}) }}">ask again now</a>
+</p>
+
+{% for key, sw in switches %}
+	<div class="card">
+		<h3 class="small" style="margin:0 0 .3em">
+			{{ sw.name ?: key }}
+			{% if sw.model %}<span class="stale">{{ sw.model }}</span>{% endif %}
+		</h3>
+		<p class="small stale" style="margin:0 0 .5em">
+			{% if sw.mac %}<span class="mono">{{ sw.mac }}</span>{% endif %}
+			{% if sw.mgmt_ip %} · <a href="http://{{ sw.mgmt_ip }}/">{{ sw.mgmt_ip }}</a>{% endif %}
+			· {{ sw.ports|length }} access point{{ sw.ports|length > 1 ? 's' : '' }}
+			{% if sw.watts %} · {{ sw.watts|round(1) }} W set aside{% endif %}
+		</p>
+		<table class="topo">
+			<tr><th>port</th><th>access point</th><th>on</th><th>link</th><th>power</th></tr>
+			{% for p in sw.ports %}
+				<tr class="{{ p.productive ? '' : 'dim' }}">
+					<td class="mono">{{ p.port ?: '—' }}
+						{% if p.port_descr and p.port_descr != p.name and p.port_descr != p.port %}<div class="stale small">{{ p.port_descr }}</div>{% endif %}</td>
+					<td><a href="{{ path('ap_detail', {'name': p.name}) }}">{{ p.name }}</a>
+						{% if not p.productive %}<div class="stale small">non productive</div>{% endif %}</td>
+					<td class="mono small">{{ p.local }}</td>
+					<td class="small">{{ p.link ? p.link|split(' - ')|first : '—' }}
+						{% if p.link and ' - ' in p.link %}<div class="stale">{{ p.link|split(' - ')|last }}</div>{% endif %}</td>
+					<td class="small">
+						{% if p.poe_mw %}{{ (p.poe_mw / 1000)|round(1) }} W
+							<div class="stale">{{ p.poe_class }}{% if p.poe_from %} from the {{ p.poe_from }}{% endif %}</div>
+						{% else %}<span class="stale">not powered over ethernet</span>{% endif %}</td>
+				</tr>
+			{% endfor %}
+		</table>
+	</div>
+{% else %}
+	<div class="card"><p class="small">No access point reported an LLDP neighbour. Either lldpd is not
+		running on them, or nothing upstream speaks LLDP.</p></div>
+{% endfor %}
+
+{% if unknown|length %}
+	<div class="card">
+		<h3 class="small" style="margin:0 0 .3em">Not placed</h3>
+		<table class="topo">
+			{% for u in unknown %}
+				<tr class="{{ u.productive ? '' : 'dim' }}">
+					<td><a href="{{ path('ap_detail', {'name': u.name}) }}">{{ u.name }}</a></td>
+					<td class="small stale">{{ u.why }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+		<p class="small stale">Not knowing where one is plugged in is as much an answer as the port
+			number, so these stay on the page rather than being left off it.</p>
+	</div>
+{% endif %}
+{% endblock %}
+
+{% block stylesheets %}
+<style>
+	table.topo { border-collapse: collapse; width: 100%; }
+	table.topo th, table.topo td { padding: .3em 1em .3em 0; text-align: left; vertical-align: top;
+	                               border-bottom: 1px solid var(--line-soft); }
+	table.topo th { border-bottom: 1px solid var(--line-strong); font-weight: 600; }
+	table.topo tr.dim { opacity: .55; }
+	table.topo .stale { color: var(--ink-mute); }
+</style>
+{% endblock %}

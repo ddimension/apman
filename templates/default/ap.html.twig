@@ -50,6 +50,18 @@
 	{% endfor %}
 </table>
 
+{% if uplinks|length %}
+<p class="small">
+	{% for u in uplinks %}
+		Plugged into <b>{{ u.switch }}</b>{% if u.model %} ({{ u.model }}){% endif %}
+		on port <span class="mono">{{ u.port }}</span> via <span class="mono">{{ u.local }}</span>{#
+		#}{% if u.link %}, {{ u.link|split(' - ')|first }}{% endif %}{#
+		#}{% if u.poe_mw %}, drawing power over ethernet — {{ (u.poe_mw / 1000)|round(1) }} W set aside as {{ u.poe_class }}{% endif %}.
+		<a href="{{ path('topology') }}">the rest of the fleet</a>
+	{% endfor %}
+</p>
+{% endif %}
+
 <p>
 	<button type="button" id="dryrun">Show pending changes</button>
 	<button type="button" id="classify">What would it cost?</button>
