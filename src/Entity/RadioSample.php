@@ -72,6 +72,28 @@ class RadioSample
     #[ORM\Column(name: 'noise', type: 'smallint', nullable: true)]
     private $noise;
 
+    /**
+     * hostapd's airtime counters, cumulative, in milliseconds.
+     *
+     * These are what the busy figure is actually worked out from, and the
+     * reason is measured: `utilization` above is not to be trusted. On
+     * ap-outdoor2 channel 7 it read 0 three times in a row while these counters
+     * put the channel at 15.8 and 17.5 % busy; on ap-av-klwz channel 11 it read
+     * 255 and then 0 while they said 7.8 and 9.9 %. Only on ap-av-grwz did it
+     * track them at all. Both are kept: the difference between what a radio
+     * says about itself and what its own counters say is worth being able to
+     * see.
+     *
+     * The unit was measured too. Two samples twenty seconds apart differ by
+     * 20005, so this counts milliseconds and not the microseconds the name
+     * suggests.
+     */
+    #[ORM\Column(name: 'airtime_time', type: 'bigint', nullable: true, options: ['unsigned' => true])]
+    private $airtimeTime;
+
+    #[ORM\Column(name: 'airtime_busy', type: 'bigint', nullable: true, options: ['unsigned' => true])]
+    private $airtimeBusy;
+
     /** kept per sample so that a channel change is visible as one */
     #[ORM\Column(name: 'channel', type: 'smallint', nullable: true)]
     private $channel;
@@ -161,6 +183,30 @@ class RadioSample
     public function setNoise(?int $noise): self
     {
         $this->noise = $noise;
+
+        return $this;
+    }
+
+    public function getAirtimeTime(): ?int
+    {
+        return null === $this->airtimeTime ? null : (int) $this->airtimeTime;
+    }
+
+    public function setAirtimeTime(?int $ms): self
+    {
+        $this->airtimeTime = $ms;
+
+        return $this;
+    }
+
+    public function getAirtimeBusy(): ?int
+    {
+        return null === $this->airtimeBusy ? null : (int) $this->airtimeBusy;
+    }
+
+    public function setAirtimeBusy(?int $ms): self
+    {
+        $this->airtimeBusy = $ms;
 
         return $this;
     }

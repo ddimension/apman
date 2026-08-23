@@ -182,8 +182,9 @@
 	{% else %}
 		<svg id="hutil" viewBox="0 0 600 110" preserveAspectRatio="none" aria-label="channel in use"></svg>
 		<p class="small stale" style="margin:.2em 0 .8em">
-			<b class="k-util">how much of the channel was in use</b> — everybody's traffic, not only
-			ours · <b class="k-sta">stations on this radio</b>
+			<b class="k-util">how much of the channel was in use</b> — worked out from the radio's own
+			airtime counters over each interval, so it counts everybody's traffic on the channel and
+			not only ours · <b class="k-sta">stations on this radio</b>
 			· a mark low on the axis is a channel change
 		</p>
 		<svg id="hrate" viewBox="0 0 600 110" preserveAspectRatio="none" aria-label="throughput"></svg>
@@ -191,7 +192,9 @@
 			<b class="k-rx">received</b> · <b class="k-tx">sent</b> — from the interface counters, so
 			traffic from a station that has since left is still in it. A gap is a gap: an interface
 			that was rebuilt starts its counters again, and averaging across that would invent a
-			number.
+			number. The same goes for the channel above — it is measured, not taken from the
+			<span class="mono">utilization</span> the radio reports, which read 0 on a channel that
+			was 17 % busy and 255 on one that was 8 %.
 		</p>
 	{% endif %}
 </div>
@@ -442,7 +445,7 @@
 	}
 
 	draw(document.getElementById('hutil'), [
-		{cls: 'k-util', fill: true, get: function (p) { return p.utilization; }}
+		{cls: 'k-util', fill: true, get: function (p) { return p.busy; }}
 	], {floor: 100, top: function () { return '100 %'; }, marks: true});
 
 	// stations have their own scale, so they are drawn as a second pass over

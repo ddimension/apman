@@ -15,10 +15,54 @@ class HistoryRatesTest extends TestCase
         return (new \ReflectionClass(HistoryService::class))->newInstanceWithoutConstructor();
     }
 
-    private function sample(int $ts, int $rx, int $tx): array
+    private function sample(int $ts, int $rx, int $tx, ?int $time = null, ?int $busy = null): array
     {
         return ['ts' => $ts, 'rx' => $rx, 'tx' => $tx,
-            'stations' => 3, 'utilization' => 40, 'noise' => -91, 'channel' => 36];
+            'stations' => 3, 'utilization' => 40, 'noise' => -91, 'channel' => 36,
+            'airtime_time' => $time, 'airtime_busy' => $busy];
+    }
+
+    /**
+     * The measurement that made this column exist.
+     *
+     * ap-outdoor2 channel 7 reported utilization 0 three times running while
+     * its own counters had the channel 17 % busy, and ap-av-klwz channel 11
+     * reported 255 on a channel that was 8 % busy. The counters are in
+     * milliseconds — two reads twenty seconds apart differed by 20005 — and a
+     * difference between two of them is the only figure here worth drawing.
+     */
+    public function testHowBusyComesFromTheCountersAndNotFromTheRadiosOpinion(): void
+    {
+        $out = $this->service()->rates([
+            $this->sample(1000, 0, 0, 101132523, 18799103),
+            // 300 s later: 300000 ms elapsed, 52500 ms of it busy — 17.5 %
+            $this->sample(1300, 0, 0, 101432523, 18851603),
+        ]);
+
+        $this->assertNull($out[0]['busy'], 'the first sample is not an interval');
+        $this->assertSame(18, $out[1]['busy']);
+        $this->assertSame(40, $out[1]['reported'],
+            'and what the radio said about itself is kept, because the two disagreeing is the point');
+    }
+
+    public function testAirtimeCountersThatWentBackwardsLeaveTheIntervalBlank(): void
+    {
+        $out = $this->service()->rates([
+            $this->sample(1000, 0, 0, 101132523, 18799103),
+            $this->sample(1300, 0, 0, 400, 100),
+        ]);
+
+        $this->assertNull($out[1]['busy'], 'the radio restarted; how busy it was in between is unknowable');
+    }
+
+    public function testARadioThatReportsNoAirtimeCountersGetsNoBusyFigure(): void
+    {
+        $out = $this->service()->rates([
+            $this->sample(1000, 0, 0),
+            $this->sample(1300, 0, 0),
+        ]);
+
+        $this->assertNull($out[1]['busy']);
     }
 
     public function testAnOrdinaryIntervalBecomesBitsPerSecond(): void

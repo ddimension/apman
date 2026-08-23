@@ -73,6 +73,8 @@ class HistoryService
             $sample->setRxBytes($reading['rx']);
             $sample->setTxBytes($reading['tx']);
             $sample->setUtilization($reading['utilization']);
+            $sample->setAirtimeTime($reading['airtime_time']);
+            $sample->setAirtimeBusy($reading['airtime_busy']);
             $sample->setNoise($reading['noise']);
             $sample->setChannel($reading['channel']);
             $em->persist($sample);
@@ -94,6 +96,8 @@ class HistoryService
         $tx = 0;
         $stations = 0;
         $utilization = null;
+        $airtimeTime = null;
+        $airtimeBusy = null;
         $noise = null;
         $channel = null;
         $seen = false;
@@ -123,6 +127,8 @@ class HistoryService
             $ap = $status['ap_status'] ?? null;
             if (is_array($ap)) {
                 $utilization ??= self::utilizationPercent($ap['airtime']['utilization'] ?? null);
+                $airtimeTime ??= isset($ap['airtime']['time']) ? (int) $ap['airtime']['time'] : null;
+                $airtimeBusy ??= isset($ap['airtime']['time_busy']) ? (int) $ap['airtime']['time_busy'] : null;
                 $channel ??= isset($ap['channel']) ? (int) $ap['channel'] : null;
             }
             $info = $status['info'] ?? null;
@@ -133,7 +139,8 @@ class HistoryService
 
         return $seen
             ? ['rx' => $rx, 'tx' => $tx, 'stations' => $stations,
-                'utilization' => $utilization, 'noise' => $noise, 'channel' => $channel]
+                'utilization' => $utilization, 'noise' => $noise, 'channel' => $channel,
+                'airtime_time' => $airtimeTime, 'airtime_busy' => $airtimeBusy]
             : null;
     }
 
@@ -190,6 +197,8 @@ class HistoryService
                 'channel' => $row->getChannel(),
                 'rx' => $row->getRxBytes(),
                 'tx' => $row->getTxBytes(),
+                'airtime_time' => $row->getAirtimeTime(),
+                'airtime_busy' => $row->getAirtimeBusy(),
             ];
         }
 
@@ -226,7 +235,10 @@ class HistoryService
             $entry = [
                 'ts' => (int) $s['ts'],
                 'stations' => $s['stations'] ?? null,
-                'utilization' => $s['utilization'] ?? null,
+                // what the radio says about itself, kept because it is often
+                // wrong and being able to see that is worth a column
+                'reported' => $s['utilization'] ?? null,
+                'busy' => null,
                 'noise' => $s['noise'] ?? null,
                 'channel' => $s['channel'] ?? null,
                 'rx_bps' => null,
@@ -236,9 +248,20 @@ class HistoryService
                 $span = (int) $s['ts'] - (int) $prev['ts'];
                 $rx = (int) $s['rx'] - (int) $prev['rx'];
                 $tx = (int) $s['tx'] - (int) $prev['tx'];
-                if ($span > 0 && $span <= self::INTERVAL * 4 && $rx >= 0 && $tx >= 0) {
+                $usable = $span > 0 && $span <= self::INTERVAL * 4;
+                if ($usable && $rx >= 0 && $tx >= 0) {
                     $entry['rx_bps'] = (int) round($rx * 8 / $span);
                     $entry['tx_bps'] = (int) round($tx * 8 / $span);
+                }
+                // How busy the channel was over this interval, from the radio's
+                // own counters rather than from its opinion of them. Same rules
+                // as the bytes: an interval that cannot be measured is left
+                // blank rather than filled in.
+                $elapsed = (int) ($s['airtime_time'] ?? 0) - (int) ($prev['airtime_time'] ?? 0);
+                $busy = (int) ($s['airtime_busy'] ?? 0) - (int) ($prev['airtime_busy'] ?? 0);
+                if ($usable && $elapsed > 0 && $busy >= 0
+                    && null !== ($s['airtime_time'] ?? null) && null !== ($prev['airtime_time'] ?? null)) {
+                    $entry['busy'] = (int) min(100, round($busy * 100 / $elapsed));
                 }
             }
             $out[] = $entry;
