@@ -112,7 +112,11 @@ function pill(text, cls) { return '<span class="chip ' + (cls || '') + '">' + es
 // scales would answer it wrong, and prettily.
 function spark(s) {
 	if (!s || !s.rx || s.rx.length < 2) { return '<span class="muted sparkempty">–</span>'; }
-	const W = 76, H = 18, n = s.rx.length;
+	// A coordinate space, not a size. preserveAspectRatio="none" maps it onto
+	// whatever the cell is, so the line follows the column when it is resized
+	// or the window is narrowed, instead of sitting at a width somebody picked
+	// once.
+	const W = 100, H = 18, n = s.rx.length;
 	let max = 0;
 	for (let i = 0; i < n; i++) { max = Math.max(max, s.rx[i], s.tx[i]); }
 	if (!max) { return '<span class="muted sparkempty" title="nothing moved">idle</span>'; }
@@ -503,7 +507,7 @@ refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 	/* The toolbars, chips, bars and small type are in _components.html.twig.
 	   What is left is the grid itself and how it behaves on a phone. */
 	.gridjs-td { vertical-align: top; }
-	svg.spark { width: 76px; height: 18px; display: block; }
+	svg.spark { width: 100%; min-width: 40px; height: 18px; display: block; }
 	.sparkempty { font-size: .8em; }
 	.bar { width: 46px; height: .55rem; }
 
