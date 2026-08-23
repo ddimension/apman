@@ -399,6 +399,43 @@ class DefaultController extends AbstractController
     }
 
     /**
+     * Provision without taking anything down.
+     *
+     * Refuses when a radio level option changed, because that takes the phy
+     * down with every network on it whatever this endpoint is called — and
+     * finding that out from the answer is better than finding it out from the
+     * clients. `force=1` says go ahead anyway.
+     */
+    #[Route(path: '/api/ap/{name}/provision/live', name: 'api_ap_provision_live', methods: ['POST'])]
+    public function apiProvisionLiveAction(Request $request, $name,
+        \ApManBundle\Service\ProvisioningService $provisioning)
+    {
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
+        if (!$ap) {
+            return $this->json(['ok' => false, 'error' => 'no such access point'], 404);
+        }
+        $report = $provisioning->live($ap, (bool) $request->request->get('dry'),
+            (bool) $request->request->get('force'));
+
+        return $this->json($report, $report['ok'] ? 200 : 409);
+    }
+
+    /**
+     * What the next provisioning run would cost, without doing any of it.
+     */
+    #[Route(path: '/api/ap/{name}/provision/classify', name: 'api_ap_provision_classify', methods: ['POST', 'GET'])]
+    public function apiProvisionClassifyAction($name, \ApManBundle\Service\ProvisioningService $provisioning)
+    {
+        $ap = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')->findOneBy(['name' => $name]);
+        if (!$ap) {
+            return $this->json(['ok' => false, 'error' => 'no such access point'], 404);
+        }
+        $verdict = $provisioning->classify($ap);
+
+        return $this->json($verdict, $verdict['ok'] ? 200 : 502);
+    }
+
+    /**
      * The same, up to the point where anything would happen.
      *
      * Stages the configuration, asks the access point what would change and
@@ -688,8 +725,15 @@ class DefaultController extends AbstractController
         if ($request->request->getBoolean('restart')) {
             return $this->json($provisioning->restart($ap, $dry));
         }
+        // Applying underneath running radios without first asking what would
+        // change is the one way to take a phy down by accident, so the button
+        // that does it goes through the check. `blind=1` is the old behaviour,
+        // kept for the caller that wants it.
+        if ($request->request->getBoolean('blind')) {
+            return $this->json($this->apservice->applyConfig($ap, $dry));
+        }
 
-        return $this->json($this->apservice->applyConfig($ap, $dry));
+        return $this->json($provisioning->live($ap, $dry, $request->request->getBoolean('force')));
     }
 
     /**
@@ -1962,6 +2006,34 @@ class DefaultController extends AbstractController
      * the row instead of writing an empty one, so the configuration stays a
      * list of decisions rather than a dump of every option that exists.
      */
+    /**
+     * Turn changing this network under running radios on, or off again.
+     *
+     * `check=1` runs the readiness report and writes nothing, which is what the
+     * page asks for before it offers the switch.
+     */
+    #[Route(path: '/ssid/{id}/dynamic', name: 'ssid_dynamic', methods: ['POST'])]
+    public function ssidDynamicAction(Request $request, $id, \ApManBundle\Service\RolloutService $rollout)
+    {
+        $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
+        if (!$ssid) {
+            return $this->json(['ok' => false, 'error' => 'no such network'], 404);
+        }
+        $check = (bool) $request->request->get('check');
+        $target = $request->request->has('on')
+            ? (bool) $request->request->get('on') : $ssid->isDynamic();
+        $report = $rollout->migrate($ssid, $target, $check,
+            (bool) $request->request->get('force'));
+
+        // the entities do not belong in json; the page wants the words
+        foreach ($report['aps'] as $name => $entry) {
+            unset($report['aps'][$name]['ap'], $report['aps'][$name]['classify']['radios']);
+        }
+        $report['dynamic'] = $ssid->isDynamic();
+
+        return $this->json($report, $report['ok'] ? 200 : 409);
+    }
+
     /**
      * Which radios of the fleet carry this network, and which deliberately do
      * not.

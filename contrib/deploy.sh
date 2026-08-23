@@ -28,8 +28,25 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 say() { printf '\n== %s\n' "$1"; }
 
+# The subscriber is stopped for the duration of the sync, and whatever happens
+# after that it has to be started again. Without this, a step in between that
+# fails takes the script out under `set -e` with the subscriber still stopped —
+# and a stopped subscriber is a controller that hears nothing from any access
+# point, answers every ubus call with a timeout, and says nothing about why.
+# That happened on 23.08.2026, when `rm -rf var/cache/prod` failed on a
+# directory that was not empty: the fleet looked dead for two minutes and the
+# cause was three lines further down.
+restart_service() {
+	status=$?
+	ssh "$HOST" "systemctl start $SERVICE" || true
+	if [ "$status" -ne 0 ]; then
+		printf '\n!! deploy failed (exit %s) — %s was started again anyway\n' "$status" "$SERVICE" >&2
+	fi
+}
+
 say "stopping $SERVICE"
 ssh "$HOST" "systemctl stop $SERVICE"
+trap restart_service EXIT
 
 say "syncing"
 rsync -a --delete "$HERE/vendor/"    "$HOST:$DIR/vendor/"
@@ -40,15 +57,23 @@ rsync -a           "$HERE/bin/"      "$HOST:$DIR/bin/"
 rsync -a           "$HERE/public/assets/" "$HOST:$DIR/public/assets/"
 rsync -a           "$HERE/composer.json" "$HERE/composer.lock" "$HERE/symfony.lock" "$HOST:$DIR/"
 
+# The cache is moved aside and then deleted rather than deleted where it
+# stands. Apache keeps serving through the deploy and writes cache files while
+# the delete walks the tree, so `rm -rf` can arrive at a directory that was
+# empty when it looked and is not any more — which fails, and under `set -e`
+# takes the whole deploy with it. A rename cannot race that way.
 say "ownership, cache, assets"
 ssh "$HOST" "chown -R www-data:www-data $DIR \
   && cd $DIR \
-  && rm -rf var/cache/prod \
+  && rm -rf var/cache/prod.old \
+  && { mv var/cache/prod var/cache/prod.old 2>/dev/null || true; } \
+  && rm -rf var/cache/prod.old \
   && sudo -u www-data $PHP bin/console cache:clear --env=prod \
   && sudo -u www-data $PHP bin/console assets:install public --env=prod"
 
 say "reloading the web server and starting $SERVICE"
 ssh "$HOST" "systemctl reload apache2 && systemctl start $SERVICE"
+trap - EXIT
 sleep 6
 
 # The RADIUS server this used to count a socket for is gone; the access points

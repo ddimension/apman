@@ -34,6 +34,12 @@ class ConfigureAccessPointCommand extends Command
             ->addArgument('name', InputArgument::REQUIRED, 'Acesspoint Name')
             ->addOption('restart', null, InputOption::VALUE_NONE,
                 'take the radios down first and wait until they are down, then bring them back')
+            ->addOption('live', null, InputOption::VALUE_NONE,
+                'apply under the running radios, refusing if that would take a phy down')
+            ->addOption('force', null, InputOption::VALUE_NONE,
+                'with --live: apply even though a radio level option changed')
+            ->addOption('classify', null, InputOption::VALUE_NONE,
+                'only say what the next run would cost, and change nothing')
             ->addOption('dry-run', null, InputOption::VALUE_NONE,
                 'stage the configuration and report the diff without applying it')
             ;
@@ -72,6 +78,53 @@ class ConfigureAccessPointCommand extends Command
         // batchActionConfigure) and in apman:ipsk-migrate; this was the copy
         // nobody came back to.
         $dry = (bool) $input->getOption('dry-run');
+
+        if ($input->getOption('classify')) {
+            $verdict = $this->provisioning->classify($ap);
+            if (!($verdict['ok'] ?? false)) {
+                $output->writeln('<error>'.$ap->getName().': '.($verdict['error'] ?? 'no answer').'</error>');
+
+                return 1;
+            }
+            foreach ($verdict['radios'] as $name => $radio) {
+                $output->writeln(sprintf('  %-10s <%s>%s</> %s',
+                    $name,
+                    'live' === $radio['mode'] ? 'info' : 'comment',
+                    $radio['mode'],
+                    'live' === $radio['mode']
+                        ? $radio['devices'].' network(s) stay up'
+                        : 'takes '.$radio['devices'].' network(s) down'));
+                foreach ($radio['reasons'] as $reason) {
+                    $output->writeln('      '.$reason);
+                }
+            }
+            $output->writeln('live' === $verdict['mode']
+                ? '<info>'.$ap->getName().': the next run changes only networks and disturbs nothing</info>'
+                : '<comment>'.$ap->getName().': the next run restarts '
+                    .implode(', ', $verdict['restarting']).'</comment>');
+
+            return 0;
+        }
+
+        if ($input->getOption('live')) {
+            $report = $this->provisioning->live($ap, $dry, (bool) $input->getOption('force'));
+            foreach ($report['steps'] ?? [] as $step) {
+                $output->writeln(sprintf('  %-22s %6d ms  %s%s', $step['step'], $step['ms'],
+                    $step['ok'] ? 'ok' : '<error>failed</error>',
+                    isset($step['detail']) ? '  '.$step['detail'] : ''));
+            }
+            if ($report['ok'] ?? false) {
+                $output->writeln('<info>'.$ap->getName().': '
+                    .($dry ? 'nothing applied, this was a dry run'
+                        : 'applied under the running radios').'</info>');
+
+                return 0;
+            }
+            $output->writeln('<error>'.$ap->getName().': '.($report['error'] ?? 'provisioning failed').'</error>');
+
+            return 1;
+        }
+
         if ($input->getOption('restart')) {
             // The order matters: down, wait for the netdevs to be gone, settle,
             // configure, up. Without --restart the configuration is applied

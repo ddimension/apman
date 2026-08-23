@@ -42,6 +42,20 @@ class ProvisioningService
     /** how long to wait for the interfaces to come back in step 5 */
     public const UP_TIMEOUT = 40.0;
 
+    /**
+     * how long a live run waits for a bss to appear or disappear
+     *
+     * Measured: the netdev of an added bss was up 0.4 s after the apply, and a
+     * removed one was gone inside the same second. Nothing on this path
+     * restarts a phy, so nothing on it has a channel availability check to sit
+     * out — a budget in the tens of seconds would only make a real failure take
+     * longer to report.
+     */
+    public const LIVE_TIMEOUT = 12.0;
+
+    /** uci bookkeeping, not configuration — never a reason to restart a radio */
+    private const UCI_META = ['type' => true, 'name' => true, 'section' => true, 'config' => true];
+
     public function __construct(
         private readonly \Psr\Log\LoggerInterface $logger,
         private readonly ApUbusService $ubus,
@@ -182,6 +196,407 @@ class ProvisioningService
         }
 
         return $report;
+    }
+
+
+    /**
+     * What the next provisioning would cost this access point, per radio.
+     *
+     * A bss can be added to a running phy and taken off it again without the
+     * others noticing — measured on ap-av-attic on 2026-08-23 in both
+     * directions, with nothing at all in the log for the five networks that
+     * were not the subject. hostapd is handed the new configuration file and
+     * the previous one and applies the difference, so the delta is worked out
+     * on the device, by the daemon that owns the interfaces.
+     *
+     * A radio is the other case. Change a wifi-device option and the phy comes
+     * down with every bss standing on it, and on a dfs channel it then listens
+     * for ten minutes before it says anything. That is the line, and this is
+     * where it gets drawn: the running wifi-device sections are fetched from
+     * the access point and held against what provisioning would write.
+     *
+     * The comparison is uci against uci on purpose. The generated hostapd
+     * configuration is cached too, but matching `htmode` against
+     * `he_oper_chwidth` means a mapping table, and a mapping table is a place
+     * for this to be quietly wrong.
+     *
+     * @return array mode plus the reason for it, per radio
+     */
+    public function classify(AccessPoint $ap): array
+    {
+        $report = ['ok' => false, 'ap' => $ap->getName(), 'mode' => 'restart', 'radios' => []];
+
+        $opts = new \stdClass();
+        $opts->config = 'wireless';
+        $opts->type = 'wifi-device';
+        $res = $this->ubus->call($ap, 'uci', 'get', $opts, 10);
+        if (!$res->isOk()) {
+            $report['error'] = 'could not read the running radio configuration: '.$res->why();
+
+            return $report;
+        }
+        $values = is_object($res->data) ? ($res->data->values ?? null) : null;
+        $running = [];
+        foreach ((array) $values as $section => $cfg) {
+            $cfg = (array) $cfg;
+            $name = (string) ($cfg['.name'] ?? $section);
+            $running[$name] = $cfg;
+        }
+
+        $report['ok'] = true;
+        $seen = [];
+        foreach ($ap->getRadios() as $radio) {
+            $name = (string) $radio->getName();
+            $seen[$name] = true;
+            $reasons = [];
+            if (!isset($running[$name])) {
+                $reasons[] = 'the access point has no radio called '.$name.' — provisioning creates it';
+            } else {
+                $wanted = (array) $radio->exportConfig();
+                $have = $running[$name];
+                foreach ($wanted as $option => $value) {
+                    if (isset(self::UCI_META[$option])) {
+                        continue;
+                    }
+                    if (!array_key_exists($option, $have)) {
+                        $reasons[] = $option.' would be set to '.$this->readable($value).', it is unset';
+                        continue;
+                    }
+                    if (!$this->same($have[$option], $value)) {
+                        $reasons[] = $option.': '.$this->readable($have[$option]).' would become '
+                            .$this->readable($value);
+                    }
+                }
+                // Provisioning deletes every wifi-device section and writes it
+                // again, so an option the access point carries and the database
+                // does not is an option that goes away — which is a change to
+                // the phy however little it looks like one.
+                foreach ($have as $option => $value) {
+                    if (str_starts_with((string) $option, '.') || isset(self::UCI_META[$option])) {
+                        continue;
+                    }
+                    if (!array_key_exists($option, $wanted)) {
+                        $reasons[] = $option.' ('.$this->readable($value).') would be dropped';
+                    }
+                }
+            }
+            $report['radios'][$name] = [
+                'mode' => $reasons ? 'restart' : 'live',
+                'reasons' => $reasons,
+                'devices' => count($radio->getDevices()),
+            ];
+        }
+        foreach ($running as $name => $cfg) {
+            if (isset($seen[$name])) {
+                continue;
+            }
+            // A radio on the access point that the database knows nothing
+            // about is deleted by the next run, along with whatever stands on
+            // it. Nobody should find that out afterwards.
+            $report['radios'][$name] = [
+                'mode' => 'restart',
+                'reasons' => ['this radio is not in the database and provisioning would delete it'],
+                'devices' => 0,
+                'unknown' => true,
+            ];
+        }
+
+        $restarting = array_keys(array_filter($report['radios'], fn ($r) => 'restart' === $r['mode']));
+        $report['mode'] = $restarting ? 'restart' : 'live';
+        $report['restarting'] = $restarting;
+
+        return $report;
+    }
+
+    /**
+     * Provision without taking anything down, and check afterwards what moved.
+     *
+     * The check is the part worth having. Applying the configuration under
+     * running radios and reporting success proves nothing — a bss that was
+     * torn down and built again comes back under the same name and looks
+     * identical in every list. Its index does not: the kernel hands out a new
+     * one, so a netdev with the index it had before is the same netdev, and one
+     * that changed index is one that was restarted. That turns "it should not
+     * have disturbed anything" into something the report can say or refuse to
+     * say.
+     *
+     * @param bool $force apply even where a radio level option changed
+     */
+    public function live(AccessPoint $ap, bool $dryRun = false, bool $force = false): array
+    {
+        $report = ['ok' => false, 'ap' => $ap->getName(), 'mode' => 'live',
+            'dry_run' => $dryRun, 'steps' => []];
+        if (!$ap->getProvisioningEnabled()) {
+            $report['error'] = 'provisioning is disabled for this access point';
+
+            return $report;
+        }
+
+        $started = microtime(true);
+        $verdict = $this->classify($ap);
+        $report['classify'] = $verdict;
+        $report['steps'][] = $this->step('classify', $started, (bool) $verdict['ok'],
+            $verdict['ok'] ? ('live' === $verdict['mode'] ? 'only bss sections change'
+                : 'radio level changes on '.implode(', ', $verdict['restarting']))
+                : ($verdict['error'] ?? null));
+        if (!$verdict['ok']) {
+            $report['error'] = $verdict['error'] ?? 'could not tell what would change';
+
+            return $report;
+        }
+        if ('restart' === $verdict['mode'] && !$force) {
+            $why = [];
+            foreach ($verdict['restarting'] as $name) {
+                $why[] = $name.': '.implode('; ', $verdict['radios'][$name]['reasons']);
+            }
+            $report['error'] = 'this changes the radios themselves, which takes every network on them '
+                .'down — provision with a restart instead. '.implode(' | ', $why);
+            $report['needs_restart'] = $verdict['restarting'];
+
+            return $report;
+        }
+
+        if ($dryRun) {
+            $started = microtime(true);
+            $report['config'] = $this->aps->applyConfig($ap, true);
+            $report['steps'][] = $this->step('config (staged only)', $started,
+                (bool) ($report['config']['ok'] ?? false));
+            $report['expect'] = $this->expectedInterfaces($ap);
+            $report['ok'] = (bool) ($report['config']['ok'] ?? false);
+
+            return $report;
+        }
+
+        $before = $this->wirelessIndices($ap);
+
+        $started = microtime(true);
+        $config = $this->aps->applyConfig($ap);
+        $report['config'] = $config;
+        $report['steps'][] = $this->step('config applied', $started, (bool) ($config['ok'] ?? false),
+            isset($config['change_count']) ? $config['change_count'].' changes' : ($config['error'] ?? null));
+        if (!($config['ok'] ?? false)) {
+            $report['error'] = $config['error'] ?? 'the configuration was not applied';
+
+            return $report;
+        }
+
+        // A bss that is being added gets its netdev within about a second; one
+        // that is going away disappears about as fast. This waits for the set
+        // to match rather than sleeping a guessed amount, but with a short
+        // budget: nothing here restarts a radio, so nothing here waits out a
+        // channel availability check.
+        $started = microtime(true);
+        $back = $this->waitForInterfaces($ap, true, self::LIVE_TIMEOUT);
+        // And the other half of "the set matches": a bss that was switched off
+        // has to be gone, not merely not-expected. Waiting only for the
+        // arrivals meant a removal was still in flight when the interfaces were
+        // counted, and the run reported that nothing had gone away.
+        $shouldBeGone = array_values(array_diff($this->managedInterfaces($ap), $back['expected']));
+        $gone = $shouldBeGone
+            ? $this->waitForNames($ap, $shouldBeGone, false, max(1.0, self::LIVE_TIMEOUT - (microtime(true) - $started)))
+            : ['ok' => true, 'left' => []];
+        $report['steps'][] = $this->step('interfaces there', $started, $back['ok'] && $gone['ok'],
+            trim(($back['ok'] ? count($back['expected']).' interfaces up'
+                : 'missing: '.implode(', ', $back['left']))
+                .($shouldBeGone
+                    ? ($gone['ok'] ? ', '.count($shouldBeGone).' gone'
+                        : ', still there: '.implode(', ', $gone['left']))
+                    : '')));
+        $report['expect'] = $back['expected'];
+
+        $after = $this->wirelessIndices($ap);
+        // Judged against every interface this access point is ours to manage,
+        // not only the ones it should have now — a bss that was just switched
+        // off is no longer expected, and judging only the expected set made its
+        // removal invisible in the very report that exists to confirm it.
+        $moved = $this->compareIndices($before, $after, $back['expected'],
+            $this->managedInterfaces($ap));
+        $report += $moved;
+        $report['steps'][] = $this->step('nothing else moved', $started, !$moved['restarted'],
+            $moved['restarted']
+                ? 'these were restarted although nothing about them changed: '.implode(', ', $moved['restarted'])
+                : count($moved['kept']).' kept running, '.count($moved['added']).' added, '
+                    .count($moved['removed']).' removed');
+
+        if ($moved['restarted']) {
+            // Worth an error in the log and not only in the answer: the whole
+            // point of this path is that it does not do that, so if it did, the
+            // assumption underneath it needs revisiting rather than repeating.
+            $this->logger->error($ap->getName().': a live provisioning run restarted '
+                .implode(', ', $moved['restarted']).' — these were not part of the change, and a '
+                .'bss that restarts drops every station on it');
+        }
+        if (!$moved['known']) {
+            $report['steps'][] = $this->step('nothing else moved', $started, true,
+                'the interface indices could not be read, so this run cannot say');
+        }
+
+        $report['ok'] = $back['ok'] && $gone['ok'];
+        if (!$back['ok']) {
+            $report['missing'] = $back['left'];
+            $report['error'] = 'these did not appear: '.implode(', ', $back['left']);
+        } elseif (!$gone['ok']) {
+            $report['lingering'] = $gone['left'];
+            $report['error'] = 'these did not go away: '.implode(', ', $gone['left']);
+        }
+
+        return $report;
+    }
+
+    /**
+     * Wait until a named set of interfaces is there, or gone.
+     *
+     * waitForInterfaces() asks the same question about the set the access point
+     * is supposed to have; this asks it about a set the caller names, which is
+     * what a removal needs — the interfaces going away are by definition not in
+     * the expected set any more.
+     */
+    private function waitForNames(AccessPoint $ap, array $names, bool $present, float $timeout): array
+    {
+        $deadline = microtime(true) + $timeout;
+        $left = $names;
+        $polls = 0;
+
+        while (microtime(true) < $deadline) {
+            ++$polls;
+            $res = $this->ubus->call($ap, 'iwinfo', 'devices', null,
+                max(2, min(6, $deadline - microtime(true))));
+            $devices = $res->isOk() && is_object($res->data) ? ($res->data->devices ?? null) : null;
+            if (is_array($devices)) {
+                $left = $present
+                    ? array_values(array_diff($names, $devices))
+                    : array_values(array_intersect($names, $devices));
+                if (!$left) {
+                    return ['ok' => true, 'left' => [], 'polls' => $polls];
+                }
+            }
+            if (microtime(true) + self::POLL_INTERVAL >= $deadline) {
+                break;
+            }
+            usleep((int) (self::POLL_INTERVAL * 1000000));
+        }
+
+        return ['ok' => false, 'left' => $left, 'polls' => $polls];
+    }
+
+    /**
+     * Every wireless netdev of this access point with the index the kernel gave it.
+     *
+     * `ip -o link` rather than `iwinfo devices`, because iwinfo answers with
+     * names alone and the name is exactly the part that survives a restart.
+     *
+     * @return array<string,int>|null null if the access point did not answer
+     */
+    private function wirelessIndices(AccessPoint $ap): ?array
+    {
+        $opts = new \stdClass();
+        $opts->command = '/sbin/ip';
+        $opts->params = ['-o', 'link', 'show'];
+        $res = $this->ubus->call($ap, 'file', 'exec', $opts, 10);
+        if (!$res->isOk()) {
+            $this->logger->debug($ap->getName().': could not read the interface indices: '.$res->why());
+
+            return null;
+        }
+        $stdout = is_object($res->data) ? (string) ($res->data->stdout ?? '') : '';
+        if ('' === trim($stdout)) {
+            return null;
+        }
+        $map = [];
+        foreach (explode("\n", $stdout) as $line) {
+            if (!preg_match('/^(\d+):\s*([^:@\s]+)/', trim($line), $m)) {
+                continue;
+            }
+            $map[$m[2]] = (int) $m[1];
+        }
+
+        return $map ?: null;
+    }
+
+    /**
+     * Which interfaces came, went, stayed, and which quietly restarted.
+     *
+     * Only the interfaces this access point is supposed to have or is ours to
+     * manage are judged; the ethernet ports and bridges come along in the same
+     * listing and have nothing to do with it.
+     *
+     * Public because it is the whole judgement of a live run and it is pure —
+     * two maps of name to index in, four lists out.
+     */
+    public function compareIndices(?array $before, ?array $after, array $expected, array $managed): array
+    {
+        $out = ['known' => false, 'added' => [], 'removed' => [], 'kept' => [], 'restarted' => []];
+        if (null === $before || null === $after) {
+            return $out;
+        }
+        $out['known'] = true;
+        $names = array_unique(array_merge($expected, $managed));
+        foreach ($names as $name) {
+            $was = $before[$name] ?? null;
+            $is = $after[$name] ?? null;
+            if (null === $was && null !== $is) {
+                $out['added'][] = $name;
+            } elseif (null !== $was && null === $is) {
+                $out['removed'][] = $name;
+            } elseif (null !== $was && $was === $is) {
+                $out['kept'][] = $name;
+            } elseif (null !== $was) {
+                $out['restarted'][] = $name;
+            }
+        }
+        sort($out['added']);
+        sort($out['removed']);
+        sort($out['kept']);
+        sort($out['restarted']);
+
+        return $out;
+    }
+
+    /**
+     * Every interface name on this access point that is ours to manage.
+     *
+     * Unlike expectedInterfaces() this does not care whether the bss is
+     * switched on: an interface that is supposed to go away is exactly the one
+     * a live run has to be able to report on, and it is not expected any more
+     * by the time the run finishes.
+     *
+     * @return string[]
+     */
+    private function managedInterfaces(AccessPoint $ap): array
+    {
+        $names = [];
+        foreach ($ap->getRadios() as $radio) {
+            foreach ($radio->getDevices() as $device) {
+                $name = $device->ifname();
+                if ($name) {
+                    $names[$name] = true;
+                }
+            }
+        }
+
+        return array_keys($names);
+    }
+
+    /**
+     * uci string against whatever the database holds, the same way
+     * AccessPointService compares them when it builds the diff.
+     */
+    private function same($a, $b): bool
+    {
+        if (is_array($a) || is_array($b)) {
+            return array_values(array_map('strval', (array) $a)) === array_values(array_map('strval', (array) $b));
+        }
+
+        return (string) $a === (string) $b;
+    }
+
+    private function readable($value): string
+    {
+        if (is_array($value)) {
+            return '['.implode(' ', array_map('strval', $value)).']';
+        }
+
+        return '' === (string) $value ? "''" : (string) $value;
     }
 
     /**

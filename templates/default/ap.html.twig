@@ -52,12 +52,14 @@
 
 <p>
 	<button type="button" id="dryrun">Show pending changes</button>
-	<button type="button" id="provision">Provision (rollback armed)</button>
+	<button type="button" id="classify">What would it cost?</button>
+	<button type="button" id="provision">Provision under running radios</button>
 	<button type="button" id="restart">Provision with restart</button>
 	<span class="small stale">
-		with restart: radios down, wait until the netdevs are really gone, one second, configure,
-		radios up — the order a bss rebuild needs. A radio listening on a dfs channel is waited
-		for rather than called a failure.
+		under running radios: the networks that changed are started and stopped one by one and the
+		rest keep going — refused if a radio option changed, because that takes the whole phy down.
+		With restart: radios down, wait until the netdevs are really gone, one second, configure,
+		radios up. A radio listening on a dfs channel is waited for rather than called a failure.
 	</span>
 </p>
 <table id="phases" class="counters small" style="display:none">
@@ -262,7 +264,90 @@ async function provision(dry) {
 	}
 }
 document.getElementById('dryrun').addEventListener('click', () => provision(true));
-document.getElementById('provision').addEventListener('click', () => provision(false));
+
+// Applying underneath running radios answers the same way the restart flow
+// does — a step per phase — plus what actually moved. That last part is the
+// one worth having: a bss that was torn down and rebuilt comes back under the
+// same name and looks identical in every list, but the kernel gives it a new
+// interface index, so an index that did not change is a network that did not
+// notice.
+async function provisionLive(force) {
+	const out = document.getElementById('actionresult');
+	const phases = document.getElementById('phases');
+	const diff = document.getElementById('diff');
+	out.className = 'small';
+	out.textContent = 'asking what would change…';
+	diff.style.display = 'none';
+	phases.style.display = 'none';
+	while (phases.rows.length > 1) { phases.deleteRow(1); }
+	try {
+		const body = { };
+		if (force) { body.force = '1'; }
+		const res = await fetch('{{ path('ap_provision', {'name': ap.name}) }}', {
+			method: 'POST', body: new URLSearchParams(body)
+		});
+		const d = await res.json();
+		out.className = 'small ' + (d.ok ? 'ok' : 'warn');
+		if (d.ok) {
+			let msg = 'done — ' + (d.kept || []).length + ' kept running';
+			if ((d.added || []).length) { msg += ', added ' + d.added.join(', '); }
+			if ((d.removed || []).length) { msg += ', removed ' + d.removed.join(', '); }
+			if ((d.restarted || []).length) { msg += ' — but these restarted: ' + d.restarted.join(', '); }
+			if (!d.known) { msg += ' (the interface indices could not be read, so this run cannot say)'; }
+			out.textContent = msg;
+			if ((d.restarted || []).length) { out.className = 'small warn'; }
+		} else {
+			out.textContent = d.error || 'that did not work';
+		}
+		(d.steps || []).forEach((s) => {
+			const row = phases.insertRow(-1);
+			row.insertCell(-1).textContent = s.step;
+			row.insertCell(-1).textContent = s.ms + ' ms';
+			const c = row.insertCell(-1);
+			c.textContent = (s.ok ? '' : 'failed — ') + (s.detail || '');
+			c.className = s.ok ? 'stale' : 'warn';
+		});
+		if (phases.rows.length > 1) { phases.style.display = ''; }
+		if (d.needs_restart) {
+			diff.textContent = 'These radios change, and each takes every network on it down:\n\n'
+				+ d.needs_restart.map((r) => '  ' + r + '\n'
+					+ ((d.classify.radios[r] || {}).reasons || []).map((x) => '      ' + x).join('\n')).join('\n');
+			diff.style.display = 'block';
+		}
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+}
+document.getElementById('provision').addEventListener('click', () => provisionLive(false));
+
+// The same check on its own, changing nothing. Worth a button of its own
+// because the answer decides whether this is a five second job or a ten minute
+// one on a dfs radio.
+document.getElementById('classify').addEventListener('click', async () => {
+	const out = document.getElementById('actionresult');
+	const diff = document.getElementById('diff');
+	out.className = 'small';
+	out.textContent = 'asking the access point…';
+	try {
+		const res = await fetch('{{ path('api_ap_provision_classify', {'name': ap.name}) }}', { method: 'POST' });
+		const d = await res.json();
+		if (!d.ok) { out.className = 'small warn'; out.textContent = d.error; return; }
+		out.className = 'small ' + (d.mode === 'live' ? 'ok' : 'warn');
+		out.textContent = d.mode === 'live'
+			? 'the next run changes only networks and disturbs nothing'
+			: 'the next run restarts ' + d.restarting.join(', ') + ', taking every network on them down';
+		diff.textContent = Object.keys(d.radios).map((name) => {
+			const r = d.radios[name];
+			return name + '  ' + r.mode + '  ' + r.devices + ' network(s)\n'
+				+ r.reasons.map((x) => '      ' + x).join('\n');
+		}).join('\n');
+		diff.style.display = 'block';
+	} catch (e) {
+		out.className = 'small warn';
+		out.textContent = 'failed: ' + e;
+	}
+});
 
 // The restart flow answers with a step per phase and what each one cost, which
 // is the point of it: a step two that took nineteen seconds is worth seeing,

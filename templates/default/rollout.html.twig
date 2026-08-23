@@ -38,8 +38,52 @@
 	<p class="small stale">
 		Nothing here reaches an access point. Provision it afterwards —
 		the button on <a href="{{ path('aps') }}">each access point's page</a>, or
-		<span class="mono">apman:config-ap &lt;ap&gt; --restart</span>, which takes the radios down
-		and waits until they are down before writing.
+		{% if ssid.dynamic %}
+			<span class="mono">apman:config-ap &lt;ap&gt; --live</span>, which writes underneath the
+			running radios.
+		{% else %}
+			<span class="mono">apman:config-ap &lt;ap&gt; --restart</span>, which takes the radios down
+			and waits until they are down before writing.
+		{% endif %}
+	</p>
+</div>
+
+<div class="card" id="dynamic">
+	<h3 class="small">
+		{% if ssid.dynamic %}
+			<span class="pill ok">under the running radios</span>
+		{% else %}
+			<span class="pill">with a radio restart</span>
+		{% endif %}
+		how a change to this network reaches the fleet
+	</h3>
+	<p class="small">
+		A bss can be added to a running radio and taken off it again without the others noticing.
+		Measured on ap-av-attic on 23.08.2026, in both directions: hostapd is handed the new
+		configuration file and the previous one and starts or stops only what differs between them.
+		The five other networks on that radio logged nothing at all, and their stations stayed
+		associated.
+	</p>
+	<p class="small">
+		A radio is the other case. Change its channel, its width or its band and the whole phy comes
+		down with every network standing on it — and on a DFS channel it then listens for up to ten
+		minutes before it says a word. That is the line, and it is checked per access point rather
+		than assumed: the switch below only goes on where the radios are settled and every bss has
+		an interface name and an address of its own.
+	</p>
+	<p class="small">
+		<button class="ghost small" id="dyn-check">check where this stands</button>
+		{% if ssid.dynamic %}
+			<button class="small" id="dyn-off">change with a restart again</button>
+		{% else %}
+			<button class="small" id="dyn-on">change under the running radios</button>
+		{% endif %}
+	</p>
+	<div id="dyn-report" class="small"></div>
+	<p class="small stale">
+		Switching this changes nothing on any access point. Both ways write the same configuration;
+		the difference is only whether the radios come down on the way, and that is paid by the next
+		change rather than by this one.
 	</p>
 </div>
 
@@ -118,6 +162,53 @@ document.querySelectorAll('table.rollout button').forEach(function (btn) {
 			.catch(function (e) { say(String(e), true); btn.disabled = false; });
 	});
 });
+var dynUrl = {{ path('ssid_dynamic', {'id': ssid.id})|json_encode|raw }};
+function renderDyn(d) {
+	var box = document.getElementById('dyn-report');
+	var names = Object.keys(d.aps || {});
+	if (!names.length) {
+		box.innerHTML = '<p class="stale">This network is on no radio anywhere, so there is nothing to check.</p>';
+		return;
+	}
+	var html = '<table class="dyn">';
+	names.forEach(function (name) {
+		var e = d.aps[name];
+		html += '<tr><td class="mono">' + name + '</td>'
+			+ '<td>' + (e.ready ? '<span class="s-carries">ready</span>' : '<span class="s-open">not ready</span>') + '</td>'
+			+ '<td class="stale">' + e.devices + ' bss on ' + e.radios.join(', ') + '</td></tr>';
+		(e.blockers || []).forEach(function (b) {
+			html += '<tr><td></td><td colspan="2" class="warn">· ' + b + '</td></tr>';
+		});
+		(e.notes || []).forEach(function (n) {
+			html += '<tr><td></td><td colspan="2" class="stale">· ' + n + '</td></tr>';
+		});
+	});
+	html += '</table>';
+	box.innerHTML = html;
+}
+function dyn(body) {
+	document.getElementById('dyn-report').innerHTML = '<span class="stale">asking the access points…</span>';
+	return fetch(dynUrl, {method: 'POST', body: new URLSearchParams(body)})
+		.then(function (r) { return r.json(); })
+		.then(function (d) {
+			renderDyn(d);
+			if (d.error) { say(d.error, true); }
+			return d;
+		})
+		.catch(function (e) { say(String(e), true); });
+}
+var check = document.getElementById('dyn-check');
+if (check) { check.addEventListener('click', function () { dyn({check: 1}); }); }
+['dyn-on', 'dyn-off'].forEach(function (id) {
+	var btn = document.getElementById(id);
+	if (!btn) { return; }
+	btn.addEventListener('click', function () {
+		btn.disabled = true;
+		dyn({on: id === 'dyn-on' ? 1 : 0}).then(function (d) {
+			if (d && d.ok) { window.location.reload(); } else { btn.disabled = false; }
+		});
+	});
+});
 var sn = document.getElementById('shortname');
 if (sn) {
 	sn.addEventListener('submit', function (ev) {
@@ -146,6 +237,8 @@ if (sn) {
 	table.rollout tr.s-opted-out .state { color: var(--ink-mute); font-weight: 600; }
 	table.rollout tr.s-open .state { color: var(--warn-strong); font-weight: 600; }
 	table.rollout td.act { white-space: nowrap; }
+	table.dyn { border-collapse: collapse; margin: .5em 0; }
+	table.dyn td { padding: .15em 1em .15em 0; vertical-align: top; }
 	.s-carries { color: var(--good); }
 	.s-out { color: var(--ink-mute); }
 	.s-open { color: var(--warn-strong); }

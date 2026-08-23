@@ -129,6 +129,31 @@ class SSID
     private $setup_order;
 
     /**
+     * Whether this network is put on radios and taken off them while they run.
+     *
+     * Measured on ap-av-attic on 2026-08-23, both directions. A bss that
+     * appears in the generated hostapd configuration is started on its own, and
+     * one that disappears is stopped on its own: hostapd is handed the new
+     * configuration file and the previous one and applies the difference
+     * (`hostapd.uc` calls `config_set` with `config` and `prev_config`). The
+     * other five networks on that phy logged nothing at all — no
+     * `interface state`, no `AP-DISABLED`, no `Remove interface`, no fresh
+     * CAC. Their stations stayed associated.
+     *
+     * So a bss never needed the restart. A radio does: a wifi-device option
+     * takes the phy down with everything standing on it. That is the line this
+     * flag is drawn along, and ProvisioningService::classify() is what decides
+     * which side of it a pending change falls on — the flag grants permission,
+     * it does not assume the answer.
+     *
+     * Off by default. Switching it on is a promise about how the next change
+     * reaches the fleet, and a promise like that is made per network and on
+     * purpose; apman:ssid-dynamic makes it and takes it back.
+     */
+    #[ORM\Column(name: 'dynamic', type: 'boolean', options: ['default' => false])]
+    private $dynamic = false;
+
+    /**
      * Constructor.
      */
     public function __construct()
@@ -606,6 +631,29 @@ class SSID
     public function setSetupOrder(?int $setup_order): self
     {
         $this->setup_order = $setup_order;
+
+        return $this;
+    }
+
+    /**
+     * Whether changes to this network are allowed to go out under running radios.
+     */
+    public function isDynamic(): bool
+    {
+        return (bool) $this->dynamic;
+    }
+
+    /**
+     * The name Sonata and Twig reach for.
+     */
+    public function getDynamic(): bool
+    {
+        return $this->isDynamic();
+    }
+
+    public function setDynamic(bool $dynamic): self
+    {
+        $this->dynamic = $dynamic;
 
         return $this;
     }

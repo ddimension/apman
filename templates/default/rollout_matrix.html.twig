@@ -40,6 +40,7 @@
 				<a href="{{ path('ssid_rollout', {'id': row.ssid.id}) }}">{{ row.name }}</a>
 				{% if not row.enabled %}<div class="stale small">switched off</div>{% endif %}
 				{% if not row.short %}<div class="warn small" title="without one a new bss is named by the access point">no short name</div>{% endif %}
+				{% if row.ssid.dynamic %}<div class="live small" title="a change to this network is applied without restarting the radio, so the other networks on it keep running">under running radios</div>{% endif %}
 			</th>
 			{% for cell in row.cells %}
 				<td class="cell s-{{ cell.state|replace({' ': '-'}) }}{{ columns[loop.index0].first_of_ap ? ' apstart' : '' }}"
@@ -125,5 +126,6 @@ table.matrix .sum, table.matrix tr.sums td { color: var(--ink-mute); font-varian
 table.matrix tr.sums th, table.matrix tr.sums td { border-top: 2px solid var(--line-strong); }
 table.matrix .stale { color: var(--ink-faint); font-size: .8em; }
 table.matrix .warn { color: var(--warn-strong); font-size: .8em; }
+	.live { color: var(--good); font-style: normal; }
 </style>
 {% endblock %}

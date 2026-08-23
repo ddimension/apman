@@ -24,6 +24,17 @@ class SSIDAdmin extends AbstractAdmin
                 .'network has the same name on every access point.',
         ])
         ->add('setup_order')
+        ->add('dynamic', null, [
+            'required' => false,
+            'label' => 'Change under running radios',
+            'help' => 'On: this network is put on a radio and taken off it without restarting the '
+                .'radio, so the other networks on it keep running and their stations stay '
+                .'associated. Off: a change waits for the radios to be taken down and brought back, '
+                .'which on a DFS channel costs up to ten minutes of listening before anything is '
+                .'said. Either way the same configuration is written — the difference is only the '
+                .'road it takes. apman:ssid-dynamic checks whether the access points can keep the '
+                .'promise before it is made, and the rollout page has the same switch.',
+        ])
         ->add('config_options', CollectionType::class, [
                 // Prevents the "Delete" option from being displayed
             'type_options' => ['delete' => true],
@@ -177,6 +188,7 @@ class SSIDAdmin extends AbstractAdmin
     {
         $listMapper->addIdentifier('name');
         $listMapper->add('is_enabled', 'boolean');
+        $listMapper->add('dynamic', 'boolean', ['label' => 'Live']);
         $listMapper->add('device_count', null, ['label' => 'Radios']);
         $listMapper->add('setup_order');
         $listMapper->add(ListMapper::NAME_ACTIONS, null, [
@@ -194,6 +206,7 @@ class SSIDAdmin extends AbstractAdmin
             ->add('name')
             ->add('setup_order')
             ->add('is_enabled', 'boolean')
+            ->add('dynamic', 'boolean', ['label' => 'Changed under running radios'])
             ->add('device_count', null, ['label' => 'Radios']);
     }
 }
