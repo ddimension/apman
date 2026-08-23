@@ -2388,14 +2388,25 @@ class DefaultController extends AbstractController
         $action = (string) $request->request->get('action', '');
         $reason = trim((string) $request->request->get('reason', ''));
 
+        // Which access point this lands on, and how it would get there. A
+        // change to a network that is changed under running radios can be
+        // applied from this page in a couple of seconds; one that is not has to
+        // wait for a restart, and saying which of the two it is here saves
+        // going to look.
+        $ap = $radio->getAccessPoint();
+        $next = [
+            'ap' => $ap ? $ap->getName() : null,
+            'dynamic' => $ssid->isDynamic(),
+        ];
+
         try {
             switch ($action) {
                 case 'add':
-                    return $this->json($rollout->add($ssid, $radio));
+                    return $this->json($rollout->add($ssid, $radio) + $next);
                 case 'remove':
-                    return $this->json($rollout->remove($ssid, $radio, '' === $reason ? null : $reason));
+                    return $this->json($rollout->remove($ssid, $radio, '' === $reason ? null : $reason) + $next);
                 case 'reopen':
-                    return $this->json($rollout->reopen($ssid, $radio));
+                    return $this->json($rollout->reopen($ssid, $radio) + $next);
             }
         } catch (\Throwable $e) {
             return $this->json(['ok' => false, 'error' => $e->getMessage()], 500);

@@ -156,12 +156,42 @@ document.querySelectorAll('table.rollout button').forEach(function (btn) {
 			.then(function (r) { return r.json(); })
 			.then(function (d) {
 				if (!d.ok) { say(d.error || 'that did not work', true); btn.disabled = false; return; }
-				say('done — provision the access point to make it real');
+				if (d.dynamic && d.ap) {
+					// It can be made real from here, so offer that rather than
+					// sending somebody to another page to press one button.
+					applyNow(d.ap);
+					return;
+				}
+				say('done — ' + (d.ap
+					? 'provision ' + d.ap + ' with a restart to make it real'
+					: 'provision the access point to make it real'));
 				window.location.reload();
 			})
 			.catch(function (e) { say(String(e), true); btn.disabled = false; });
 	});
 });
+var liveUrl = {{ path('api_ap_provision_live', {'name': 'AP'})|json_encode|raw }};
+// The one thing that makes this network dynamic worth anything: the change
+// just made can go out now, and the report says what moved rather than that it
+// went well.
+function applyNow(ap) {
+	say('applying on ' + ap + ' underneath the running radios…');
+	fetch(liveUrl.replace(/AP$/, encodeURIComponent(ap)), {method: 'POST'})
+		.then(function (r) { return r.json(); })
+		.then(function (d) {
+			if (!d.ok) {
+				say(d.error || ('could not apply on ' + ap), true);
+				return;
+			}
+			var msg = ap + ': ' + (d.kept || []).length + ' network(s) kept running';
+			if ((d.added || []).length) { msg += ', added ' + d.added.join(', '); }
+			if ((d.removed || []).length) { msg += ', removed ' + d.removed.join(', '); }
+			if ((d.restarted || []).length) { msg += ' — but these restarted: ' + d.restarted.join(', '); }
+			say(msg, (d.restarted || []).length > 0);
+			window.setTimeout(function () { window.location.reload(); }, 2500);
+		})
+		.catch(function (e) { say(String(e), true); });
+}
 var dynUrl = {{ path('ssid_dynamic', {'id': ssid.id})|json_encode|raw }};
 function renderDyn(d) {
 	var box = document.getElementById('dyn-report');
