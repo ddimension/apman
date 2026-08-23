@@ -164,6 +164,38 @@
 </div>
 {% endif %}
 
+<div class="card" id="historycard">
+	<h3 class="small" style="margin:0 0 .3em">
+		What this radio has been doing
+		<span class="small stale">
+			{% for s in spans %}<a href="{{ path('radio_detail', {'id': radio.id, 'span': s}) }}"
+				class="{{ s == span ? 'active-span' : '' }}">{{ s }}</a>{{ not loop.last ? ' · ' }}{% endfor %}
+		</span>
+	</h3>
+	{% if history|length < 2 %}
+		<p class="small stale">
+			{{ history|length }} sample{{ history|length == 1 ? '' : 's' }} so far. The series is
+			written every five minutes by <span class="mono">apman:sample</span>, which reads the
+			controller's own cache and asks this access point nothing — so it starts filling as soon
+			as that runs and there is no history before it was first switched on.
+		</p>
+	{% else %}
+		<svg id="hutil" viewBox="0 0 600 110" preserveAspectRatio="none" aria-label="channel in use"></svg>
+		<p class="small stale" style="margin:.2em 0 .8em">
+			<b class="k-util">how much of the channel was in use</b> — everybody's traffic, not only
+			ours · <b class="k-sta">stations on this radio</b>
+			· a mark low on the axis is a channel change
+		</p>
+		<svg id="hrate" viewBox="0 0 600 110" preserveAspectRatio="none" aria-label="throughput"></svg>
+		<p class="small stale" style="margin:.2em 0 0">
+			<b class="k-rx">received</b> · <b class="k-tx">sent</b> — from the interface counters, so
+			traffic from a station that has since left is still in it. A gap is a gap: an interface
+			that was rebuilt starts its counters again, and averaging across that would invent a
+			number.
+		</p>
+	{% endif %}
+</div>
+
 {% if plan %}
 <div class="card">
 	<h3 class="small" style="margin:0 0 .3em">What this radio may use, and what is already on it</h3>
@@ -339,6 +371,108 @@
 {% endblock %}
 
 {% block javascripts %}
+<script>
+// Drawn here rather than server side because the shape is the same for both
+// charts and a path is a path: the numbers come over as json, the axes are
+// worked out from them, and nothing is fetched.
+(function () {
+	var H = {{ history|json_encode|raw }};
+	if (H.length < 2) { return; }
+
+	var W = 600, HT = 110, PAD = 4;
+	var t0 = H[0].ts, t1 = H[H.length - 1].ts;
+	var span = Math.max(1, t1 - t0);
+	function x(ts) { return PAD + (W - 2 * PAD) * (ts - t0) / span; }
+
+	function draw(svg, series, opts) {
+		var top = 0;
+		series.forEach(function (s) {
+			H.forEach(function (p) { var v = s.get(p); if (v !== null && v > top) { top = v; } });
+		});
+		if (opts.floor && top < opts.floor) { top = opts.floor; }
+		if (top <= 0) { top = 1; }
+		function y(v) { return HT - PAD - (HT - 2 * PAD) * v / top; }
+
+		var out = '';
+		// a faint line at the top of the scale, so the height means something
+		out += '<line x1="0" y1="' + y(top) + '" x2="' + W + '" y2="' + y(top)
+			+ '" class="axis"/>';
+		out += '<text x="2" y="' + (y(top) + 9) + '" class="axislabel">' + opts.top(top) + '</text>';
+
+		series.forEach(function (s) {
+			// A run of points with values, broken wherever a value is null —
+			// a gap in the data is drawn as a gap and not bridged.
+			var runs = [], cur = [];
+			H.forEach(function (p) {
+				var v = s.get(p);
+				if (v === null || v === undefined) { if (cur.length) { runs.push(cur); cur = []; } return; }
+				cur.push([x(p.ts), y(v)]);
+			});
+			if (cur.length) { runs.push(cur); }
+			runs.forEach(function (run) {
+				if (run.length < 2) { return; }
+				var d = 'M' + run.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join('L');
+				if (s.fill) {
+					out += '<path d="' + d + 'L' + run[run.length - 1][0].toFixed(1) + ',' + (HT - PAD)
+						+ 'L' + run[0][0].toFixed(1) + ',' + (HT - PAD) + 'Z" class="' + s.cls + ' area"/>';
+				}
+				out += '<path d="' + d + '" class="' + s.cls + '" fill="none"/>';
+			});
+		});
+
+		if (opts.marks) {
+			var prev = null;
+			H.forEach(function (p) {
+				if (p.channel !== null && prev !== null && p.channel !== prev) {
+					out += '<line x1="' + x(p.ts).toFixed(1) + '" y1="' + (HT - PAD - 8)
+						+ '" x2="' + x(p.ts).toFixed(1) + '" y2="' + (HT - PAD) + '" class="mark"/>';
+					out += '<title>channel ' + prev + ' to ' + p.channel + '</title>';
+				}
+				if (p.channel !== null) { prev = p.channel; }
+			});
+		}
+		svg.innerHTML = out;
+	}
+
+	function bits(v) {
+		if (v >= 1e9) { return (v / 1e9).toFixed(1) + ' Gbit/s'; }
+		if (v >= 1e6) { return (v / 1e6).toFixed(0) + ' Mbit/s'; }
+		if (v >= 1e3) { return (v / 1e3).toFixed(0) + ' kbit/s'; }
+		return v + ' bit/s';
+	}
+
+	draw(document.getElementById('hutil'), [
+		{cls: 'k-util', fill: true, get: function (p) { return p.utilization; }}
+	], {floor: 100, top: function () { return '100 %'; }, marks: true});
+
+	// stations have their own scale, so they are drawn as a second pass over
+	// the same box rather than squashed onto a percentage axis
+	(function () {
+		var svg = document.getElementById('hutil');
+		var top = 1;
+		H.forEach(function (p) { if (p.stations > top) { top = p.stations; } });
+		var runs = [], cur = [];
+		H.forEach(function (p) {
+			if (p.stations === null) { if (cur.length) { runs.push(cur); cur = []; } return; }
+			cur.push([x(p.ts), HT - PAD - (HT - 2 * PAD) * p.stations / top]);
+		});
+		if (cur.length) { runs.push(cur); }
+		var out = svg.innerHTML;
+		runs.forEach(function (run) {
+			if (run.length < 2) { return; }
+			out += '<path d="M' + run.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join('L')
+				+ '" class="k-sta" fill="none"/>';
+		});
+		out += '<text x="' + (W - 40) + '" y="12" class="axislabel k-sta">' + top + ' sta</text>';
+		svg.innerHTML = out;
+	})();
+
+	draw(document.getElementById('hrate'), [
+		{cls: 'k-rx', get: function (p) { return p.rx_bps; }},
+		{cls: 'k-tx', get: function (p) { return p.tx_bps; }}
+	], {top: bits});
+})();
+</script>
 {{ include('default/_option_filter.html.twig', {'storage_key': 'apman.radio.scope'}) }}
 <script>
 // A radio in a check is not carrying traffic, and on the weather radar range
@@ -393,6 +527,25 @@ document.querySelectorAll('table.plan td.ok').forEach(function (cell) {
 {% endblock %}
 
 {% block stylesheets %}
+<style>
+	#historycard svg { width: 100%; height: 110px; display: block; }
+	#historycard .axis { stroke: var(--line-soft); stroke-width: 1; }
+	#historycard .axislabel { font-size: 9px; fill: var(--ink-mute); }
+	#historycard .mark { stroke: var(--warn-strong); stroke-width: 2; }
+	.k-util { stroke: var(--accent, #3b7dd8); stroke-width: 1.5; }
+	.k-util.area { fill: var(--accent, #3b7dd8); fill-opacity: .16; stroke: none; }
+	.k-sta { stroke: var(--warn-strong); stroke-width: 1.5; fill: var(--warn-strong); }
+	.k-rx { stroke: var(--good); stroke-width: 1.5; fill: var(--good); }
+	.k-tx { stroke: var(--accent, #3b7dd8); stroke-width: 1.5; fill: var(--accent, #3b7dd8); }
+	#historycard b.k-util, #historycard b.k-sta, #historycard b.k-rx, #historycard b.k-tx {
+		stroke: none; font-weight: 600;
+	}
+	#historycard b.k-util { color: var(--accent, #3b7dd8); }
+	#historycard b.k-sta { color: var(--warn-strong); }
+	#historycard b.k-rx { color: var(--good); }
+	#historycard b.k-tx { color: var(--accent, #3b7dd8); }
+	#historycard .active-span { font-weight: 700; text-decoration: none; }
+</style>
 {{ include('default/_option_styles.html.twig') }}
 <style>
 	.stats { display: flex; flex-wrap: wrap; gap: 1.2em 2em; }

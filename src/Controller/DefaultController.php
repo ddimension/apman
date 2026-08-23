@@ -1276,7 +1276,7 @@ class DefaultController extends AbstractController
      * was in the repository the whole time and nothing opened it.
      */
     #[Route(path: '/radio/{id}', name: 'radio_detail')]
-    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\ChannelPlanService $planner, \ApManBundle\Service\DfsService $dfsService, \ApManBundle\Service\WlanConsistencyService $consistency, \Symfony\Component\HttpFoundation\Request $request, $id)
+    public function radioDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\ChannelPlanService $planner, \ApManBundle\Service\DfsService $dfsService, \ApManBundle\Service\WlanConsistencyService $consistency, \ApManBundle\Service\HistoryService $history, \Symfony\Component\HttpFoundation\Request $request, $id)
     {
         $radio = $this->doctrine->getRepository('ApManBundle\Entity\Radio')->find($id);
         if (!$radio) {
@@ -1390,8 +1390,19 @@ class DefaultController extends AbstractController
         $running['drifted'] = null !== $running['wanted_channel'] && isset($running['channel'])
             && (string) $running['channel'] !== $running['wanted_channel'];
 
+        // How long a view: an hour of samples is twelve points and says nothing,
+        // so the shortest offer is a day.
+        $spans = ['24 h' => 86400, '7 d' => 604800, '30 d' => 2592000, '1 y' => 31536000];
+        $span = (string) $request->query->get('span', '24 h');
+        if (!isset($spans[$span])) {
+            $span = '24 h';
+        }
+
         return $this->render('default/radio.html.twig', [
             'radio' => $radio,
+            'history' => $history->series($radio, $spans[$span]),
+            'span' => $span,
+            'spans' => array_keys($spans),
             'ap' => $radio->getAccessPoint(),
             'groups' => $schema->describe($values, $lists, \ApManBundle\Service\WirelessSchemaService::DEVICE),
             'titles' => $schema->groupTitles(\ApManBundle\Service\WirelessSchemaService::DEVICE),

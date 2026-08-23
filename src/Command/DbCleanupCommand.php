@@ -15,12 +15,15 @@ class DbCleanupCommand extends Command
     private $logger;
     private $apservice;
 
-    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, $name = null)
+    private $history;
+
+    public function __construct(\Doctrine\Persistence\ManagerRegistry $doctrine, \Psr\Log\LoggerInterface $logger, \ApManBundle\Service\AccessPointService $apservice, \ApManBundle\Service\HistoryService $history, $name = null)
     {
         parent::__construct($name);
         $this->doctrine = $doctrine;
         $this->logger = $logger;
         $this->apservice = $apservice;
+        $this->history = $history;
     }
 
     protected function configure(): void
@@ -64,6 +67,14 @@ class DbCleanupCommand extends Command
         );
         $query->setParameter('ts', $oldest);
         $last = $query->getResult();
+
+        // The radio series is kept far longer than a day — that is its whole
+        // point — so it has its own horizon rather than this method's.
+        $gone = $this->history->prune();
+        if ($gone) {
+            $output->writeln($gone.' radio sample(s) older than '
+                .\ApManBundle\Service\HistoryService::KEEP_DAYS.' days removed');
+        }
 
         return 0;
     }
