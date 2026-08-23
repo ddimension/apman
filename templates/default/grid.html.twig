@@ -107,30 +107,62 @@ function duration(sec) {
 
 function pill(text, cls) { return '<span class="chip ' + (cls || '') + '">' + esc(text) + '</span>'; }
 
-// A line per station, in the width of a table cell. Both directions share one
-// scale, because the question a reader has is which way the traffic went — two
-// scales would answer it wrong, and prettily.
+// Traffic per station, mirrored around a centre line: up is to the station,
+// down is from it. Two crossing hairlines at eighteen pixels was unreadable,
+// and the direction had to be guessed from the colour legend somewhere else.
+//
+// The scale is the row's own peak, and the peak is printed next to it. A shared
+// scale across the list sounds fairer and is not: the busiest station would set
+// it and everyone else would be a flat line, which says "idle" about a station
+// doing two megabits. Shape here, magnitude in the number beside it.
 function spark(s) {
 	if (!s || !s.rx || s.rx.length < 2) { return '<span class="muted sparkempty">–</span>'; }
 	// A coordinate space, not a size. preserveAspectRatio="none" maps it onto
-	// whatever the cell is, so the line follows the column when it is resized
-	// or the window is narrowed, instead of sitting at a width somebody picked
-	// once.
-	const W = 100, H = 18, n = s.rx.length;
+	// whatever the cell is, so the line follows the column when it is resized.
+	const W = 100, H = 20, MID = H / 2;
+	// Twelve points across a table cell is legible; sixty is a hairbrush. The
+	// average, not every nth sample, so a burst between two kept points still
+	// shows rather than being stepped over.
+	const rx = squash(s.rx, 24), tx = squash(s.tx, 24), n = rx.length;
 	let max = 0;
-	for (let i = 0; i < n; i++) { max = Math.max(max, s.rx[i], s.tx[i]); }
-	if (!max) { return '<span class="muted sparkempty" title="nothing moved">idle</span>'; }
-	const line = (a) => a.map((v, i) => {
-		const x = (i * W / (n - 1)).toFixed(1);
-		const y = (H - (v / max) * (H - 1.5) - 0.75).toFixed(1);
-		return (i ? 'L' : 'M') + x + ' ' + y;
-	}).join(' ');
-	const last = Math.max(s.rx[n - 1], s.tx[n - 1]);
-	return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"' +
-		' title="peak ' + bitrate(max) + ', now ' + bitrate(last) + '">' +
-		'<path d="' + line(s.rx) + '" fill="none" stroke="var(--bar-plain)" stroke-width="1"/>' +
-		'<path d="' + line(s.tx) + '" fill="none" stroke="var(--bar-good)" stroke-width="1"/>' +
+	for (let i = 0; i < n; i++) { max = Math.max(max, rx[i], tx[i]); }
+	if (!max) { return '<span class="muted sparkempty" title="nothing moved in the last minutes">idle</span>'; }
+
+	const area = (a, dir) => {
+		let d = 'M0 ' + MID;
+		for (let i = 0; i < n; i++) {
+			const x = (i * W / (n - 1)).toFixed(1);
+			const y = (MID + dir * (a[i] / max) * (MID - 0.5)).toFixed(1);
+			d += ' L' + x + ' ' + y;
+		}
+		return d + ' L' + W + ' ' + MID + ' Z';
+	};
+	return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' +
+		'<path d="' + area(tx, -1) + '" fill="var(--bar-good)" fill-opacity=".65"/>' +
+		'<path d="' + area(rx, 1) + '" fill="var(--bar-plain)" fill-opacity=".65"/>' +
+		'<line x1="0" y1="' + MID + '" x2="' + W + '" y2="' + MID +
+			'" stroke="var(--line-strong)" stroke-width=".4"/>' +
 		'</svg>';
+}
+
+// average a series down to at most `to` points
+function squash(a, to) {
+	if (a.length <= to) { return a; }
+	const out = [], step = a.length / to;
+	for (let i = 0; i < to; i++) {
+		const from = Math.floor(i * step), until = Math.max(from + 1, Math.floor((i + 1) * step));
+		let sum = 0;
+		for (let j = from; j < until; j++) { sum += a[j]; }
+		out.push(Math.round(sum / (until - from)));
+	}
+	return out;
+}
+
+function peakOf(s) {
+	if (!s || !s.rx || !s.rx.length) { return 0; }
+	let max = 0;
+	for (let i = 0; i < s.rx.length; i++) { max = Math.max(max, s.rx[i], s.tx[i]); }
+	return max;
 }
 
 function bitrate(bps) {
@@ -186,18 +218,36 @@ const columns = [
 	},
 	{
 		id: 'radio', name: 'Radio', sort: by(bandKey),
-		formatter: (c) => gridjs.html(
-			'<span class="chip ' + (c.band === '5' || c.band === '6' ? 'band5' : 'band2') + '">' + esc(c.band) + ' GHz</span>' +
-			'<div class="sub">ch ' + esc(c.channel || '?') + ' · ' + esc(c.htmode || '') + '</div>')
+		formatter: (c) => {
+			// The capabilities had a column of their own and are three short
+			// words about the radio link — they belong next to the band rather
+			// than eleven columns away.
+			const caps = [];
+			if (c.wmm === 'yes') caps.push('WMM');
+			if (c.mbo === 'yes') caps.push('MBO');
+			if (c.wds === 'yes') caps.push('WDS');
+			if (c.wps === 'yes') caps.push('WPS');
+			return gridjs.html(
+				'<span class="chip ' + (c.band === '5' || c.band === '6' ? 'band5' : 'band2') + '">' + esc(c.band) + ' GHz</span>' +
+				'<div class="sub">ch ' + esc(c.channel || '?') + ' · ' + esc(c.htmode || '') + '</div>' +
+				(caps.length ? '<div class="sub muted">' + esc(caps.join(' ')) + '</div>' : ''));
+		}
 	},
 	{ id: 'signal', name: 'Signal', sort: by(num), formatter: (cell, row) => gridjs.html(signalBar(cell, row.cells[9].data)) },
 	{ id: 'rate', name: 'Rate Mbit', sort: by((c) => Math.min(num(c.rx), num(c.tx))), formatter: (c) => gridjs.html(rateCell(c.rx, c.tx)) },
 	{
 		id: 'traffic', name: 'Traffic', sort: by((c) => num(c.rx) + num(c.tx)),
-		formatter: (c) => gridjs.html(
-			spark(c.spark) +
-			'<div class="sub"><span style="color: var(--bar-plain)">↓</span> ' + bytes(c.rx) +
-			' <span style="color: var(--bar-good)">↑</span> ' + bytes(c.tx) + '</div>')
+		formatter: (c) => {
+			const s = c.spark, n = s && s.rx ? s.rx.length : 0;
+			const now = n ? Math.max(s.rx[n - 1], s.tx[n - 1]) : 0;
+			const peak = peakOf(s);
+			return gridjs.html(spark(s) +
+				'<div class="sub" title="' + bytes(c.rx) + ' from the station, ' + bytes(c.tx) +
+					' to it, since it connected">' +
+				(peak ? 'peak ' + bitrate(peak) + (now ? ', now ' + bitrate(now) : ', idle now')
+					: bytes(c.rx) + ' / ' + bytes(c.tx)) +
+				'</div>');
+		}
 	},
 	{
 		id: 'time', name: 'Time', sort: by((c) => num(c.connected)),
@@ -206,33 +256,45 @@ const columns = [
 	{
 		id: 'security', name: 'Security', sort: by((c) => txt(c.identity) + txt(c.akm) + txt(c.auth) + txt(c.user)),
 		formatter: (c) => {
-			let html = pill(c.auth || 'NONE', c.auth && c.auth !== 'NONE' ? 'ok' : 'warn');
+			// What protects this link is the AKM the client negotiated, not
+			// whether a radius server was involved. Reading OWE or WPA2-PSK as
+			// a red "NONE" said "unprotected" about an encrypted connection,
+			// and a list that cries wolf on half its rows is a list nobody
+			// reads. Only a client with no AKM at all is actually open.
+			const akm = c.akm || '';
+			const open = !akm || /^(NONE|OPEN)$/i.test(akm);
+			let html = open
+				? pill(c.auth && c.auth !== 'NONE' ? c.auth : 'open', c.auth && c.auth !== 'NONE' ? 'ok' : 'warn')
+				: pill(akm, 'ok');
 			if (c.mfp === 'yes') html += pill('MFP', 'ok');
 			// what the client actually negotiated, which can differ from what
 			// the bss offers — only known once hostapd has been asked
 			// the issued key a client came in with — the only handle on a
 			// device whose address is randomised
-			if (c.identity) {
-				html += '<div class="sub ok" title="iPSK identity ' + esc(c.keyid || '') + '">' +
+			// A key with a name is somebody; a key with only its id is a hex
+			// blob that told the reader nothing and took a line to do it.
+			if (c.ppsk) html += pill('iPSK', 'ok');
+			const named = c.identity && c.identity !== c.keyid;
+			if (named) {
+				html += '<div class="sub ok" title="per device key ' + esc(c.keyid || '') + '">' +
 					esc(c.identity) + '</div>';
 			}
-			if (c.akm) {
-				html += '<div class="sub" title="negotiated AKM' +
-					(c.cipher ? ', cipher ' + esc(c.cipher) : '') + '">' + esc(c.akm) + '</div>';
+			if (c.cipher) {
+				html += '<div class="sub muted" title="cipher">' + esc(c.cipher) + '</div>';
+			}
+			if (!open && c.auth && c.auth !== 'NONE') {
+				html += '<div class="sub muted" title="how the key was obtained">' + esc(c.auth) + '</div>';
 			}
 			if (c.user) html += '<div class="sub" title="' + esc(c.user) + '">' + esc(String(c.user).slice(0, 18)) + '</div>';
 			return gridjs.html(html);
 		}
 	},
 	{
-		id: 'caps', name: 'Caps', sort: by((c) => txt(c.ht) + (c.mbo === 'yes' ? '1' : '0') + (c.wmm === 'yes' ? '1' : '0')),
-		formatter: (c) => {
-			let html = '';
-			if (c.ht) html += pill(c.ht, 'ok');
-			['wmm', 'mbo', 'wds', 'wps'].forEach((k) => { if (c[k] === 'yes') html += pill(k.toUpperCase()); });
-			return gridjs.html(html || '<span class="muted">–</span>');
-		}
+		id: 'caps', name: 'Caps', hidden: true,
+		sort: by((c) => txt(c.ht) + (c.mbo === 'yes' ? '1' : '0') + (c.wmm === 'yes' ? '1' : '0')),
+		formatter: (c) => gridjs.html(esc(c.ht || '')),
 	},
+
 	{ id: 'noise', name: 'Noise', hidden: true },
 	// merged cells hold objects, which the search would stringify to
 	// "[object Object]"; this hidden column keeps every row findable by mac,
@@ -276,13 +338,14 @@ function mapRows(results) {
 	return results.map((c) => [
 			{ mac: c.mac, dnsname: c.dnsname, ip: c.ip, vendor: c.manufacturer, private: c.mac_private },
 				{ ap: c.ap, iface: c.interface, vlan: c.vlan_device, ssid: c.ssid },
-				{ band: c.frequency > 5900 ? '6' : (c.frequency > 3000 ? '5' : '2.4'), channel: c.channel, htmode: c.ht_mode },
+				{ band: c.frequency > 5900 ? '6' : (c.frequency > 3000 ? '5' : '2.4'), channel: c.channel,
+				  htmode: c.ht_mode, wmm: c.wmm, mbo: c.mbo, wds: c.wds, wps: c.wps },
 				c.signal,
 				{ rx: c.rx_rate, tx: c.tx_rate },
 				{ rx: c.rx_bytes, tx: c.tx_bytes, spark: c.spark },
 				{ connected: c.connected_time, inactive: c.inactive },
 				{ auth: c.authtype, mfp: c.mfp, user: c.authuser, akm: c.akm, cipher: c.cipher,
-				  identity: c.identity, keyid: c.keyid },
+				  identity: c.identity, keyid: c.keyid, ppsk: c.ppsk },
 				{ ht: c.ht_mode, wmm: c.wmm, mbo: c.mbo, wds: c.wds, wps: c.wps },
 				c.noise,
 				[c.mac, c.dnsname, c.ip, c.ap, c.interface, c.ssid, c.manufacturer, c.vlan_device]
@@ -507,7 +570,7 @@ refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 	/* The toolbars, chips, bars and small type are in _components.html.twig.
 	   What is left is the grid itself and how it behaves on a phone. */
 	.gridjs-td { vertical-align: top; }
-	svg.spark { width: 100%; min-width: 40px; height: 18px; display: block; }
+	svg.spark { width: 100%; min-width: 40px; height: 20px; display: block; }
 	.sparkempty { font-size: .8em; }
 	.bar { width: 46px; height: .55rem; }
 

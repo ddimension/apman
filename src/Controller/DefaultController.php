@@ -3459,6 +3459,9 @@ class DefaultController extends AbstractController
                 'channel' => null,
                 'frequency' => null,
                 'authtype' => 'NONE',
+                // the key came from the per device store rather than the
+                // network passphrase
+                'ppsk' => false,
                 // which AKM the client really negotiated, not what the bss
                 // offers — from the hostapd control channel
                 'akm' => null,
@@ -3639,12 +3642,15 @@ class DefaultController extends AbstractController
                             $client['authuser'] = $auth->username;
                         }
                         if (property_exists($auth, 'auth')) {
-			    if (property_exists($auth->auth, 'reply') and property_exists($auth->auth->reply, 'APMAN-PSK-Type') and $auth->auth->reply->{'APMAN-PSK-Type'} == 'ppsk') {
-				if (isset($client['authtype'])) {
-	                                $client['authtype'] .= ' ppsk';
-				} else {
-	                                $client['authtype'] = 'ppsk';
-				}
+                            // A key that came out of the per device store is a
+                            // fact about this station, not a kind of
+                            // authentication — appending it to authtype
+                            // produced "NONE ppsk" on twenty-nine of forty-one
+                            // rows, which reads as neither.
+                            if (property_exists($auth->auth, 'reply')
+                                and property_exists($auth->auth->reply, 'APMAN-PSK-Type')
+                                and 'ppsk' == $auth->auth->reply->{'APMAN-PSK-Type'}) {
+                                $client['ppsk'] = true;
                             }
                             if (property_exists($auth->auth, 'reply') and  property_exists($auth->auth->reply, 'APMAN-Client-Name') and strlen($auth->auth->reply->{'APMAN-Client-Name'})) {
                                 $client['authuser'] = $auth->auth->reply->{'APMAN-Client-Name'};
