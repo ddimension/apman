@@ -2215,7 +2215,9 @@ class DefaultController extends AbstractController
         \ApManBundle\Service\WlanConsistencyService $consistency,
         \ApManBundle\Service\DfsService $dfs,
         \ApManBundle\Service\AirtimeService $airtime,
-        \ApManBundle\Service\BlocklistService $blocklist)
+        \ApManBundle\Service\BlocklistService $blocklist,
+        \ApManBundle\Service\HistoryService $history,
+        Request $request)
     {
         $em = $this->doctrine->getManager();
         $aps = $em->createQuery('SELECT a,r,d FROM ApManBundle\Entity\AccessPoint a
@@ -2372,6 +2374,12 @@ class DefaultController extends AbstractController
         }
         usort($open, function ($a, $b) { return $b['radios'] <=> $a['radios']; });
 
+        $fleetSpans = ['24 h' => 86400, '7 d' => 604800, '30 d' => 2592000];
+        $fleetSpan = (string) $request->query->get('span', '24 h');
+        if (!isset($fleetSpans[$fleetSpan])) {
+            $fleetSpan = '24 h';
+        }
+
         // Clients we hold an airtime opinion about, and whether the radio they
         // are on pays any attention to it. Both halves matter: a weight on a
         // radio with no policy is accepted by hostapd, reported as a success
@@ -2403,6 +2411,9 @@ class DefaultController extends AbstractController
         return $this->render('default/overview.html.twig', [
             'airtime' => $airtimeRows,
             'blocked' => $blocklist->blocked(),
+            'fleet_history' => $history->fleetSeries($fleetSpans[$fleetSpan]),
+            'fleet_span' => $fleetSpan,
+            'fleet_spans' => array_keys($fleetSpans),
             'airtime_default' => \ApManBundle\Service\AirtimeService::DEFAULT_WEIGHT,
             'tree' => $tree,
             'trouble' => $trouble,

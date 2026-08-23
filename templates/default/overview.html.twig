@@ -2,6 +2,33 @@
 {% block title %}Overview{% endblock %}
 
 {% block body %}
+<div class="card" id="fleethistory">
+	<h3 class="small" style="margin:0 0 .3em">
+		The fleet over time
+		<span class="small stale">
+			{% for sp in fleet_spans %}<a href="{{ path('overview', {'span': sp}) }}"
+				class="{{ sp == fleet_span ? 'active-span' : '' }}">{{ sp }}</a>{{ not loop.last ? ' · ' }}{% endfor %}
+		</span>
+	</h3>
+	{% if fleet_history|length < 2 %}
+		<p class="small stale">
+			{{ fleet_history|length }} column{{ fleet_history|length == 1 ? '' : 's' }} so far. The
+			series is written every five minutes by <span class="mono">apman:sample</span> and there
+			is none from before it was first switched on.
+		</p>
+	{% else %}
+		<svg id="fbusy" viewBox="0 0 900 120" preserveAspectRatio="none" aria-label="how busy the bands were"></svg>
+		<p class="small stale" id="fbusykey" style="margin:.2em 0 .8em"></p>
+		<svg id="fsta" viewBox="0 0 900 90" preserveAspectRatio="none" aria-label="stations"></svg>
+		<p class="small stale" style="margin:.2em 0 0">
+			<b class="k-sta">stations associated across the fleet</b> · <b class="k-rx">received</b>
+			· <b class="k-tx">sent</b>, added up over every radio. The busy figures above are averages
+			of the radios on that band that answered, because a radio that was away for one run should
+			not read as a quiet one.
+		</p>
+	{% endif %}
+</div>
+
 <h2>Overview</h2>
 
 <div class="cards">
@@ -266,6 +293,76 @@
 </p>
 {% endblock %}
 
+{% block javascripts %}
+<script>
+// The same two ideas as the radio page's chart: a path per line, and a gap
+// wherever there is no honest number. Nothing is fetched; the series comes over
+// with the page.
+(function () {
+	var F = {{ fleet_history|json_encode|raw }};
+	if (F.length < 2) { return; }
+	var W = 900, PAD = 4;
+	var t0 = F[0].ts, span = Math.max(1, F[F.length - 1].ts - t0);
+	function x(ts) { return PAD + (W - 2 * PAD) * (ts - t0) / span; }
+
+	function paths(H, get, top, ht, cls, fill) {
+		var runs = [], cur = [], out = '';
+		H.forEach(function (p) {
+			var v = get(p);
+			if (v === null || v === undefined) { if (cur.length) { runs.push(cur); cur = []; } return; }
+			cur.push([x(p.ts), ht - PAD - (ht - 2 * PAD) * v / top]);
+		});
+		if (cur.length) { runs.push(cur); }
+		runs.forEach(function (run) {
+			if (run.length < 2) { return; }
+			var d = 'M' + run.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join('L');
+			if (fill) {
+				out += '<path d="' + d + 'L' + run[run.length - 1][0].toFixed(1) + ',' + (ht - PAD)
+					+ 'L' + run[0][0].toFixed(1) + ',' + (ht - PAD) + 'Z" class="' + cls + ' area"/>';
+			}
+			out += '<path d="' + d + '" class="' + cls + '" fill="none"/>';
+		});
+		return out;
+	}
+
+	// one line per band, in the order the bands happen to appear
+	var bands = [];
+	F.forEach(function (p) {
+		Object.keys(p.busy || {}).forEach(function (b) { if (bands.indexOf(b) < 0) { bands.push(b); } });
+	});
+	bands.sort();
+	var palette = ['k-b1', 'k-b2', 'k-b3', 'k-b4'];
+	var HT = 120, out = '';
+	out += '<line x1="0" y1="' + (HT - PAD - (HT - 2 * PAD)) + '" x2="' + W + '" y2="'
+		+ (HT - PAD - (HT - 2 * PAD)) + '" class="axis"/>';
+	out += '<text x="2" y="' + (HT - PAD - (HT - 2 * PAD) + 9) + '" class="axislabel">100 %</text>';
+	bands.forEach(function (b, i) {
+		out += paths(F, function (p) { return (p.busy && p.busy[b] !== undefined) ? p.busy[b] : null; },
+			100, HT, palette[i % palette.length], i === 0);
+	});
+	document.getElementById('fbusy').innerHTML = out;
+	document.getElementById('fbusykey').innerHTML = bands.map(function (b, i) {
+		return '<b class="' + palette[i % palette.length] + '">' + b + '</b>';
+	}).join(' · ') + ' — how much of the channel was in use, measured from the radios\u2019 own airtime counters';
+
+	var topSta = 1, topRate = 1;
+	F.forEach(function (p) {
+		if (p.stations > topSta) { topSta = p.stations; }
+		if (p.rx_bps > topRate) { topRate = p.rx_bps; }
+		if (p.tx_bps > topRate) { topRate = p.tx_bps; }
+	});
+	var HS = 90, o2 = '';
+	o2 += paths(F, function (p) { return p.rx_bps; }, topRate, HS, 'k-rx');
+	o2 += paths(F, function (p) { return p.tx_bps; }, topRate, HS, 'k-tx');
+	o2 += paths(F, function (p) { return p.stations; }, topSta, HS, 'k-sta');
+	o2 += '<text x="2" y="12" class="axislabel k-sta">' + topSta + ' stations</text>';
+	o2 += '<text x="' + (W - 90) + '" y="12" class="axislabel k-rx">'
+		+ (topRate >= 1e6 ? (topRate / 1e6).toFixed(0) + ' Mbit/s' : (topRate / 1e3).toFixed(0) + ' kbit/s') + '</text>';
+	document.getElementById('fsta').innerHTML = o2;
+})();
+</script>
+{% endblock %}
+
 {% block stylesheets %}
 <style>
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; }
@@ -281,5 +378,26 @@ table.counters { border-collapse: collapse; }
 table.counters td, table.counters th { padding: .2em .8em .2em 0; vertical-align: top; text-align: left; }
 table.counters th { font-weight: 600; }
 .mono { font-family: var(--mono); }
+	#fleethistory svg { width: 100%; display: block; }
+	#fleethistory #fbusy { height: 120px; }
+	#fleethistory #fsta { height: 90px; }
+	#fleethistory .axis { stroke: var(--line-soft); stroke-width: 1; }
+	#fleethistory .axislabel { font-size: 9px; fill: var(--ink-mute); }
+	#fleethistory .active-span { font-weight: 700; text-decoration: none; }
+	.k-b1 { stroke: #3b7dd8; stroke-width: 1.5; }
+	.k-b1.area { fill: #3b7dd8; fill-opacity: .14; stroke: none; }
+	.k-b2 { stroke: #d8823b; stroke-width: 1.5; }
+	.k-b3 { stroke: #4fa86a; stroke-width: 1.5; }
+	.k-b4 { stroke: #9b59b6; stroke-width: 1.5; }
+	#fleethistory b.k-b1 { color: #3b7dd8; }
+	#fleethistory b.k-b2 { color: #d8823b; }
+	#fleethistory b.k-b3 { color: #4fa86a; }
+	#fleethistory b.k-b4 { color: #9b59b6; }
+	#fleethistory b.k-sta { color: var(--warn-strong); }
+	#fleethistory b.k-rx { color: var(--good); }
+	#fleethistory b.k-tx { color: #3b7dd8; }
+	#fleethistory .k-sta { stroke: var(--warn-strong); stroke-width: 1.5; }
+	#fleethistory .k-rx { stroke: var(--good); stroke-width: 1.5; }
+	#fleethistory .k-tx { stroke: #3b7dd8; stroke-width: 1.5; }
 </style>
 {% endblock %}

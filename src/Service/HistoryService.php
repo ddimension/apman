@@ -272,6 +272,92 @@ class HistoryService
     }
 
     /**
+     * The whole fleet over time, one column per sampling run.
+     *
+     * The runs are what makes this cheap to line up: one cron writes every
+     * radio within the same second or two, so rounding the timestamp to the
+     * interval puts them in the same column without any interpolation. A radio
+     * that was away for a run is simply not in that column, which is why the
+     * busy figure is an average of what answered and the station count is a sum
+     * of it — a sum of an average would be a different number every time a
+     * radio blinked.
+     *
+     * Split by band, because 2.4 and 5 GHz are not the same question and a
+     * single line averaging them answers neither.
+     *
+     * @return array one entry per column, oldest first
+     */
+    public function fleetSeries(int $seconds = 86400): array
+    {
+        $from = time() - $seconds;
+        $rows = $this->doctrine->getManager()->createQuery(
+            'SELECT s, r, a FROM ApManBundle\Entity\RadioSample s
+             JOIN s.radio r JOIN r.accesspoint a
+             WHERE s.ts >= :from ORDER BY r.id ASC, s.ts ASC'
+        )->setParameter('from', $from)->getResult();
+
+        // Grouped per radio first, so that the differences that make a rate are
+        // taken between two samples of the same radio and never across two.
+        $perRadio = [];
+        foreach ($rows as $row) {
+            $radio = $row->getRadio();
+            if (!$radio) {
+                continue;
+            }
+            $perRadio[$radio->getId()]['band'] = (string) $radio->getConfigBand();
+            $perRadio[$radio->getId()]['rows'][] = $row;
+        }
+
+        $columns = [];
+        foreach ($perRadio as $entry) {
+            $band = '' === $entry['band'] ? '?' : $entry['band'];
+            $plain = [];
+            foreach ($entry['rows'] as $row) {
+                $plain[] = [
+                    'ts' => $row->getTs(),
+                    'stations' => $row->getStations(),
+                    'utilization' => $row->getUtilization(),
+                    'noise' => $row->getNoise(),
+                    'channel' => $row->getChannel(),
+                    'rx' => $row->getRxBytes(),
+                    'tx' => $row->getTxBytes(),
+                    'airtime_time' => $row->getAirtimeTime(),
+                    'airtime_busy' => $row->getAirtimeBusy(),
+                ];
+            }
+            foreach ($this->rates($plain) as $point) {
+                $bucket = (int) (round($point['ts'] / self::INTERVAL) * self::INTERVAL);
+                $columns[$bucket] ??= ['ts' => $bucket, 'stations' => 0,
+                    'rx_bps' => null, 'tx_bps' => null, 'bands' => []];
+                $columns[$bucket]['stations'] += (int) $point['stations'];
+                foreach (['rx_bps', 'tx_bps'] as $k) {
+                    if (null !== $point[$k]) {
+                        $columns[$bucket][$k] = (int) $columns[$bucket][$k] + $point[$k];
+                    }
+                }
+                if (null !== $point['busy']) {
+                    $columns[$bucket]['bands'][$band][] = $point['busy'];
+                }
+            }
+        }
+
+        ksort($columns);
+        $out = [];
+        foreach ($columns as $column) {
+            $busy = [];
+            foreach ($column['bands'] as $band => $values) {
+                $busy[$band] = (int) round(array_sum($values) / count($values));
+            }
+            ksort($busy);
+            $column['busy'] = $busy;
+            unset($column['bands']);
+            $out[] = $column;
+        }
+
+        return $out;
+    }
+
+    /**
      * Throw away what is older than KEEP_DAYS.
      *
      * @return int rows removed
