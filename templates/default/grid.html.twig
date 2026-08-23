@@ -107,6 +107,34 @@ function duration(sec) {
 
 function pill(text, cls) { return '<span class="chip ' + (cls || '') + '">' + esc(text) + '</span>'; }
 
+// A line per station, in the width of a table cell. Both directions share one
+// scale, because the question a reader has is which way the traffic went — two
+// scales would answer it wrong, and prettily.
+function spark(s) {
+	if (!s || !s.rx || s.rx.length < 2) { return '<span class="muted sparkempty">–</span>'; }
+	const W = 76, H = 18, n = s.rx.length;
+	let max = 0;
+	for (let i = 0; i < n; i++) { max = Math.max(max, s.rx[i], s.tx[i]); }
+	if (!max) { return '<span class="muted sparkempty" title="nothing moved">idle</span>'; }
+	const line = (a) => a.map((v, i) => {
+		const x = (i * W / (n - 1)).toFixed(1);
+		const y = (H - (v / max) * (H - 1.5) - 0.75).toFixed(1);
+		return (i ? 'L' : 'M') + x + ' ' + y;
+	}).join(' ');
+	const last = Math.max(s.rx[n - 1], s.tx[n - 1]);
+	return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"' +
+		' title="peak ' + bitrate(max) + ', now ' + bitrate(last) + '">' +
+		'<path d="' + line(s.rx) + '" fill="none" stroke="var(--bar-plain)" stroke-width="1"/>' +
+		'<path d="' + line(s.tx) + '" fill="none" stroke="var(--bar-good)" stroke-width="1"/>' +
+		'</svg>';
+}
+
+function bitrate(bps) {
+	if (bps >= 1000000) { return (bps / 1000000).toFixed(1) + ' Mbit/s'; }
+	if (bps >= 1000) { return Math.round(bps / 1000) + ' kbit/s'; }
+	return (bps || 0) + ' bit/s';
+}
+
 // ---- sorting ---------------------------------------------------------------
 // merged cells carry objects, so every column gets a comparator that pulls the
 // value a human would sort by out of it
@@ -162,7 +190,10 @@ const columns = [
 	{ id: 'rate', name: 'Rate Mbit', sort: by((c) => Math.min(num(c.rx), num(c.tx))), formatter: (c) => gridjs.html(rateCell(c.rx, c.tx)) },
 	{
 		id: 'traffic', name: 'Traffic', sort: by((c) => num(c.rx) + num(c.tx)),
-		formatter: (c) => gridjs.html('<span class="muted">↓</span> ' + bytes(c.rx) + '<div class="sub"><span class="muted">↑</span> ' + bytes(c.tx) + '</div>')
+		formatter: (c) => gridjs.html(
+			spark(c.spark) +
+			'<div class="sub"><span style="color: var(--bar-plain)">↓</span> ' + bytes(c.rx) +
+			' <span style="color: var(--bar-good)">↑</span> ' + bytes(c.tx) + '</div>')
 	},
 	{
 		id: 'time', name: 'Time', sort: by((c) => num(c.connected)),
@@ -244,7 +275,7 @@ function mapRows(results) {
 				{ band: c.frequency > 5900 ? '6' : (c.frequency > 3000 ? '5' : '2.4'), channel: c.channel, htmode: c.ht_mode },
 				c.signal,
 				{ rx: c.rx_rate, tx: c.tx_rate },
-				{ rx: c.rx_bytes, tx: c.tx_bytes },
+				{ rx: c.rx_bytes, tx: c.tx_bytes, spark: c.spark },
 				{ connected: c.connected_time, inactive: c.inactive },
 				{ auth: c.authtype, mfp: c.mfp, user: c.authuser, akm: c.akm, cipher: c.cipher,
 				  identity: c.identity, keyid: c.keyid },
@@ -472,6 +503,8 @@ refreshHandle = setTimeout(() => { updateGrid(); }, timeout);
 	/* The toolbars, chips, bars and small type are in _components.html.twig.
 	   What is left is the grid itself and how it behaves on a phone. */
 	.gridjs-td { vertical-align: top; }
+	svg.spark { width: 76px; height: 18px; display: block; }
+	.sparkempty { font-size: .8em; }
 	.bar { width: 46px; height: .55rem; }
 
 	/* ---- narrow screens ----------------------------------------------

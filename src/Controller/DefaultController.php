@@ -1524,6 +1524,43 @@ class DefaultController extends AbstractController
     }
 
     /**
+     * One station's throughput over the last minutes, ready to draw.
+     *
+     * The counters are differenced here rather than in the browser: a status
+     * cycle that arrived late would otherwise draw as a spike, and the interval
+     * each sample actually got is known on this side only. A counter that went
+     * backwards is a station that reconnected, and a gap over a minute is the
+     * collector rather than the network — both are dropped instead of being
+     * drawn as traffic that never happened.
+     *
+     * @return array{rx: int[], tx: int[]}|null
+     */
+    private function stationSeries(string $mac): ?array
+    {
+        $series = $this->cacheFactory->getCacheItemValue(
+            'status.client['.str_replace(':', '', strtolower($mac)).'].series');
+        if (!is_array($series) || count($series) < 2) {
+            return null;
+        }
+        $rx = [];
+        $tx = [];
+        $prev = null;
+        foreach ($series as $sample) {
+            [$ts, $r, $t] = $sample + [null, null, null];
+            if (null !== $prev) {
+                $span = $ts - $prev[0];
+                if ($span > 0 && $span <= 60 && $r >= $prev[1] && $t >= $prev[2]) {
+                    $rx[] = (int) round(($r - $prev[1]) * 8 / $span);
+                    $tx[] = (int) round(($t - $prev[2]) * 8 / $span);
+                }
+            }
+            $prev = [$ts, $r, $t];
+        }
+
+        return $rx ? ['rx' => $rx, 'tx' => $tx] : null;
+    }
+
+    /**
      * The throughput of one bss over the last half hour, as a series.
      *
      * Counters go out, not rates: the caller divides by the interval it
@@ -3618,6 +3655,12 @@ class DefaultController extends AbstractController
                         }
                     }
                     $client['authuser'] = str_replace('.kalnet.hooya.de', '', $client['authuser']);
+
+                    // The line for this row. Rates, not counters, because forty
+                    // rows of counters would be the browser doing the same
+                    // arithmetic forty times over — and the interval each
+                    // sample actually got is known here and nowhere else.
+                    $client['spark'] = $this->stationSeries($clientName);
 
                     $s[$key] = $client;
                 }

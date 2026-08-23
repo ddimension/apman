@@ -35,6 +35,9 @@ class SubscriptionService
      * every point being a pixel.
      */
     private const SERIES_SAMPLES = 180;
+
+    /** per station, ten minutes at a ten second cycle — a table cell is narrow */
+    private const STATION_SAMPLES = 60;
     /** ssid ids whose keys changed and have to go out again */
     private $ppskPending = [];
     private const CACHE_REFRESH_INTERVAL = 60;
@@ -689,6 +692,45 @@ class SubscriptionService
             $series = array_slice($series, -self::SERIES_SAMPLES);
         }
         $this->cacheFactory->addCacheItem($key, $series, 3600);
+
+        // And the same per station, keyed by the station rather than the bss:
+        // a client that roams takes its line with it, which is the only way a
+        // row in the client list can carry one.
+        foreach ($results as $sta) {
+            if (!isset($sta['mac'])) {
+                continue;
+            }
+            $this->recordStationThroughput(strtolower($sta['mac']),
+                (int) $data['received'],
+                (int) ($sta['rx']['bytes'] ?? 0), (int) ($sta['tx']['bytes'] ?? 0));
+        }
+    }
+
+    /**
+     * One station's byte counters over the last ten minutes.
+     *
+     * Shorter than the per bss series on purpose: this is kept for every
+     * station on the fleet — six hundred and forty of them have been seen —
+     * and it exists to draw a line the width of a table cell, which cannot show
+     * half an hour anyway.
+     */
+    private function recordStationThroughput(string $mac, int $ts, int $rx, int $tx): void
+    {
+        $key = 'status.client['.str_replace(':', '', $mac).'].series';
+        $series = $this->cacheFactory->getCacheItemValue($key);
+        if (!is_array($series)) {
+            $series = [];
+        }
+        // the same second twice is one status cycle reaching us through two
+        // bsses of the same radio; the second one would draw a zero span
+        if ($series && $series[count($series) - 1][0] === $ts) {
+            return;
+        }
+        $series[] = [$ts, $rx, $tx];
+        if (count($series) > self::STATION_SAMPLES) {
+            $series = array_slice($series, -self::STATION_SAMPLES);
+        }
+        $this->cacheFactory->addCacheItem($key, $series, 1800);
     }
 
     /**
