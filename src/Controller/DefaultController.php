@@ -535,7 +535,8 @@ class DefaultController extends AbstractController
      * how it answered steering requests and what its probe advertises.
      */
     #[Route(path: '/client/{mac}', name: 'client_detail')]
-    public function clientDetailAction($mac, \ApManBundle\Service\AirtimeService $airtime)
+    public function clientDetailAction($mac, \ApManBundle\Service\AirtimeService $airtime,
+        \ApManBundle\Service\BlocklistService $blocklist)
     {
         $mac = strtolower($mac);
         $em = $this->doctrine->getManager();
@@ -712,6 +713,7 @@ class DefaultController extends AbstractController
             'steering' => $steering,
             'ies' => $ies,
             'airtime_default' => \ApManBundle\Service\AirtimeService::DEFAULT_WEIGHT,
+            'ban_seconds' => (int) (\ApManBundle\Service\BlocklistService::BAN_MS / 1000),
         ]);
     }
 
@@ -759,6 +761,64 @@ class DefaultController extends AbstractController
         }
 
         return $this->json($out);
+    }
+
+    /**
+     * Keep this client off the fleet, or let it back on.
+     *
+     * `minutes` says how long; empty or 0 means until somebody says otherwise,
+     * which is stored as a date far enough out to mean the same thing without
+     * needing a second column to say "no end".
+     *
+     * Unblocking cannot take effect instantly and the answer says so. hostapd
+     * has no way to lift a ban it is already holding — it can only be let to
+     * lapse — so the station comes back when the current ban runs out rather
+     * than at once.
+     */
+    #[Route(path: '/client/{mac}/block', name: 'client_block', methods: ['POST'])]
+    public function clientBlockAction(Request $request, $mac, \ApManBundle\Service\BlocklistService $blocklist)
+    {
+        $mac = strtolower($mac);
+        $client = $this->doctrine->getRepository('ApManBundle\Entity\Client')->findOneBy(['mac' => $mac]);
+        if (!$client) {
+            return $this->json(['ok' => false, 'error' => 'this client is not known'], 404);
+        }
+
+        if ($request->request->getBoolean('unblock')) {
+            $client->setBlockedUntil(null);
+            $client->setBlockedReason(null);
+            $this->doctrine->getManager()->flush();
+
+            return $this->json(['ok' => true, 'blocked' => false,
+                'note' => 'the block is lifted here, and the access points let it back on when the '
+                    .'ban they are already holding runs out — up to '
+                    .(int) (\ApManBundle\Service\BlocklistService::BAN_MS / 1000).' seconds. '
+                    .'hostapd cannot be told to forget one sooner.']);
+        }
+
+        $minutes = (int) $request->request->get('minutes', 0);
+        $until = new \DateTime();
+        // No end asked for: ten years is not "forever", but it is longer than
+        // any access point in this fleet will run without being provisioned
+        // again, and it keeps the column a plain date.
+        $until->modify($minutes > 0 ? '+'.$minutes.' minutes' : '+10 years');
+        $client->setBlockedUntil($until);
+        $reason = trim((string) $request->request->get('reason', ''));
+        $client->setBlockedReason('' === $reason ? null : $reason);
+        $this->doctrine->getManager()->flush();
+
+        $hit = $blocklist->enforce($mac);
+
+        return $this->json([
+            'ok' => true,
+            'blocked' => true,
+            'until' => $until->format(\DateTime::ATOM),
+            'thrown_off' => array_keys($hit),
+            'note' => $hit
+                ? null
+                : 'it is not associated anywhere at the moment, so there was nothing to throw off — '
+                    .'it is turned away the next time it tries.',
+        ]);
     }
 
     /**
@@ -1473,7 +1533,8 @@ class DefaultController extends AbstractController
     public function deviceDetailAction(\ApManBundle\Service\WirelessSchemaService $schema,
         \ApManBundle\Service\StateTreeService $stateTree,
         \ApManBundle\Service\WlanConsistencyService $consistency,
-        \ApManBundle\Service\AccessPointService $aps, $id)
+        \ApManBundle\Service\AccessPointService $aps,
+        \ApManBundle\Service\BlocklistService $blocklist, $id)
     {
         $device = $this->doctrine->getRepository('ApManBundle\Entity\Device')->find($id);
         if (!$device) {
@@ -1607,6 +1668,12 @@ class DefaultController extends AbstractController
             'hints' => $schema->hints($values),
             'own' => $own,
             'running_config' => $consistency->runningBssConfig($device),
+            // One call, and it is the only place the bans are visible at all:
+            // hostapd holds them in memory, per bss, and tells nobody unless
+            // asked. null means it could not be asked, which is a different
+            // thing from nobody being banned.
+            'bans' => $blocklist->bans($device),
+            'ban_seconds' => (int) (\ApManBundle\Service\BlocklistService::BAN_MS / 1000),
             'ap_status' => $apStatus,
             'bss_info' => is_array($bssInfo) ? $bssInfo : null,
             'ctrlcounts' => $this->mergedCtrlCounts([['ctrlcounts' => is_array($counts) ? $counts : []]]),
@@ -2132,7 +2199,8 @@ class DefaultController extends AbstractController
     public function overviewAction(\ApManBundle\Service\StateTreeService $stateTree,
         \ApManBundle\Service\WlanConsistencyService $consistency,
         \ApManBundle\Service\DfsService $dfs,
-        \ApManBundle\Service\AirtimeService $airtime)
+        \ApManBundle\Service\AirtimeService $airtime,
+        \ApManBundle\Service\BlocklistService $blocklist)
     {
         $em = $this->doctrine->getManager();
         $aps = $em->createQuery('SELECT a,r,d FROM ApManBundle\Entity\AccessPoint a
@@ -2319,6 +2387,7 @@ class DefaultController extends AbstractController
 
         return $this->render('default/overview.html.twig', [
             'airtime' => $airtimeRows,
+            'blocked' => $blocklist->blocked(),
             'airtime_default' => \ApManBundle\Service\AirtimeService::DEFAULT_WEIGHT,
             'tree' => $tree,
             'trouble' => $trouble,

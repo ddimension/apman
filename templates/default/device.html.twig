@@ -141,6 +141,26 @@
 </div>
 {% endif %}
 
+<div class="card">
+	<h3 class="small" style="margin:0 0 .3em">Turned away</h3>
+	{% if bans is null %}
+		<p class="small stale">The access point did not say who it is keeping out. hostapd holds bans
+			in memory and tells nobody unless asked, so this is "could not ask" and not "nobody".</p>
+	{% elseif bans|length %}
+		<table class="counters small">
+			{% for mac in bans %}
+				<tr><td class="mono"><a href="{{ path('client_detail', {'mac': mac}) }}">{{ mac }}</a></td>
+					<td class="stale">banned here</td></tr>
+			{% endfor %}
+		</table>
+		<p class="small stale">A ban lasts {{ ban_seconds }} seconds and is renewed whenever the station
+			gets in again, so a station that is blocked stays on this list without ever staying on
+			it for long.</p>
+	{% else %}
+		<p class="small stale">Nobody is being kept off this bss.</p>
+	{% endif %}
+</div>
+
 {% if own|length %}
 <div class="card">
 	<p class="small"><b>What this bss decides for itself</b> — {{ own|length }} option{{ own|length > 1 ? 's' : '' }}

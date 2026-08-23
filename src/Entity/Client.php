@@ -77,6 +77,35 @@ class Client
     private $airtimeWeight;
 
     /**
+     * Until when this client is not allowed on, or null if it is welcome.
+     *
+     * hostapd bans a station with `del_client` and a `ban_time` in
+     * milliseconds — measured on ap-av-grwz: 15000 kept it out for about
+     * fifteen seconds and `list_bans` listed it for exactly that long. The ban
+     * lives in the running hostapd and in nothing else: it is per bss, it is
+     * forgotten on restart, and it has no idea that the same station is welcome
+     * or unwelcome on the other ten bsses of the fleet.
+     *
+     * So this column is the decision and the access points hold only its
+     * current consequence. A blocked station that manages to associate — after
+     * a ban expired, on a bss that restarted, on an access point that was
+     * rebooted — is thrown off again by the control channel handler and banned
+     * anew. It gets in for a moment each time; there is no way to make that
+     * moment zero without a mac address filter in the configuration, and that
+     * option has taken a whole radio down in this fleet before.
+     */
+    #[ORM\Column(name: 'blocked_until', type: 'datetime', nullable: true)]
+    private $blockedUntil;
+
+    /**
+     * Why, because a block nobody can explain later gets undone by guesswork.
+     *
+     * @var string|null
+     */
+    #[ORM\Column(name: 'blocked_reason', type: 'string', length: 255, nullable: true)]
+    private $blockedReason;
+
+    /**
      * Get id.
      *
      * @return int
@@ -185,6 +214,38 @@ class Client
     public function getSteeringDisabled(): ?bool
     {
         return $this->SteeringDisabled;
+    }
+
+    public function getBlockedUntil(): ?\DateTimeInterface
+    {
+        return $this->blockedUntil;
+    }
+
+    public function setBlockedUntil(?\DateTimeInterface $until): self
+    {
+        $this->blockedUntil = $until;
+
+        return $this;
+    }
+
+    public function getBlockedReason(): ?string
+    {
+        return $this->blockedReason;
+    }
+
+    public function setBlockedReason(?string $reason): self
+    {
+        $this->blockedReason = $reason;
+
+        return $this;
+    }
+
+    /**
+     * Whether the block is still standing right now.
+     */
+    public function isBlocked(): bool
+    {
+        return null !== $this->blockedUntil && $this->blockedUntil > new \DateTime();
     }
 
     public function getAirtimeWeight(): ?int

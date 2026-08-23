@@ -160,6 +160,26 @@
 		{% endif %}
 	</div>
 
+	{% if blocked|length %}
+	<div class="card big">
+		<h3 class="small">Kept off</h3>
+		<table class="counters small">
+			{% for c in blocked %}
+				<tr>
+					<td><a href="{{ path('client_detail', {'mac': c.mac}) }}" class="mono">{{ c.name ?: c.mac }}</a></td>
+					<td class="{{ c.isBlocked ? 'warn' : 'stale' }}">
+						{% if c.isBlocked %}until {{ c.blockedUntil|date('d.m. H:i') }}
+						{% else %}lapsed {{ c.blockedUntil|date('d.m. H:i') }}{% endif %}</td>
+					<td class="stale">{{ c.blockedReason ?: '' }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+		<p class="small stale">A blocked station is thrown off wherever it appears, so it gets on for a
+			moment each time before it is turned away. One whose block has lapsed is welcome again and
+			is only still listed because the reason is worth keeping.</p>
+	</div>
+	{% endif %}
+
 	{% if airtime|length %}
 	<div class="card big">
 		<h3 class="small">Share of the medium</h3>

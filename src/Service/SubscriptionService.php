@@ -47,6 +47,7 @@ class SubscriptionService
     private $reconnectDelay = 0;
 
     private AirtimeService $airtime;
+    private BlocklistService $blocklist;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -60,9 +61,11 @@ class SubscriptionService
         ApContextService $apContext,
         StateTreeService $stateTree,
         DfsService $dfs,
-        AirtimeService $airtime
+        AirtimeService $airtime,
+        BlocklistService $blocklist
     ) {
         $this->airtime = $airtime;
+        $this->blocklist = $blocklist;
         $this->ppskService = $ppskService;
         $this->radiusAuthService = $radiusAuthService;
         $this->apContext = $apContext;
@@ -844,7 +847,11 @@ class SubscriptionService
                 // access point remembers one, so this is the moment to put it
                 // back — the station is associated and the entry exists.
                 if ($address && $device) {
-                    $this->airtime->onConnect($device, $address);
+                    // A blocked station that got in is thrown straight back
+                    // off, and then there is no point putting a weight on it.
+                    if (!$this->blocklist->onConnect($device, $address)) {
+                        $this->airtime->onConnect($device, $address);
+                    }
                 }
                 // the identity travels with the connect event, so a key that
                 // was handed out is recognised the moment it is used instead

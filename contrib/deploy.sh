@@ -71,6 +71,22 @@ ssh "$HOST" "chown -R www-data:www-data $DIR \
   && sudo -u www-data $PHP bin/console cache:clear --env=prod \
   && sudo -u www-data $PHP bin/console assets:install public --env=prod"
 
+# The code is on the machine and the subscriber is still down, which is the one
+# moment where a missing column costs nothing. Deploying an entity with a column
+# the database does not have makes every message from every access point throw a
+# PDOException, close the entity manager and be lost — twice today, until the
+# ALTER caught up. Better to be told now, while the only thing that has happened
+# is that some files were copied.
+say "schema"
+PENDING="$(ssh "$HOST" "cd $DIR && sudo -u www-data $PHP bin/console doctrine:schema:update --dump-sql 2>/dev/null | grep -E '^(ALTER|CREATE|DROP)' || true")"
+if [ -n "$PENDING" ]; then
+	printf '\n!! the database is behind the code. Apply this first:\n\n%s\n\n' "$PENDING" >&2
+	printf '   ssh %s "cd %s && sudo -u www-data %s bin/console dbal:run-sql \x27<statement>\x27"\n\n' \
+		"$HOST" "$DIR" "$PHP" >&2
+else
+	echo "  up to date"
+fi
+
 say "reloading the web server and starting $SERVICE"
 ssh "$HOST" "systemctl reload apache2 && systemctl start $SERVICE"
 trap - EXIT

@@ -21,6 +21,8 @@ final class ClientAdmin extends AbstractAdmin
             ->add('mode_g')
             ->add('mode_a')
             ->add('airtimeWeight', null, ['label' => 'Airtime weight'])
+            ->add('blockedUntil', null, ['label' => 'Blocked until'])
+            ->add('blockedReason', null, ['label' => 'Why'])
             ;
     }
 
@@ -33,6 +35,8 @@ final class ClientAdmin extends AbstractAdmin
             ->add('mode_g')
             ->add('mode_a')
             ->add('airtimeWeight', null, ['label' => 'Airtime weight'])
+            ->add('blockedUntil', null, ['label' => 'Blocked until'])
+            ->add('blockedReason', null, ['label' => 'Why'])
             ->add(ListMapper::NAME_ACTIONS, null, [
                 'actions' => [
                     'show' => [],
@@ -58,6 +62,21 @@ final class ClientAdmin extends AbstractAdmin
                     .'hostapd accepts the weight, answers success, and the driver value does not move. '
                     .'Leave empty to have no opinion.',
             ])
+            ->add('blockedUntil', null, [
+                'required' => false,
+                'widget' => 'single_text',
+                'label' => 'Blocked until',
+                'help' => 'A station with a date in the future here is thrown off every bss it is on '
+                    .'and thrown off again whenever it manages to associate. It is on for a moment '
+                    .'each time: hostapd bans per bss, in memory, with an end, so the block is kept '
+                    .'alive by the controller rather than held by the access point. Empty means '
+                    .'welcome.',
+            ])
+            ->add('blockedReason', null, [
+                'required' => false,
+                'label' => 'Why',
+                'help' => 'So that whoever finds this in three months knows whether it may be undone.',
+            ])
             ;
     }
 
@@ -70,6 +89,8 @@ final class ClientAdmin extends AbstractAdmin
             ->add('mode_g')
             ->add('mode_a')
             ->add('airtimeWeight', null, ['label' => 'Airtime weight'])
+            ->add('blockedUntil', null, ['label' => 'Blocked until'])
+            ->add('blockedReason', null, ['label' => 'Why'])
             ;
     }
 }

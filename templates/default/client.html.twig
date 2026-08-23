@@ -23,6 +23,7 @@
 <h2>{{ mac }}
 	{% if client and client.name %}<span class="small">{{ client.name }}</span>{% endif %}
 	{% if current|length %}<span class="pill up">connected</span>{% else %}<span class="pill down">not associated</span>{% endif %}
+	{% if client and client.isBlocked %}<span class="pill down">blocked</span>{% endif %}
 </h2>
 
 <p class="small">
@@ -34,6 +35,44 @@
 		<span class="stale">not in the database yet</span>
 	{% endif %}
 </p>
+
+{% if client %}
+<div class="card" id="blockbox">
+	<h3 class="small" style="margin:0 0 .3em">
+		{% if client.isBlocked %}Blocked{% else %}Let on{% endif %}
+	</h3>
+	{% if client.isBlocked %}
+		<p class="small">
+			Not allowed on until <b>{{ client.blockedUntil|date('d.m.Y H:i') }}</b>{% if client.blockedReason %} —
+			{{ client.blockedReason }}{% endif %}.
+			It is thrown off again every time it manages to associate, so it is on for a moment each
+			time before the access point turns it away.
+		</p>
+		<p class="small">
+			<button class="small" id="unblock">let it back on</button>
+			<span id="blockresult" class="stale"></span>
+		</p>
+	{% else %}
+		<p class="small">
+			<input id="blockreason" size="30" placeholder="why (optional)">
+			<select id="blockfor">
+				<option value="0">until somebody says otherwise</option>
+				<option value="60">for an hour</option>
+				<option value="1440">for a day</option>
+				<option value="10080">for a week</option>
+			</select>
+			<button class="small" id="block">keep it off</button>
+			<span id="blockresult" class="stale"></span>
+		</p>
+		<p class="small stale">
+			A block is thrown off and banned on every bss it is on, and again whenever it comes back.
+			The ban an access point holds lasts {{ ban_seconds }} seconds and cannot be lifted early —
+			hostapd has no way to forget one — so letting a station back on takes effect within that,
+			not at once. Short on purpose: what makes a block last is the next ban, not this one.
+		</p>
+	{% endif %}
+</div>
+{% endif %}
 
 <div class="card" id="trafficbox">
 	<h3 class="small" style="margin:0 0 .3em">What this station is moving</h3>
@@ -472,6 +511,39 @@ document.querySelectorAll('button.act').forEach((btn) => {
 // now. The reply says which of the two actually took — hostapd answers success
 // on a radio with no airtime policy, so "sent" and "in effect" are not the same
 // sentence.
+var blockUrl = {{ path('client_block', {'mac': mac})|json_encode|raw }};
+function blockSay(text, bad) {
+	var el = document.getElementById('blockresult');
+	if (!el) { return; }
+	el.textContent = text;
+	el.className = bad ? 'warn' : 'stale';
+}
+function blockPost(body) {
+	blockSay('…');
+	fetch(blockUrl, {method: 'POST', body: new URLSearchParams(body)})
+		.then(function (r) { return r.json(); })
+		.then(function (d) {
+			if (!d.ok) { blockSay(d.error || 'that did not work', true); return; }
+			blockSay(d.note || ((d.thrown_off || []).length
+				? 'thrown off ' + d.thrown_off.join(', ')
+				: 'done'));
+			window.setTimeout(function () { window.location.reload(); }, 2500);
+		})
+		.catch(function (e) { blockSay(String(e), true); });
+}
+var blockBtn = document.getElementById('block');
+if (blockBtn) {
+	blockBtn.addEventListener('click', function () {
+		blockPost({
+			minutes: document.getElementById('blockfor').value,
+			reason: document.getElementById('blockreason').value
+		});
+	});
+}
+var unblockBtn = document.getElementById('unblock');
+if (unblockBtn) {
+	unblockBtn.addEventListener('click', function () { blockPost({unblock: 1}); });
+}
 var airtimeUrl = {{ path('client_airtime', {'mac': mac})|json_encode|raw }};
 document.querySelectorAll('.airtime').forEach(function (box) {
 	var input = box.querySelector('.at-weight');
