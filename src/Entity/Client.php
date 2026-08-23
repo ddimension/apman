@@ -47,6 +47,36 @@ class Client
     private $SteeringDisabled = false;
 
     /**
+     * How much of the medium this client may take, relative to the others.
+     *
+     * mac80211 gives every station a weight of 256 and shares airtime in that
+     * proportion, so 512 is twice a normal client's share and 128 is half. The
+     * number is not a rate and not a cap — a client alone on a radio gets all
+     * of it whatever this says; the weight only decides who yields when two of
+     * them want the medium at the same moment.
+     *
+     * Three things were measured on ap-av-grwz on 23.08.2026 and all three
+     * shape how this is used:
+     *
+     *   - Without `airtime_mode` on the radio, hostapd accepts `update_airtime`
+     *     and answers success while the driver value does not move. Setting a
+     *     weight against a radio that has no airtime policy is a no-op that
+     *     looks like a success, which is why the pages say so out loud.
+     *   - A weight of 0 is ignored rather than treated as "back to normal".
+     *     Resetting means sending 256, and AirtimeService::DEFAULT_WEIGHT is
+     *     that number for exactly this reason.
+     *   - It does not survive a reassociation. The station was set to 700,
+     *     deauthenticated, and came back at 256. So this column is the
+     *     intention and the access point is never the record of it: the weight
+     *     is put back on every AP-STA-CONNECTED.
+     *
+     * Null means we have no opinion and the station keeps whatever the radio
+     * gives it.
+     */
+    #[ORM\Column(name: 'airtime_weight', type: 'integer', nullable: true)]
+    private $airtimeWeight;
+
+    /**
      * Get id.
      *
      * @return int
@@ -155,6 +185,18 @@ class Client
     public function getSteeringDisabled(): ?bool
     {
         return $this->SteeringDisabled;
+    }
+
+    public function getAirtimeWeight(): ?int
+    {
+        return $this->airtimeWeight;
+    }
+
+    public function setAirtimeWeight(?int $weight): self
+    {
+        $this->airtimeWeight = $weight;
+
+        return $this;
     }
 
     public function setSteeringDisabled(?bool $SteeringDisabled): self

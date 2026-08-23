@@ -105,6 +105,40 @@ class ApUbusService
     }
 
     /**
+     * Send one ubus call and do not wait for the answer.
+     *
+     * For the callers that run inside the subscriber's event loop. A
+     * synchronous call there blocks everything the controller does — every
+     * access point, not only this one — for as long as the timeout, and it has
+     * cost the fleet once already: a blocking probe in the housekeeping loop
+     * timed out fleet-wide while the agents were answering in milliseconds.
+     *
+     * So this publishes and returns. `call_async` is the agent's own word for
+     * it and the same thing client steering has always used: the access point
+     * carries the call out and answers nobody, which is right when there is
+     * nothing in the answer worth having.
+     *
+     * @param object|array|null $args
+     *
+     * @return bool whether it went out, which is all that can be known here
+     */
+    public function callAsync(AccessPoint $ap, string $object, string $method, $args = null): bool
+    {
+        $client = $this->mqttFactory->getClient();
+        if (!$client) {
+            $this->logger->debug('ApUbusService: no mqtt connection, '.$ap->getName().' did not get '
+                .$object.'.'.$method);
+
+            return false;
+        }
+        $cmd = $this->rpcService->createRpcRequest('u-async-'.bin2hex(random_bytes(4)), 'call_async',
+            null, $object, $method, $args);
+        $client->publish('apman/ap/'.$ap->getName().'/command', json_encode($cmd), 1);
+
+        return true;
+    }
+
+    /**
      * Several calls in one batch, answered in the order they were given.
      *
      * The agent runs a batch in the order it was sent, which is the reason to

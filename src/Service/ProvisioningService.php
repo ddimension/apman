@@ -53,6 +53,16 @@ class ProvisioningService
      */
     public const LIVE_TIMEOUT = 12.0;
 
+    /**
+     * how long a forced run waits for the radios it is restarting to go down
+     *
+     * Short, because this is not waiting for a result — it is waiting for the
+     * teardown to have started so that what comes after is measured on the far
+     * side of it. If they do not go down, that is an answer too and the report
+     * says so.
+     */
+    public const FORCED_DOWN_TIMEOUT = 15.0;
+
     /** uci bookkeeping, not configuration — never a reason to restart a radio */
     private const UCI_META = ['type' => true, 'name' => true, 'section' => true, 'config' => true];
 
@@ -381,12 +391,34 @@ class ProvisioningService
         }
 
         // A bss that is being added gets its netdev within about a second; one
-        // that is going away disappears about as fast. This waits for the set
-        // to match rather than sleeping a guessed amount, but with a short
-        // budget: nothing here restarts a radio, so nothing here waits out a
-        // channel availability check.
+        // that is going away disappears about as fast, so a short budget is
+        // enough — nothing on this path restarts a radio.
+        //
+        // Unless it was forced. Then a phy is coming down with everything on
+        // it, and measuring a second later catches the teardown half done: on
+        // ap-av-grwz that reported eleven interfaces kept running while five of
+        // them were in the middle of being rebuilt. So when a restart was
+        // forced, the interfaces of the radios that classify named are first
+        // waited out of existence, and only then waited back — with the budget
+        // a restart needs, channel availability check included.
         $started = microtime(true);
-        $back = $this->waitForInterfaces($ap, true, self::LIVE_TIMEOUT);
+        $forcedRadios = 'restart' === $verdict['mode'] ? $verdict['restarting'] : [];
+        if ($forcedRadios) {
+            $falling = $this->interfacesOfRadios($ap, $forcedRadios);
+            $fell = $falling
+                ? $this->waitForNames($ap, $falling, false, self::FORCED_DOWN_TIMEOUT)
+                : ['ok' => true, 'left' => []];
+            $report['forced'] = $forcedRadios;
+            $report['steps'][] = $this->step('radios down', $started, true,
+                $fell['ok']
+                    ? implode(', ', $forcedRadios).' went down with '.count($falling).' network(s)'
+                    : implode(', ', $forcedRadios).' did not go down — hostapd applied the change '
+                        .'without restarting the phy');
+            $report['phy_restarted'] = $fell['ok'];
+            $started = microtime(true);
+        }
+        $back = $this->waitForInterfaces($ap, true,
+            $forcedRadios ? $this->waitBudget($ap) : self::LIVE_TIMEOUT);
         // And the other half of "the set matches": a bss that was switched off
         // has to be gone, not merely not-expected. Waiting only for the
         // arrivals meant a removal was still in flight when the interfaces were
@@ -412,18 +444,31 @@ class ProvisioningService
         $moved = $this->compareIndices($before, $after, $back['expected'],
             $this->managedInterfaces($ap));
         $report += $moved;
-        $report['steps'][] = $this->step('nothing else moved', $started, !$moved['restarted'],
-            $moved['restarted']
-                ? 'these were restarted although nothing about them changed: '.implode(', ', $moved['restarted'])
-                : count($moved['kept']).' kept running, '.count($moved['added']).' added, '
-                    .count($moved['removed']).' removed');
+        // A forced run was told to restart named radios, so their interfaces
+        // coming back with new indices is the thing that was asked for. What
+        // still matters is whether anything *else* went with them — measured on
+        // ap-av-grwz on 23.08.2026: a radio level change restarts that phy and
+        // only that phy, and the seven interfaces on the other two kept the
+        // index the kernel had given them.
+        $asked = $forcedRadios ? $this->interfacesOfRadios($ap, $forcedRadios) : [];
+        $collateral = array_values(array_diff($moved['restarted'], $asked));
+        $report['restarted_as_asked'] = array_values(array_intersect($moved['restarted'], $asked));
+        $report['collateral'] = $collateral;
 
-        if ($moved['restarted']) {
+        $report['steps'][] = $this->step('nothing else moved', $started, !$collateral,
+            $collateral
+                ? 'these were restarted although nothing about them changed: '.implode(', ', $collateral)
+                : count($moved['kept']).' kept running, '.count($moved['added']).' added, '
+                    .count($moved['removed']).' removed'
+                    .($report['restarted_as_asked']
+                        ? ', '.count($report['restarted_as_asked']).' restarted as asked' : ''));
+
+        if ($collateral) {
             // Worth an error in the log and not only in the answer: the whole
             // point of this path is that it does not do that, so if it did, the
             // assumption underneath it needs revisiting rather than repeating.
             $this->logger->error($ap->getName().': a live provisioning run restarted '
-                .implode(', ', $moved['restarted']).' — these were not part of the change, and a '
+                .implode(', ', $collateral).' — these were not part of the change, and a '
                 .'bss that restarts drops every station on it');
         }
         if (!$moved['known']) {
@@ -550,6 +595,32 @@ class ProvisioningService
         sort($out['restarted']);
 
         return $out;
+    }
+
+    /**
+     * The interface names standing on the named radios of this access point.
+     *
+     * @param string[] $radioNames
+     *
+     * @return string[]
+     */
+    private function interfacesOfRadios(AccessPoint $ap, array $radioNames): array
+    {
+        $wanted = array_flip($radioNames);
+        $names = [];
+        foreach ($ap->getRadios() as $radio) {
+            if (!isset($wanted[(string) $radio->getName()])) {
+                continue;
+            }
+            foreach ($radio->getDevices() as $device) {
+                $name = $device->ifname();
+                if ($name) {
+                    $names[$name] = true;
+                }
+            }
+        }
+
+        return array_keys($names);
     }
 
     /**

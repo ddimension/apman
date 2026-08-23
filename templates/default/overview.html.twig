@@ -160,6 +160,30 @@
 		{% endif %}
 	</div>
 
+	{% if airtime|length %}
+	<div class="card big">
+		<h3 class="small">Share of the medium</h3>
+		<table class="counters small">
+			<tr><th>client</th><th>asked</th><th>running</th><th></th></tr>
+			{% for row in airtime %}
+				<tr>
+					<td><a href="{{ path('client_detail', {'mac': row.mac}) }}" class="mono">{{ row.name ?: row.mac }}</a>
+						{% if row.where %}<div class="stale">{{ row.where }}</div>{% endif %}</td>
+					<td class="mono">{{ row.want }}</td>
+					<td class="mono {{ row.running and row.running != row.want ? 'warn' : '' }}">{{ row.running ?: '—' }}</td>
+					<td class="{{ row.policy and not row.policy.ok ? 'warn' : 'stale' }}">
+						{% if not row.where %}not associated anywhere
+						{% elseif row.policy and not row.policy.ok %}this radio ignores weights
+						{% elseif row.running == row.want %}in effect
+						{% else %}not applied yet{% endif %}</td>
+				</tr>
+			{% endfor %}
+		</table>
+		<p class="small stale">{{ airtime_default }} is a normal station. The weight lives in the driver
+			and dies with the association, so it is put back every time the station connects.</p>
+	</div>
+	{% endif %}
+
 	<div class="card big">
 		<h3 class="small">Agents</h3>
 		<table class="counters small">

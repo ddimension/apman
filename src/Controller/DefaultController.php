@@ -535,7 +535,7 @@ class DefaultController extends AbstractController
      * how it answered steering requests and what its probe advertises.
      */
     #[Route(path: '/client/{mac}', name: 'client_detail')]
-    public function clientDetailAction($mac)
+    public function clientDetailAction($mac, \ApManBundle\Service\AirtimeService $airtime)
     {
         $mac = strtolower($mac);
         $em = $this->doctrine->getManager();
@@ -619,6 +619,15 @@ class DefaultController extends AbstractController
                             'avg ack signal' => $station['avg_ack_signal'] ?? null,
                             'associated at' => $station['associated_at'] ?? null,
                         ], function ($v) { return null !== $v && '' !== $v; }),
+                        // The weight the driver is using, and whether this
+                        // radio pays any attention to it. Both are free: the
+                        // agent already publishes airtime_weight with every
+                        // station dump, and the policy is a radio option.
+                        'device_id' => $device->getId(),
+                        'airtime_weight' => isset($station['airtime_weight'])
+                            ? (int) $station['airtime_weight'] : null,
+                        'airtime_policy' => $device->getRadio()
+                            ? $airtime->explain($device->getRadio()) : null,
                         'aid' => $hostapd['aid'] ?? null,
                         'signature' => $hostapd['signature'] ?? null,
                         'taxonomy' => $this->describeTaxonomy($hostapd['signature'] ?? null),
@@ -702,7 +711,54 @@ class DefaultController extends AbstractController
             'ctrl_events' => $ctrlEvents,
             'steering' => $steering,
             'ies' => $ies,
+            'airtime_default' => \ApManBundle\Service\AirtimeService::DEFAULT_WEIGHT,
         ]);
+    }
+
+    /**
+     * How much of the medium this client may take, relative to the others.
+     *
+     * The weight is written to the database because that is the only place it
+     * survives: it lives in the driver's station entry and dies with it, so it
+     * is put back on every association by the control channel. Sending it here
+     * as well means it takes effect now rather than at the next reconnect.
+     *
+     * An empty value is not zero. Zero is ignored by hostapd once the policy is
+     * on — measured — so "back to normal" means sending the default, and that
+     * is what clearing the field does.
+     */
+    #[Route(path: '/client/{mac}/airtime', name: 'client_airtime', methods: ['POST'])]
+    public function clientAirtimeAction(Request $request, $mac, \ApManBundle\Service\AirtimeService $airtime)
+    {
+        $mac = strtolower($mac);
+        $client = $this->doctrine->getRepository('ApManBundle\Entity\Client')->findOneBy(['mac' => $mac]);
+        if (!$client) {
+            return $this->json(['ok' => false, 'error' => 'this client is not known'], 404);
+        }
+
+        $raw = trim((string) $request->request->get('weight', ''));
+        $weight = '' === $raw ? null : $airtime->clamp((int) $raw);
+        $client->setAirtimeWeight($weight);
+        $this->doctrine->getManager()->flush();
+
+        $out = ['ok' => true, 'weight' => $weight, 'applied' => []];
+
+        // and put it on wherever the station is right now
+        $deviceId = (int) $request->request->get('device', 0);
+        $devices = $deviceId
+            ? array_filter([$this->doctrine->getRepository('ApManBundle\Entity\Device')->find($deviceId)])
+            : [];
+        foreach ($devices as $device) {
+            $res = $airtime->set($device, $mac, $weight);
+            $out['applied'][(string) $device->ifname()] = $res;
+            if (!($res['ok'] ?? false)) {
+                $out['error'] = $res['error'] ?? 'the access point did not take it';
+            } elseif (!($res['effective'] ?? true)) {
+                $out['note'] = $res['note'];
+            }
+        }
+
+        return $this->json($out);
     }
 
     /**
@@ -2075,7 +2131,8 @@ class DefaultController extends AbstractController
     #[Route(path: '/overview', name: 'overview')]
     public function overviewAction(\ApManBundle\Service\StateTreeService $stateTree,
         \ApManBundle\Service\WlanConsistencyService $consistency,
-        \ApManBundle\Service\DfsService $dfs)
+        \ApManBundle\Service\DfsService $dfs,
+        \ApManBundle\Service\AirtimeService $airtime)
     {
         $em = $this->doctrine->getManager();
         $aps = $em->createQuery('SELECT a,r,d FROM ApManBundle\Entity\AccessPoint a
@@ -2232,7 +2289,37 @@ class DefaultController extends AbstractController
         }
         usort($open, function ($a, $b) { return $b['radios'] <=> $a['radios']; });
 
+        // Clients we hold an airtime opinion about, and whether the radio they
+        // are on pays any attention to it. Both halves matter: a weight on a
+        // radio with no policy is accepted by hostapd, reported as a success
+        // and ignored by the driver, so a page that showed only the intention
+        // would be showing something that is not happening.
+        $airtimeRows = [];
+        foreach ($airtime->weighted() as $c) {
+            $mac = strtolower((string) $c->getMac());
+            $row = ['mac' => $mac, 'name' => $c->getName(), 'want' => $c->getAirtimeWeight(),
+                'where' => null, 'running' => null, 'policy' => null];
+            foreach ($aps as $ap) {
+                foreach ($ap->getRadios() as $radio) {
+                    foreach ($radio->getDevices() as $device) {
+                        $status = $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId());
+                        $station = $status['stations'][$mac] ?? null;
+                        if (!is_array($station)) {
+                            continue;
+                        }
+                        $row['where'] = $ap->getName().'/'.$device->ifname();
+                        $row['running'] = isset($station['airtime_weight'])
+                            ? (int) $station['airtime_weight'] : null;
+                        $row['policy'] = $airtime->explain($radio);
+                    }
+                }
+            }
+            $airtimeRows[] = $row;
+        }
+
         return $this->render('default/overview.html.twig', [
+            'airtime' => $airtimeRows,
+            'airtime_default' => \ApManBundle\Service\AirtimeService::DEFAULT_WEIGHT,
             'tree' => $tree,
             'trouble' => $trouble,
             'listening' => $listening,

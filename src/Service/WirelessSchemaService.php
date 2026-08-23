@@ -264,6 +264,22 @@ class WirelessSchemaService
             'text' => 'Dynamic VLANs without a naming scheme produce interface names that are '.
                 'hard to predict; set vlan_naming explicitly.'],
 
+        ['when' => ['airtime_sta_weight' => '/^[0-9]+$/'], 'need' => ['airtime_mode'],
+            'text' => 'A station weight without airtime_mode does nothing. Measured on '
+                .'ap-av-grwz on 23.08.2026: hostapd takes update_airtime, answers success, and '
+                .'the driver value does not move — 256 before, 256 after. With airtime_mode=1 the '
+                .'same call moved it to 700 immediately. So this is the switch, and everything '
+                .'else about airtime is decoration without it.'],
+        ['when' => ['airtime_mode' => '/^2$/'], 'always' => true,
+            'text' => 'Dynamic mode: hostapd works the station weights out from the bss weights '
+                .'itself, so a per station weight set from the client page is overwritten again. '
+                .'Use 1 (static) if the point is to give named clients a different share.'],
+        ['when' => ['airtime_mode' => '/^[1-3]$/'], 'always' => true,
+            'text' => 'Airtime policy costs a restart of this phy when it is switched on or off — '
+                .'measured at about sixteen seconds on ap-av-grwz, and only this phy: the networks '
+                .'on the other radios of that access point kept the interface index the kernel had '
+                .'given them. A weight of 0 is ignored rather than meaning "normal"; normal is 256.'],
+
         // The radio side. All three come from reading hostapd.uc on the access
         // points rather than from the schema, which does not describe the
         // conditions under which it writes a line.

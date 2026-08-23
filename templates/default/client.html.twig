@@ -117,6 +117,41 @@
 				</table>
 			</div>
 
+			<div class="airtime" data-device="{{ c.device_id }}">
+				<h4>Share of the medium
+					<span class="small">who yields when two stations want it at once</span></h4>
+				<table class="kv">
+					<tr><td>running weight</td>
+						<td class="mono">{{ c.airtime_weight ?: '—' }}
+							{%- if c.airtime_weight and c.airtime_weight != airtime_default %}
+								<span class="small">({{ (c.airtime_weight / airtime_default)|round(2) }}× a normal station)</span>
+							{%- elseif c.airtime_weight %}<span class="small stale">the default</span>{% endif %}</td></tr>
+					<tr><td>we ask for</td>
+						<td class="mono">{{ client and client.airtimeWeight ? client.airtimeWeight : '—' }}
+							{%- if client and client.airtimeWeight and c.airtime_weight and client.airtimeWeight != c.airtime_weight %}
+								<span class="warn small">not what is running</span>
+							{%- endif %}</td></tr>
+					<tr><td>this radio</td>
+						<td class="{{ c.airtime_policy and not c.airtime_policy.ok ? 'warn' : 'stale' }} small">
+							{{ c.airtime_policy ? c.airtime_policy.text : 'unknown' }}</td></tr>
+				</table>
+				<p class="small">
+					<input type="number" class="at-weight" min="1" max="65535" step="1" size="6"
+					       value="{{ client and client.airtimeWeight ? client.airtimeWeight : '' }}"
+					       placeholder="{{ airtime_default }}">
+					<button class="small at-set">set</button>
+					<button class="ghost small at-clear">back to normal</button>
+					<span class="at-result stale"></span>
+				</p>
+				<p class="small stale">
+					{{ airtime_default }} is normal, so {{ airtime_default * 2 }} is twice a normal station's
+					share and {{ (airtime_default / 2)|round }} is half. It is not a rate and not a cap — a
+					station alone on a radio gets all of it whatever this says. The weight lives in the
+					driver and dies with the association, so it is put back every time this station
+					connects.
+				</p>
+			</div>
+
 			{% if c.security|length %}
 			<div>
 				<h4>Negotiated security
@@ -430,6 +465,46 @@ document.querySelectorAll('button.act').forEach((btn) => {
 {% endblock %}
 
 {% block javascripts %}
+<script>
+// The weight is written to the database and put on the access point in the
+// same request, because the two answer different questions: the database is
+// what survives the next roam, the access point is what the station notices
+// now. The reply says which of the two actually took — hostapd answers success
+// on a radio with no airtime policy, so "sent" and "in effect" are not the same
+// sentence.
+var airtimeUrl = {{ path('client_airtime', {'mac': mac})|json_encode|raw }};
+document.querySelectorAll('.airtime').forEach(function (box) {
+	var input = box.querySelector('.at-weight');
+	var out = box.querySelector('.at-result');
+	function send(value) {
+		out.className = 'at-result stale';
+		out.textContent = 'sending…';
+		var body = new URLSearchParams({device: box.dataset.device});
+		if (value !== null) { body.set('weight', value); }
+		fetch(airtimeUrl, {method: 'POST', body: body})
+			.then(function (r) { return r.json(); })
+			.then(function (d) {
+				if (!d.ok) { out.className = 'at-result warn'; out.textContent = d.error || 'that did not work'; return; }
+				if (d.note) { out.className = 'at-result warn'; out.textContent = 'saved, but ' + d.note; return; }
+				out.className = 'at-result ok';
+				out.textContent = d.weight === null
+					? 'back to normal'
+					: 'running at ' + d.weight;
+				window.setTimeout(function () { window.location.reload(); }, 1800);
+			})
+			.catch(function (e) { out.className = 'at-result warn'; out.textContent = String(e); });
+	}
+	box.querySelector('.at-set').addEventListener('click', function () {
+		var v = input.value.trim();
+		if (v === '') { send(null); return; }
+		send(v);
+	});
+	box.querySelector('.at-clear').addEventListener('click', function () {
+		input.value = '';
+		send(null);
+	});
+});
+</script>
 <script>
 // Mirrored around the middle, the same way the client list draws it: up is to
 // the station, down is from it. One scale for both directions, because the

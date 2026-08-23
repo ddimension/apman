@@ -46,6 +46,8 @@ class SubscriptionService
     private $reconnecting = false;
     private $reconnectDelay = 0;
 
+    private AirtimeService $airtime;
+
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
         \Doctrine\Persistence\ManagerRegistry $doctrine,
@@ -57,8 +59,10 @@ class SubscriptionService
         RadiusAuthService $radiusAuthService,
         ApContextService $apContext,
         StateTreeService $stateTree,
-        DfsService $dfs
+        DfsService $dfs,
+        AirtimeService $airtime
     ) {
+        $this->airtime = $airtime;
         $this->ppskService = $ppskService;
         $this->radiusAuthService = $radiusAuthService;
         $this->apContext = $apContext;
@@ -834,6 +838,14 @@ class SubscriptionService
 
         switch ($name) {
             case 'AP-STA-CONNECTED':
+                // An airtime weight lives in the driver's station entry and
+                // dies with it: measured on ap-av-grwz, a station on weight 700
+                // was deauthenticated and came back on 256. Nothing on the
+                // access point remembers one, so this is the moment to put it
+                // back — the station is associated and the entry exists.
+                if ($address && $device) {
+                    $this->airtime->onConnect($device, $address);
+                }
                 // the identity travels with the connect event, so a key that
                 // was handed out is recognised the moment it is used instead
                 // of on the next poll

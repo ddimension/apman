@@ -20,6 +20,7 @@ final class ClientAdmin extends AbstractAdmin
             ->add('name')
             ->add('mode_g')
             ->add('mode_a')
+            ->add('airtimeWeight', null, ['label' => 'Airtime weight'])
             ;
     }
 
@@ -31,6 +32,7 @@ final class ClientAdmin extends AbstractAdmin
             ->add('name')
             ->add('mode_g')
             ->add('mode_a')
+            ->add('airtimeWeight', null, ['label' => 'Airtime weight'])
             ->add(ListMapper::NAME_ACTIONS, null, [
                 'actions' => [
                     'show' => [],
@@ -47,6 +49,15 @@ final class ClientAdmin extends AbstractAdmin
             ->add('name')
             ->add('mode_g')
             ->add('mode_a')
+            ->add('airtimeWeight', null, [
+                'required' => false,
+                'label' => 'Airtime weight',
+                'help' => '256 is normal, so 512 is twice a normal station\'s share of the medium and '
+                    .'128 is half. Not a rate and not a cap: a station alone on a radio gets all of it '
+                    .'whatever this says. It only works on a radio with airtime_mode set — without it '
+                    .'hostapd accepts the weight, answers success, and the driver value does not move. '
+                    .'Leave empty to have no opinion.',
+            ])
             ;
     }
 
@@ -58,6 +69,7 @@ final class ClientAdmin extends AbstractAdmin
             ->add('name')
             ->add('mode_g')
             ->add('mode_a')
+            ->add('airtimeWeight', null, ['label' => 'Airtime weight'])
             ;
     }
 }
