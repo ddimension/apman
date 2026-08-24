@@ -63,6 +63,12 @@ class ProvisioningService
      */
     public const FORCED_DOWN_TIMEOUT = 15.0;
 
+    /** the least a departure wait gets, whatever the arrivals used up */
+    public const DEPARTURE_FLOOR = 5.0;
+
+    /** between two readings of the interface indices while waiting for them to settle */
+    public const SETTLE_INTERVAL = 1.2;
+
     /** uci bookkeeping, not configuration — never a reason to restart a radio */
     private const UCI_META = ['type' => true, 'name' => true, 'section' => true, 'config' => true];
 
@@ -378,6 +384,7 @@ class ProvisioningService
         }
 
         $before = $this->wirelessIndices($ap);
+        $wirelessBefore = $this->wirelessNames($ap);
 
         $started = microtime(true);
         $config = $this->aps->applyConfig($ap);
@@ -430,26 +437,52 @@ class ProvisioningService
         // has to be gone, not merely not-expected. Waiting only for the
         // arrivals meant a removal was still in flight when the interfaces were
         // counted, and the run reported that nothing had gone away.
-        $shouldBeGone = array_values(array_diff($this->managedInterfaces($ap), $back['expected']));
+        // Which interfaces are this access point's to judge. Guessing from the
+        // name would be guessing — kinfra0 does not begin with wap- and the
+        // next scheme will not either — so it is asked of the device: iwinfo
+        // lists exactly the wireless netdevs. Taken before the change as well
+        // as from the database, because a bss removed through the rollout has
+        // its row deleted and would otherwise be in neither set.
+        $everOurs = array_values(array_unique(array_merge(
+            $this->managedInterfaces($ap), $wirelessBefore)));
+        $shouldBeGone = array_values(array_diff($everOurs, $back['expected']));
+        // Its own floor rather than whatever the arrivals left over: squeezed
+        // to a second it cannot fit a single round trip, times out, and then
+        // reports the interfaces as still present when what happened is that
+        // nobody looked.
         $gone = $shouldBeGone
-            ? $this->waitForNames($ap, $shouldBeGone, false, max(1.0, self::LIVE_TIMEOUT - (microtime(true) - $started)))
-            : ['ok' => true, 'left' => []];
+            ? $this->waitForNames($ap, $shouldBeGone, false,
+                max(self::DEPARTURE_FLOOR, self::LIVE_TIMEOUT - (microtime(true) - $started)))
+            : ['ok' => true, 'left' => [], 'observed' => true];
         $report['steps'][] = $this->step('interfaces there', $started, $back['ok'] && $gone['ok'],
             trim(($back['ok'] ? count($back['expected']).' interfaces up'
                 : 'missing: '.implode(', ', $back['left']))
                 .($shouldBeGone
                     ? ($gone['ok'] ? ', '.count($shouldBeGone).' gone'
-                        : ', still there: '.implode(', ', $gone['left']))
+                        : (($gone['observed'] ?? false)
+                            ? ', still there: '.implode(', ', $gone['left'])
+                            : ', could not check whether '.count($shouldBeGone).' went away'))
                     : '')));
         $report['expect'] = $back['expected'];
 
-        $after = $this->wirelessIndices($ap);
+        // Wait until the picture stops moving before taking it.
+        //
+        // Waiting for names is not enough and two measurements proved it. A bss
+        // that was deleted from the database is in neither the expected nor the
+        // managed set, so nothing waits for it to go — and a neighbour that
+        // hostapd rebuilds because *its* configuration changed keeps its name
+        // throughout, so no name-based wait can see it at all. On dsl-modem
+        // this reported "4 kept running, 0 removed" for a run that removed one
+        // bss and rebuilt another.
+        //
+        // The indices are what changes, so the indices are what to wait on: two
+        // identical readings a second apart mean the access point has finished.
+        $after = $this->settledIndices($ap, $forcedRadios ? $this->waitBudget($ap) : self::LIVE_TIMEOUT);
         // Judged against every interface this access point is ours to manage,
         // not only the ones it should have now — a bss that was just switched
         // off is no longer expected, and judging only the expected set made its
         // removal invisible in the very report that exists to confirm it.
-        $moved = $this->compareIndices($before, $after, $back['expected'],
-            $this->managedInterfaces($ap));
+        $moved = $this->compareIndices($before, $after, $back['expected'], $everOurs);
         $report += $moved;
         // A forced run was told to restart named radios, so their interfaces
         // coming back with new indices is the thing that was asked for. What
@@ -487,7 +520,7 @@ class ProvisioningService
         if (!$back['ok']) {
             $report['missing'] = $back['left'];
             $report['error'] = 'these did not appear: '.implode(', ', $back['left']);
-        } elseif (!$gone['ok']) {
+        } elseif (!$gone['ok'] && ($gone['observed'] ?? false)) {
             $report['lingering'] = $gone['left'];
             $report['error'] = 'these did not go away: '.implode(', ', $gone['left']);
         }
@@ -508,6 +541,7 @@ class ProvisioningService
         $deadline = microtime(true) + $timeout;
         $left = $names;
         $polls = 0;
+        $observed = false;
 
         while (microtime(true) < $deadline) {
             ++$polls;
@@ -515,11 +549,12 @@ class ProvisioningService
                 max(2, min(6, $deadline - microtime(true))));
             $devices = $res->isOk() && is_object($res->data) ? ($res->data->devices ?? null) : null;
             if (is_array($devices)) {
+                $observed = true;
                 $left = $present
                     ? array_values(array_diff($names, $devices))
                     : array_values(array_intersect($names, $devices));
                 if (!$left) {
-                    return ['ok' => true, 'left' => [], 'polls' => $polls];
+                    return ['ok' => true, 'left' => [], 'polls' => $polls, 'observed' => true];
                 }
             }
             if (microtime(true) + self::POLL_INTERVAL >= $deadline) {
@@ -528,7 +563,58 @@ class ProvisioningService
             usleep((int) (self::POLL_INTERVAL * 1000000));
         }
 
-        return ['ok' => false, 'left' => $left, 'polls' => $polls];
+        // Never got an answer: the names are not "still there", they are
+        // unknown, and saying the first is how a busy access point gets blamed
+        // for something nobody looked at.
+        return ['ok' => false, 'left' => $observed ? $left : [], 'polls' => $polls,
+            'observed' => $observed];
+    }
+
+    /**
+     * The interface indices, once they have stopped changing.
+     *
+     * Polls until two consecutive readings agree, or the budget runs out. A
+     * reading that cannot be taken is not agreement — it comes back as null and
+     * the report says it cannot say, rather than calling an unreadable access
+     * point unchanged.
+     */
+    private function settledIndices(AccessPoint $ap, float $budget): ?array
+    {
+        $deadline = microtime(true) + $budget;
+        $previous = null;
+        $stable = 0;
+
+        while (microtime(true) < $deadline) {
+            $now = $this->wirelessIndices($ap);
+            if (null !== $now && null !== $previous && $now === $previous) {
+                ++$stable;
+                if ($stable >= 1) {
+                    return $now;
+                }
+            } else {
+                $stable = 0;
+            }
+            $previous = $now;
+            if (microtime(true) + self::SETTLE_INTERVAL >= $deadline) {
+                break;
+            }
+            usleep((int) (self::SETTLE_INTERVAL * 1000000));
+        }
+
+        return $previous;
+    }
+
+    /**
+     * The names of this access point's wireless netdevs, asked of the device.
+     *
+     * @return string[] empty when it could not be asked
+     */
+    private function wirelessNames(AccessPoint $ap): array
+    {
+        $res = $this->ubus->call($ap, 'iwinfo', 'devices', null, 6);
+        $devices = $res->isOk() && is_object($res->data) ? ($res->data->devices ?? null) : null;
+
+        return is_array($devices) ? array_values(array_filter($devices, 'is_string')) : [];
     }
 
     /**

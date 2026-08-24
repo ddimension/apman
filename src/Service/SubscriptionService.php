@@ -341,7 +341,22 @@ class SubscriptionService
         // host that is not in the database at all this used to run on every
         // single message. Rebuild at most once per interval, which also picks
         // up newly added access points without a restart.
-        if ((!isset($this->cacheLocal['ap-by-name'][$hostname]) or !isset($this->cacheLocal['dev-by-ap-ifname'][$hostname]))
+        // A bss added while this process is running is on the access point
+        // within seconds and was invisible here until it restarted: the rebuild
+        // only fired when the *access point* was unknown, and dsl-modem had
+        // been known for hours. Three interfaces added through the rollout ran
+        // for a quarter of an hour with the state tree calling them READY and
+        // "never heard from" while their netdevs were up and reporting.
+        //
+        // So a device name that is not in the map counts as a reason too. The
+        // interval guard is what keeps that affordable: an interface this
+        // controller does not manage would otherwise rebuild the map on every
+        // message it sends, which is the cost the guard was put there for.
+        $knownDevice = null === $device || '' === $device
+            || isset($this->cacheLocal['dev-by-ap-ifname'][$hostname][$device]);
+        if ((!isset($this->cacheLocal['ap-by-name'][$hostname])
+                or !isset($this->cacheLocal['dev-by-ap-ifname'][$hostname])
+                or !$knownDevice)
             and (time() - $this->cacheRefreshed) >= self::CACHE_REFRESH_INTERVAL) {
             $this->cacheRefreshed = time();
             //$this->logger->notice("SubscribtionService: Flushing pid local cache.");
