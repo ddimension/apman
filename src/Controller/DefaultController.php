@@ -2461,6 +2461,11 @@ class DefaultController extends AbstractController
         $limit = min(1000, max(20, (int) $request->query->get('limit', 200)));
 
         $counters = $syslog->fleetCounters();
+        foreach ($counters as $name => $entry) {
+            $counters[$name]['intended'] = $syslog->intended($entry['ap']);
+            $counters[$name]['running'] = $syslog->running($entry['ap']);
+            $counters[$name]['drift'] = $syslog->drift($entry['ap']);
+        }
         $lines = $syslog->recent($filter, $limit);
 
         // How much of what the numbering says went missing the agents own up
@@ -2482,6 +2487,61 @@ class DefaultController extends AbstractController
             'missed' => $missed,
             'anywhere' => (bool) array_filter($counters, fn ($c) => null !== $c['counters']),
         ]);
+    }
+
+    /**
+     * Set the log filter on one access point, or on all of them.
+     *
+     * Writing uci is all it takes: the agent watches /etc/config/apman by
+     * content digest and re-applies when it changes, so the new list is in
+     * force within a watch tick — no restart, and the log stream is not
+     * dropped. Measured on ap-av-attic before this endpoint existed.
+     */
+    #[Route(path: '/syslog/filter', name: 'syslog_filter', methods: ['POST'])]
+    public function syslogFilterAction(Request $request, \ApManBundle\Service\SyslogService $syslog)
+    {
+        $filter = [
+            'enabled' => $request->request->getBoolean('enabled'),
+            'all' => $request->request->getBoolean('all'),
+            'kernel' => $request->request->getBoolean('kernel', true),
+            'allow' => $syslog->clean(preg_split('/[\s,]+/', (string) $request->request->get('allow', ''))),
+            'deny' => $syslog->clean(preg_split('/[\s,]+/', (string) $request->request->get('deny', ''))),
+            'allow_re' => $syslog->clean(preg_split('/\R/', (string) $request->request->get('allow_re', ''))),
+        ];
+
+        $name = trim((string) $request->request->get('ap', ''));
+        $repo = $this->doctrine->getRepository('ApManBundle\Entity\AccessPoint');
+        $targets = '' === $name || 'all' === $name
+            ? $repo->findBy([], ['name' => 'ASC'])
+            : array_filter([$repo->findOneBy(['name' => $name])]);
+        if (!$targets) {
+            return $this->json(['ok' => false, 'error' => 'no such access point'], 404);
+        }
+
+        $em = $this->doctrine->getManager();
+        $results = [];
+        foreach ($targets as $ap) {
+            // the intention is written down whether or not the access point is
+            // reachable: one that is away should come back to the filter it was
+            // given, not to the one it happened to have
+            $ap->setSyslogFilter($filter);
+            $em->persist($ap);
+            $results[$ap->getName()] = $syslog->pushFilter($ap, $filter);
+        }
+        $em->flush();
+
+        $failed = array_keys(array_filter($results, fn ($r) => !($r['ok'] ?? false)));
+
+        return $this->json([
+            'ok' => !$failed,
+            'saved' => array_keys($results),
+            'failed' => $failed,
+            'note' => $failed
+                ? 'saved for all of them; '.implode(', ', $failed).' did not take it now and will '
+                    .'get it the next time the filter is pushed'
+                : 'in force — the agents re-read the configuration on their own',
+            'results' => $results,
+        ], $failed ? 207 : 200);
     }
 
     /**

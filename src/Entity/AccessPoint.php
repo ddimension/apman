@@ -96,6 +96,42 @@ class AccessPoint extends \ApManBundle\DynamicEntity\AccessPoint
     #[ORM\Column(name: 'transport', type: 'string', length: 8, nullable: true, options: ['default' => 'mqtt'])]
     private $transport = self::TRANSPORT_MQTT;
 
+    /**
+     * Which log lines this access point should forward, or null for its own default.
+     *
+     * The agent decides what leaves the device — nine lines a minute at rest is
+     * nothing, but a radio restart arrives in a burst, and a line that is never
+     * published costs nothing to carry. What it decides by is a list of idents
+     * in /etc/config/apman, and this is the controller's copy of what that list
+     * ought to be.
+     *
+     * Kept here rather than only on the device for the same reason every other
+     * intention is: so that it can be compared against what is actually
+     * running, restored to an access point that was reflashed, and changed for
+     * the whole fleet from one place. The agent reports its running list back
+     * on properties/syslog, so the two can be held against each other.
+     *
+     * null means nothing has been decided here and the agent keeps its built-in
+     * default, which is not the same as an empty list — an empty list forwards
+     * nothing but the kernel.
+     *
+     * Shape: {enabled, all, kernel, allow: [], deny: [], allow_re: []}
+     */
+    #[ORM\Column(name: 'syslog_filter', type: 'json', nullable: true)]
+    private $syslogFilter;
+
+    public function getSyslogFilter(): ?array
+    {
+        return is_array($this->syslogFilter) ? $this->syslogFilter : null;
+    }
+
+    public function setSyslogFilter(?array $filter): self
+    {
+        $this->syslogFilter = $filter;
+
+        return $this;
+    }
+
     #[ORM\Column(name: 'radius_secret', type: 'string', nullable: true)]
     private $radiusSecret;
 

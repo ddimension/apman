@@ -45,7 +45,210 @@ class SyslogService
         private readonly \Doctrine\Persistence\ManagerRegistry $doctrine,
         private readonly \Psr\Log\LoggerInterface $logger,
         private readonly \ApManBundle\Factory\CacheFactory $cacheFactory,
+        private readonly ApUbusService $ubus,
     ) {
+    }
+
+    /** the uci options the agent reads its filter out of */
+    public const OPTIONS = ['syslog_enabled', 'syslog_all', 'syslog_kernel',
+        'syslog_allow', 'syslog_deny', 'syslog_allow_re'];
+
+    /** which of those are lists rather than single values */
+    public const LISTS = ['syslog_allow', 'syslog_deny', 'syslog_allow_re'];
+
+    /**
+     * Put a filter onto an access point, now.
+     *
+     * No agent change was needed for this and that is worth writing down: the
+     * agent already watches /etc/config/apman by content digest and re-applies
+     * when it changes — measured, the line it prints is "apman config changed,
+     * re-applying" — and re-applying runs the syslog module's configure(). So
+     * the controller writes uci and the device picks it up on its own, within a
+     * watch tick, without a restart and without dropping the log stream.
+     *
+     * The lists are deleted before they are written. uci's add_list appends,
+     * so writing a list twice without deleting it first gives an access point
+     * every ident it has ever been told about, and the second write looks like
+     * it worked.
+     *
+     * @param array $filter enabled, all, kernel, allow[], deny[], allow_re[]
+     */
+    public function pushFilter(AccessPoint $ap, array $filter, bool $commit = true): array
+    {
+        $calls = [];
+        $describe = [];
+
+        // delete first, every time: an option that is now unset must go away
+        // rather than keep its old value, and a list must not accumulate
+        foreach (self::OPTIONS as $option) {
+            $calls[] = $this->uciExec(['delete', 'apman.main.'.$option]);
+        }
+
+        foreach ([
+            'syslog_enabled' => $filter['enabled'] ?? null,
+            'syslog_all' => $filter['all'] ?? null,
+            'syslog_kernel' => $filter['kernel'] ?? null,
+        ] as $option => $value) {
+            if (null === $value) {
+                continue;
+            }
+            $calls[] = $this->uciExec(['set', 'apman.main.'.$option.'='.($value ? '1' : '0')]);
+            $describe[] = $option.'='.($value ? '1' : '0');
+        }
+
+        foreach ([
+            'syslog_allow' => $filter['allow'] ?? [],
+            'syslog_deny' => $filter['deny'] ?? [],
+            'syslog_allow_re' => $filter['allow_re'] ?? [],
+        ] as $option => $values) {
+            foreach ($this->clean($values) as $value) {
+                $calls[] = $this->uciExec(['add_list', 'apman.main.'.$option.'='.$value]);
+            }
+            if ($this->clean($values)) {
+                $describe[] = $option.'='.count($this->clean($values));
+            }
+        }
+
+        if ($commit) {
+            $calls[] = $this->uciExec(['commit', 'apman']);
+        }
+
+        $answers = $this->ubus->callMany($ap, $calls, 30);
+        $failed = [];
+        foreach ($answers as $i => $res) {
+            // a delete of an option that was never set answers "not found",
+            // which is the ordinary case on a first push and not a failure
+            if ($res && $res->isOk()) {
+                continue;
+            }
+            if ($i < count(self::OPTIONS)) {
+                continue;
+            }
+            $failed[] = $i.': '.($res ? $res->why() : 'no answer');
+        }
+
+        if ($failed) {
+            $this->logger->warning('syslog: could not put the filter on '.$ap->getName()
+                .': '.implode('; ', $failed));
+
+            return ['ok' => false, 'ap' => $ap->getName(), 'error' => implode('; ', $failed)];
+        }
+
+        $this->logger->notice('syslog: '.$ap->getName().' filter set — '
+            .(implode(', ', $describe) ?: 'everything cleared, the agent falls back to its default')
+            .'. It re-reads /etc/config/apman on its own; no restart.');
+
+        return ['ok' => true, 'ap' => $ap->getName(), 'set' => $describe,
+            'calls' => count($calls)];
+    }
+
+    /**
+     * The filter an access point should have: its own, or nothing.
+     */
+    public function intended(AccessPoint $ap): ?array
+    {
+        return $ap->getSyslogFilter();
+    }
+
+    /**
+     * What it is actually running, from the agent's own report.
+     */
+    public function running(AccessPoint $ap): ?array
+    {
+        $c = $this->counters($ap);
+        if (null === $c) {
+            return null;
+        }
+
+        return [
+            'enabled' => (bool) ($c['enabled'] ?? false),
+            'all' => (bool) ($c['allow_all'] ?? false),
+            'kernel' => (bool) ($c['kernel_enabled'] ?? false),
+            'allow' => is_array($c['allow'] ?? null) ? $c['allow'] : [],
+            'allow_re' => is_array($c['allow_re'] ?? null) ? array_values($c['allow_re']) : [],
+        ];
+    }
+
+    /**
+     * Where the intention and the device disagree.
+     *
+     * deny is left out on purpose: it is an instruction to remove idents from
+     * the built-in defaults, so it never appears in the running list — what it
+     * did is visible as an absence there, and comparing it directly would
+     * report a difference on every access point that has one.
+     *
+     * @return string[] one line per disagreement, empty when they match
+     */
+    public function drift(AccessPoint $ap): array
+    {
+        return $this->driftBetween($this->intended($ap), $this->running($ap));
+    }
+
+    /**
+     * The comparison itself, with nothing to fetch.
+     *
+     * @param array|null $want what the controller asked for
+     * @param array|null $have what the agent reports it is running
+     */
+    public function driftBetween(?array $want, ?array $have): array
+    {
+        if (null === $want || null === $have) {
+            return [];
+        }
+        $out = [];
+        foreach (['enabled', 'all', 'kernel'] as $flag) {
+            if (!array_key_exists($flag, $want)) {
+                continue;
+            }
+            if ((bool) $want[$flag] !== (bool) $have[$flag]) {
+                $out[] = $flag.': asked for '.($want[$flag] ? 'on' : 'off')
+                    .', running '.($have[$flag] ? 'on' : 'off');
+            }
+        }
+        foreach (['allow_re'] as $list) {
+            $a = $this->clean($want[$list] ?? []);
+            $b = $this->clean($have[$list] ?? []);
+            sort($a);
+            sort($b);
+            if ($a !== $b) {
+                $out[] = $list.': asked for ['.implode(' ', $a).'], running ['.implode(' ', $b).']';
+            }
+        }
+        // allow is additive over the agent's defaults, so every asked-for ident
+        // has to be present; extra ones on the device are its defaults and not
+        // a disagreement
+        $missing = array_diff($this->clean($want['allow'] ?? []), $this->clean($have['allow'] ?? []));
+        if ($missing) {
+            $out[] = 'allow: asked for '.implode(', ', $missing).' and they are not running';
+        }
+
+        return $out;
+    }
+
+    private function uciExec(array $params): array
+    {
+        $opts = new \stdClass();
+        $opts->command = '/sbin/uci';
+        $opts->params = $params;
+
+        return ['object' => 'file', 'method' => 'exec', 'args' => $opts];
+    }
+
+    /**
+     * @return string[] trimmed, no blanks, no duplicates, order kept
+     */
+    public function clean($values): array
+    {
+        $out = [];
+        foreach ((array) $values as $value) {
+            $value = trim((string) $value);
+            if ('' === $value || in_array($value, $out, true)) {
+                continue;
+            }
+            $out[] = $value;
+        }
+
+        return $out;
     }
 
     public function linesKey(AccessPoint $ap): string

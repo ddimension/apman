@@ -51,8 +51,12 @@
 					<td class="mono">{{ c.kept }}</td>
 				{% endif %}
 				<td class="stale small">
-					{% if c.counters and c.counters.restarts|default(0) > 0 %}
+					{% if c.drift|length %}
+						{% for d in c.drift %}<div class="warn">{{ d }}</div>{% endfor %}
+					{% elseif c.counters and c.counters.restarts|default(0) > 0 %}
 						<span class="warn">{{ c.counters.restarts }}× lost the record boundary</span>
+					{% elseif c.intended %}
+						asked for and running{% if c.age is not null %} · {{ c.age }} s ago{% endif %}
 					{% elseif c.age is not null %}{{ c.age }} s ago{% endif %}
 				</td>
 			</tr>
@@ -62,6 +66,49 @@
 		"Its own" is the agent's own lines, which never leave the access point — a line about having
 		published a line is a loop. On a busy agent that is most of the stream, so a large number
 		there is the filter working and not a fault.
+	</p>
+</div>
+
+<div class="card" id="filterbox">
+	<h3 class="small" style="margin:0 0 .3em">What the agents forward</h3>
+	<p class="small stale">
+		The filter runs on the access point, before anything is published — a line that never leaves
+		costs nothing to carry. Kernel messages go through whatever the list says; everything else
+		has to name an ident on it. The agent's own lines are dropped first and are not subject to
+		any of this, because a line about having published a line is a loop.
+	</p>
+	<p class="small stale">
+		Writing this needs no restart: the agent watches its configuration file and re-applies when
+		it changes, so a new list is in force within a few seconds and the log stream stays up.
+	</p>
+	<form id="filterform" class="small">
+		<label>on
+			<select name="ap">
+				<option value="all">every access point</option>
+				{% for name, c in counters %}
+					<option value="{{ name }}">{{ name }}</option>
+				{% endfor %}
+			</select>
+		</label>
+		<label><input type="checkbox" name="enabled" value="1" checked> forward at all</label>
+		<label><input type="checkbox" name="kernel" value="1" checked> kernel always</label>
+		<label><input type="checkbox" name="all" value="1"> everything except the agent's own</label>
+		<div style="margin:.5em 0">
+			<label style="display:block">idents to add, space or comma separated
+				<input name="allow" size="60" placeholder="mydaemon dropbear"></label>
+			<label style="display:block">idents to remove from the built-in defaults
+				<input name="deny" size="60" placeholder="dnsmasq"></label>
+			<label style="display:block">patterns, one per line
+				<textarea name="allow_re" rows="2" cols="58" placeholder="^wpa%-"></textarea></label>
+		</div>
+		<button type="submit">put it on</button>
+		<span id="filterresult" class="stale"></span>
+	</form>
+	<p class="small stale">
+		The built-in defaults are hostapd, wpa_supplicant, netifd, kernel, dnsmasq, odhcpd, rpcd and
+		ubusd. "Add" is on top of those; "remove" takes one away. Patterns are Lua patterns, not
+		regular expressions — <span class="mono">^wpa%-</span> rather than
+		<span class="mono">^wpa-</span>.
 	</p>
 </div>
 
@@ -127,6 +174,33 @@
 </table>
 {% endblock %}
 
+{% block javascripts %}
+<script>
+var filterUrl = {{ path('syslog_filter')|json_encode|raw }};
+document.getElementById('filterform').addEventListener('submit', function (ev) {
+	ev.preventDefault();
+	var out = document.getElementById('filterresult');
+	var form = ev.target;
+	var body = new URLSearchParams(new FormData(form));
+	// an unchecked box sends nothing at all, and "nothing" would read as "leave
+	// it alone" rather than "off" — say off explicitly
+	['enabled', 'kernel', 'all'].forEach(function (name) {
+		if (!form.elements[name].checked) { body.set(name, '0'); }
+	});
+	out.className = 'stale';
+	out.textContent = 'writing…';
+	fetch(filterUrl, {method: 'POST', body: body})
+		.then(function (r) { return r.json(); })
+		.then(function (d) {
+			out.className = d.ok ? 'ok' : 'warn';
+			out.textContent = (d.saved || []).length + ' access point(s): ' + (d.note || '');
+			window.setTimeout(function () { window.location.reload(); }, 3000);
+		})
+		.catch(function (e) { out.className = 'warn'; out.textContent = String(e); });
+});
+</script>
+{% endblock %}
+
 {% block stylesheets %}
 <style>
 	table.syslog { border-collapse: collapse; width: 100%; }
@@ -142,7 +216,8 @@
 	table.syslog tr.lvl-7 td { opacity: .7; }
 	table.syslog tr.gap td { color: var(--ink-mute); font-style: italic;
 	                         border-bottom: 1px dashed var(--line-soft); }
-	form.card label { margin-right: 1em; display: inline-block; }
+	form.card label, #filterbox label { margin-right: 1em; display: inline-block; }
+	#filterbox textarea, #filterbox input[type=text], #filterbox input:not([type]) { font-family: monospace; }
 	table.counters tr.dim { opacity: .55; }
 </style>
 {% endblock %}
