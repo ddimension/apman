@@ -2520,7 +2520,9 @@ class DefaultController extends AbstractController
 
         $em = $this->doctrine->getManager();
         $results = [];
+        $byName = [];
         foreach ($targets as $ap) {
+            $byName[$ap->getName()] = $ap;
             // the intention is written down whether or not the access point is
             // reachable: one that is away should come back to the filter it was
             // given, not to the one it happened to have
@@ -2530,16 +2532,44 @@ class DefaultController extends AbstractController
         }
         $em->flush();
 
-        $failed = array_keys(array_filter($results, fn ($r) => !($r['ok'] ?? false)));
+        // An access point that did not take it is only a problem if it was
+        // supposed to be running. ap-hv-klwz carries productive = false
+        // precisely because it is out of service, and reporting the whole push
+        // as failed because a switched-off access point stayed silent is the
+        // same category error the readiness check already avoids: it turns an
+        // expected absence into something red that people learn to ignore.
+        $failed = [];
+        $absent = [];
+        foreach ($results as $name => $result) {
+            if ($result['ok'] ?? false) {
+                continue;
+            }
+            if ($byName[$name]->getIsProductive()) {
+                $failed[] = $name;
+            } else {
+                $absent[] = $name;
+            }
+        }
+
+        $note = [];
+        if ($failed) {
+            $note[] = implode(', ', $failed).' did not take it and should have — saved here, and '
+                .'the next push will try again';
+        }
+        if ($absent) {
+            $note[] = implode(', ', $absent).' did not answer, which is expected: not productive. '
+                .'The filter is saved and goes on as soon as it is back';
+        }
+        if (!$note) {
+            $note[] = 'in force — the agents re-read the configuration on their own';
+        }
 
         return $this->json([
             'ok' => !$failed,
             'saved' => array_keys($results),
             'failed' => $failed,
-            'note' => $failed
-                ? 'saved for all of them; '.implode(', ', $failed).' did not take it now and will '
-                    .'get it the next time the filter is pushed'
-                : 'in force — the agents re-read the configuration on their own',
+            'absent' => $absent,
+            'note' => implode('. ', $note),
             'results' => $results,
         ], $failed ? 207 : 200);
     }
