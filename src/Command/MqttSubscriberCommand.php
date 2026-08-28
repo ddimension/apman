@@ -36,7 +36,15 @@ class MqttSubscriberCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        set_time_limit(1800);
+        // No limit. bin/console already sets 0; this line put a 1800 second
+        // cap back on a daemon that is meant to run until it is stopped.
+        // PHP counts only the script's own execution here, not the time the
+        // loop spends waiting on the broker, so the cap took days to fill and
+        // then killed the subscriber mid-call with a fatal error - twice a day,
+        // every day, always inside a redis read. systemd restarted it, so it
+        // looked like nothing was wrong; what it cost was the in-memory state
+        // and a replay of every retained message on the broker.
+        set_time_limit(0);
 
         return $this->subs->runMqttLoop();
     }
