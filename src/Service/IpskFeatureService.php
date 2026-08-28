@@ -77,16 +77,29 @@ class IpskFeatureService extends AbstractFeatureService
         // key here gets the same result without depending on that.
         unset($config['key']);
 
-        // Do NOT set sae_pwe here. ap.uc skips its own default as soon as
-        // `ppsk` is set, and that is deliberate: a password delivered over
+        // sae_pwe is deliberately not set here, and since 2026-08-28 that is
+        // a default rather than a law.
+        //
+        // On stock hostapd it must not be set: a password delivered over
         // RADIUS has no SAE PT (`use_sta_psk` is only set from the ucode
-        // sta_auth hook, which the RADIUS ACL path never reaches). With H2E
-        // advertised, a client that commits with hash-to-element gets
-        // rejected — measured 2026-08-21 on kalclients: the station sent
+        // sta_auth hook, which the RADIUS ACL path never reaches), so with
+        // H2E advertised a client that commits with hash-to-element gets
+        // rejected. Measured 2026-08-21 on kalclients: the station sent
         // `status=126 (SAE_HASH_TO_ELEMENT)` and hostapd answered status 1.
-        // Leaving sae_pwe unset means hunting-and-pecking only, which is what
-        // works with RADIUS-delivered SAE passwords. The corollary is that
-        // iPSK plus SAE cannot work on 6 GHz, where H2E is mandatory.
+        // Hunting-and-pecking only is what works there, and the corollary is
+        // that iPSK plus SAE cannot work on 6 GHz, where H2E is mandatory.
+        //
+        // On wpad-saeradh2e the PT is derived for a RADIUS password, so H2E
+        // works and 6 GHz becomes possible — see docs/hostapd-sae-radius.md.
+        // It still is not set from here, for two reasons: the feature is
+        // fleet-wide while the build is per access point, and the rollout is
+        // meant to be one access point at a time.
+        //
+        // Where it is wanted, it goes in as a raw line — `sae_pwe=2` in
+        // hostapd_bss_options, exactly like the two above. ap.uc's `ppsk`
+        // guard governs only ap.uc's own rendering and has no say over a
+        // passthrough line. WlanConsistencyService knows which build an access
+        // point runs and judges the result accordingly.
 
         $config['hostapd_bss_options'] = array_values(array_unique($config['hostapd_bss_options']));
 

@@ -86,6 +86,15 @@ class WlanConsistencyService
     private $cacheFactory;
     private $stateTree;
     private $schema;
+    private $builds;
+
+    /**
+     * Which access points run the patched hostapd, by name.
+     *
+     * Filled once per check() and read by blockRules(), which works on parsed
+     * configuration and has an access point name rather than an entity.
+     */
+    private array $patched = [];
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -95,7 +104,8 @@ class WlanConsistencyService
         StateTreeService $stateTree,
         WirelessSchemaService $schema,
         ApUbusService $ubus,
-        AccessPointService $apService
+        AccessPointService $apService,
+        HostapdBuildService $builds
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -105,6 +115,7 @@ class WlanConsistencyService
         $this->cacheFactory = $cacheFactory;
         $this->stateTree = $stateTree;
         $this->schema = $schema;
+        $this->builds = $builds;
     }
 
     /**
@@ -305,6 +316,25 @@ class WlanConsistencyService
         // that is uniformly wrong — which is how sae_pwe=2 reached every
         // access point at once and locked out a whole network without a
         // single deviation being reported.
+        //
+        // Two of the rules below invert with the hostapd build, so the answer
+        // has to be in hand before the first of them runs. Only the access
+        // points that actually appear in the dump are asked — an entity that
+        // is not in here has no block to judge, and asking it would spend a
+        // timeout on an access point nobody is looking at.
+        $seen = [];
+        foreach ($blocks as $b) {
+            if (!empty($b['ap'])) {
+                $seen[$b['ap']] = true;
+            }
+        }
+        $this->patched = [];
+        if ($seen) {
+            $aps = $this->doctrine->getRepository('ApManBundle\\Entity\\AccessPoint')
+                ->findBy(['name' => array_keys($seen)]);
+            $this->patched = $this->builds->fleet($aps);
+        }
+
         foreach ($blocks as $b) {
             foreach ($this->blockRules($b) as $f) {
                 $findings[] = $f;
@@ -366,6 +396,9 @@ class WlanConsistencyService
 
         $radiusKeys = isset($cfg['wpa_psk_radius']) && '0' !== $cfg['wpa_psk_radius'];
         $sae = false !== strpos($cfg['wpa_key_mgmt'] ?? '', 'SAE');
+        // unknown counts as stock: see HostapdBuildService on why the answer
+        // leans that way
+        $patched = (bool) ($this->patched[$b['ap']] ?? false);
 
         // The one that cost a night: with a passphrase configured,
         // sae_get_password() takes it and never looks at the key the RADIUS
@@ -385,11 +418,27 @@ class WlanConsistencyService
             $say('auth_server_addr', 'macaddr_acl=2 with no server — every station is denied');
         }
 
-        // sae_pwe=2 is hash-to-element only. Rolled out on 2026-08-21 it threw
-        // an entire fleet of clients off with status 126 and they could not
-        // come back; 6 GHz needs it, everything else must not have it.
+        // sae_pwe=2 is hash-to-element only, and what that costs now depends
+        // on the build underneath.
+        //
+        // On stock hostapd it is fatal on a RADIUS-keyed network: a password
+        // from an Access-Accept has no SAE PT, so *every* station is refused,
+        // not just an old one. Rolled out on 2026-08-21 it threw an entire
+        // fleet of clients off with status 126 and they could not come back.
+        //
+        // On wpad-saeradh2e the PT is derived and H2E works, so the option
+        // stops being an outage and goes back to meaning what it says: only
+        // stations that can do hash-to-element get in. That is still a real
+        // exclusion — sae_pwe=1 admits both — but it is a choice rather than
+        // a mistake, so it is said quietly and not marked as breaking roaming.
         if ('2' === ($cfg['sae_pwe'] ?? '') && '6g' !== ($cfg['_band'] ?? '')) {
-            $say('sae_pwe', '2 (hash-to-element only) — legacy clients cannot associate', true);
+            if ($patched) {
+                $say('sae_pwe', '2 (hash-to-element only) — stations without H2E cannot '
+                    .'associate; sae_pwe=1 admits both');
+            } else {
+                $say('sae_pwe', '2 (hash-to-element only) on stock hostapd — a RADIUS '
+                    .'password has no PT, so no station can associate at all', true);
+            }
         }
 
         // A key that arrives over RADIUS has no PT, so it can do no H2E, and
@@ -400,9 +449,24 @@ class WlanConsistencyService
         // not a network configured wrongly, it is a network nobody can enter,
         // advertised in every scan.
         if ($radiusKeys && $sae && '6g' === ($cfg['_band'] ?? '')) {
-            $say('wpa_psk_radius on 6 GHz SAE',
-                'keys delivered over RADIUS carry no PT, and 6 GHz requires H2E — '
-                .'this bss can never admit a station');
+            if (!$patched) {
+                $say('wpa_psk_radius on 6 GHz SAE',
+                    'keys delivered over RADIUS carry no PT, and 6 GHz requires H2E — '
+                    .'this bss can never admit a station');
+            } elseif (!in_array($cfg['sae_pwe'] ?? '', ['1', '2'], true)) {
+                // The build can do it; the configuration has not asked for
+                // it. ap.uc suppresses its own sae_pwe default whenever ppsk
+                // is set, so nothing writes the option by itself — but that
+                // guard only governs ap.uc's own rendering. A raw line in
+                // hostapd_bss_options is pasted into the interface section
+                // verbatim and is not subject to it, which is the same route
+                // IpskFeatureService already uses for wpa_psk_radius and
+                // macaddr_acl.
+                $say('sae_pwe',
+                    'unset on a 6 GHz RADIUS-keyed SAE bss — this build supports H2E, '
+                    .'but ap.uc writes no default while ppsk is set. '
+                    .'Add sae_pwe=2 to hostapd_bss_options.');
+            }
         }
 
         // OWE without protected management frames cannot work: the whole

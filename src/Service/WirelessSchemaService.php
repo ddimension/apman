@@ -264,6 +264,17 @@ class WirelessSchemaService
             'text' => 'Dynamic VLANs without a naming scheme produce interface names that are '.
                 'hard to predict; set vlan_naming explicitly.'],
 
+        // The build-dependent one. HINTS can only look at configuration
+        // values, never at what is installed, so this cannot decide the
+        // question — it can only make sure nobody sets the combination without
+        // having been told which build it needs.
+        ['when' => ['ppsk' => '/^(1|true|on)$/', 'sae_pwe' => '/^[12]$/'], 'always' => true,
+            'text' => 'sae_pwe together with per device keys only works on the patched '
+                .'hostapd (wpad-saeradh2e). On the stock build a password delivered over '
+                .'RADIUS has no SAE PT, so every station is refused, not just an old one — '
+                .'measured on kalclients 21.08.2026, status 126. Check the access point with '
+                .'"apk info -e wpad-saeradh2e"; see docs/hostapd-sae-radius.md.'],
+
         ['when' => ['airtime_sta_weight' => '/^[0-9]+$/'], 'need' => ['airtime_mode'],
             'text' => 'A station weight without airtime_mode does nothing. Measured on '
                 .'ap-av-grwz on 23.08.2026: hostapd takes update_airtime, answers success, and '
