@@ -469,6 +469,43 @@ class WlanConsistencyService
             }
         }
 
+        // Fast transition on a network whose keys are per station.
+        //
+        // Two things have to hold, and neither is the default:
+        //
+        //   ft_psk_generate_local=0   the target of a roam cannot derive
+        //                             PMK-R0 itself, because it has not seen
+        //                             this station and holds no key of its
+        //                             own to derive from
+        //   r0kh / r1kh               and the key it fetches instead has to be
+        //                             one both ends share. Left unset, ap.uc
+        //                             derives it from md5(mobility_domain +
+        //                             '/' + auth_secret) — the per access
+        //                             point RADIUS secret, so no two agree.
+        //
+        // Measured on the fleet 2026-08-28: kalclients has both and roams,
+        // kalnet has neither. The difference is which of four similarly named
+        // 802.11r feature templates somebody picked — "802.11r PSK" sets the
+        // flag to 1, "802.11r PSK SAE" sets it to 0 — which is not something a
+        // network's roaming should turn on. kalinfra keeps the flag at 1 and
+        // is right to: it has one passphrase for everybody, so local
+        // derivation is exactly what it wants. That is why this asks about
+        // per station keys and not about fast transition alone.
+        $ft = false !== strpos($cfg['wpa_key_mgmt'] ?? '', 'FT-');
+        if ($ft && $radiusKeys) {
+            if ('0' !== ($cfg['ft_psk_generate_local'] ?? '')) {
+                $say('ft_psk_generate_local',
+                    'not 0 while every station has its own key — the target of a roam has '
+                    .'nothing to derive PMK-R0 from', true);
+            }
+            if (empty($cfg['r0kh'])) {
+                $say('r0kh',
+                    'missing on a network with per station keys — ap.uc then derives the FT '
+                    .'key from the per access point RADIUS secret and no two access points '
+                    .'agree. apman:ft-key <network> --create', true);
+            }
+        }
+
         // OWE without protected management frames cannot work: the whole
         // point of OWE is an encrypted association, and 802.11 requires PMF
         // for it. hostapd sets it itself for an OWE-only bss, so this fires

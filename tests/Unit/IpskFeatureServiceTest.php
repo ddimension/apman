@@ -22,12 +22,35 @@ class IpskFeatureServiceTest extends TestCase
 {
     private function service(): IpskFeatureService
     {
+        // A real FtKeyService, not a stub: the two methods this feature calls
+        // read the configuration and the network's own lists and never touch
+        // the database, so the real one answers truthfully and a stub would
+        // only be able to answer what the test already assumed.
+        $ftKeys = new \ApManBundle\Service\FtKeyService(
+            $this->createStub(\Doctrine\Persistence\ManagerRegistry::class),
+            new NullLogger());
+
         return new IpskFeatureService(
             new NullLogger(),
             $this->createStub(\Doctrine\Persistence\ManagerRegistry::class),
             $this->createStub(\ApManBundle\Service\wrtJsonRpc::class),
             $this->createStub(\ApManBundle\Factory\MqttFactory::class),
-            $this->createStub(\Symfony\Component\HttpKernel\KernelInterface::class));
+            $this->createStub(\Symfony\Component\HttpKernel\KernelInterface::class),
+            $ftKeys);
+    }
+
+    /** A network that carries an FT key, the way a provisioned one does. */
+    private function contextWithFtKey(string $key): FeatureContext
+    {
+        $ctx = $this->context();
+        $list = new \ApManBundle\Entity\SSIDConfigList();
+        $list->setName('r0kh');
+        $option = new \ApManBundle\Entity\SSIDConfigListOption();
+        $option->setValue('ff:ff:ff:ff:ff:ff,*,'.$key);
+        $list->addOption($option);
+        $ctx->ssid->addConfigList($list);
+
+        return $ctx;
     }
 
     /** A context without a device — what the network page previews with. */
@@ -107,5 +130,39 @@ class IpskFeatureServiceTest extends TestCase
 
         $this->assertIsArray($out);
         $this->assertArrayNotHasKey('auth_secret', $out);
+    }
+
+    public function testLeavesLocalFtDerivationAloneWithoutAKey(): void
+    {
+        // The flag and the key belong together. Turning local derivation off
+        // while ap.uc is still deriving the FT key from the per access point
+        // RADIUS secret would trade one broken roam for another.
+        $out = $this->service()->getConfig(
+            ['ssid' => 'kalclients', 'ieee80211r' => '1', 'ft_psk_generate_local' => '1'],
+            $this->context());
+
+        $this->assertSame('1', $out['ft_psk_generate_local'],
+            'without a shared key the flag must not be touched');
+    }
+
+    public function testTurnsOffLocalFtDerivationOnceThereIsAKey(): void
+    {
+        $out = $this->service()->getConfig(
+            ['ssid' => 'kalclients', 'ieee80211r' => '1', 'ft_psk_generate_local' => '1'],
+            $this->contextWithFtKey(str_repeat('a', 64)));
+
+        $this->assertSame('0', $out['ft_psk_generate_local'],
+            'per station keys cannot be derived locally by the target of a roam');
+        $this->assertContains('ft_psk_generate_local=0', $out['hostapd_bss_options'],
+            'and the raw line repeats it, like the other two');
+    }
+
+    public function testSaysNothingAboutFtOnANetworkWithoutIt(): void
+    {
+        $out = $this->service()->getConfig(
+            ['ssid' => 'kalclients'], $this->contextWithFtKey(str_repeat('b', 64)));
+
+        $this->assertArrayNotHasKey('ft_psk_generate_local', $out,
+            'a network that does not roam gets no roaming options');
     }
 }

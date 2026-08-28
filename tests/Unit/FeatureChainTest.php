@@ -23,12 +23,29 @@ class FeatureChainTest extends TestCase
 {
     private function build(string $class): iFeatureService
     {
-        return new $class(
+        $args = [
             new NullLogger(),
             $this->createStub(\Doctrine\Persistence\ManagerRegistry::class),
             $this->createStub(\ApManBundle\Service\wrtJsonRpc::class),
             $this->createStub(\ApManBundle\Factory\MqttFactory::class),
-            $this->createStub(\Symfony\Component\HttpKernel\KernelInterface::class));
+            $this->createStub(\Symfony\Component\HttpKernel\KernelInterface::class),
+        ];
+        // A feature may take more than the five the base class does — iPSK
+        // takes FtKeyService, because the flag it sets depends on whether the
+        // network has an FT key. Rather than teach this helper each of them,
+        // it asks the constructor what it wants and fills the rest from the
+        // container-less stubs a unit test can build.
+        $extra = (new \ReflectionClass($class))->getConstructor()?->getParameters() ?? [];
+        foreach (array_slice($extra, count($args)) as $param) {
+            $type = $param->getType();
+            $name = $type instanceof \ReflectionNamedType ? $type->getName() : null;
+            $args[] = \ApManBundle\Service\FtKeyService::class === $name
+                ? new \ApManBundle\Service\FtKeyService(
+                    $this->createStub(\Doctrine\Persistence\ManagerRegistry::class), new NullLogger())
+                : $this->createStub($name);
+        }
+
+        return new $class(...$args);
     }
 
     private function context(array $catalog = []): FeatureContext

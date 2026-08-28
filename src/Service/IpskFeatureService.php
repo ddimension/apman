@@ -19,6 +19,17 @@ namespace ApManBundle\Service;
  */
 class IpskFeatureService extends AbstractFeatureService
 {
+    public function __construct(
+        \Psr\Log\LoggerInterface $logger,
+        \Doctrine\Persistence\ManagerRegistry $doctrine,
+        wrtJsonRpc $rpcService,
+        \ApManBundle\Factory\MqttFactory $mqttFactory,
+        \Symfony\Component\HttpKernel\KernelInterface $kernel,
+        private readonly FtKeyService $ftKeys,
+    ) {
+        parent::__construct($logger, $doctrine, $rpcService, $mqttFactory, $kernel);
+    }
+
     public function getName(): string
     {
         return 'ipsk';
@@ -100,6 +111,35 @@ class IpskFeatureService extends AbstractFeatureService
         // guard governs only ap.uc's own rendering and has no say over a
         // passthrough line. WlanConsistencyService knows which build an access
         // point runs and judges the result accordingly.
+
+        // Fast transition cannot derive its keys locally on this network.
+        //
+        // ft_psk_generate_local=1 makes the target of a roam derive PMK-R0
+        // from the pre-shared key it holds. That is right for a network with
+        // one passphrase — kalinfra has one and keeps the setting — and cannot
+        // work here: every station has a key of its own, and the target has
+        // not seen this station yet, so it holds nothing to derive from. The
+        // key has to travel over the R0KH/R1KH protocol, which is what 0
+        // selects.
+        //
+        // Which is why the flag is coupled to the key and not set on its own.
+        // Without r0kh/r1kh, ap.uc derives the FT key from
+        // md5(mobility_domain + '/' + auth_secret), and auth_secret is the per
+        // access point RADIUS secret — the access points would never agree.
+        // Turning local derivation off while that is the state of things would
+        // trade one broken roam for another, so the flag waits for the key.
+        // FtKeyService::isMissing() is what makes the wait visible;
+        // WlanConsistencyService reports it and apman:ft-key ends it.
+        //
+        // This runs after the 802.11r feature that sets the flag to 1 —
+        // by feature map id today, since every priority in this fleet is 0.
+        // That ordering is not something to lean on, which is the other reason
+        // the consistency check judges the generated configuration on the
+        // device rather than trusting this to have had the last word.
+        if ($this->ftKeys->ftEnabled($config) && null !== $this->ftKeys->keyOf($ctx->ssid)) {
+            $config['ft_psk_generate_local'] = '0';
+            $config['hostapd_bss_options'][] = 'ft_psk_generate_local=0';
+        }
 
         $config['hostapd_bss_options'] = array_values(array_unique($config['hostapd_bss_options']));
 
