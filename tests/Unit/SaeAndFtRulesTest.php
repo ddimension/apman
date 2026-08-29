@@ -63,7 +63,11 @@ class SaeAndFtRulesTest extends TestCase
 
     public function testPlainSaeWithAPassphraseIsNotAccusedOfTheRadiusFault(): void
     {
-        $f = $this->findings($this->sae(['sae_pwe' => '2']));
+        // 1 is hash-to-element only. On a network with a configured
+        // passphrase the PT is derived from it and this works exactly as
+        // documented, so the finding must be about excluded stations and
+        // must not mention RADIUS.
+        $f = $this->findings($this->sae(['sae_pwe' => '1']));
 
         $this->assertArrayHasKey('sae_pwe', $f, 'H2E-only still excludes pre-H2E stations');
         $this->assertStringNotContainsString('RADIUS', $f['sae_pwe'],
@@ -71,29 +75,46 @@ class SaeAndFtRulesTest extends TestCase
         $this->assertStringContainsString('without H2E', $f['sae_pwe']);
     }
 
+    public function testTheValuesAreNotTheOtherWayRound(): void
+    {
+        // The rule claimed for months that 2 was hash-to-element only. It is
+        // not: hostapd.conf says 0 = hunting-and-pecking only, 1 = H2E only,
+        // 2 = both. So 2 on a plain SAE network excludes nobody and must say
+        // nothing at all.
+        $f = $this->findings($this->sae(['sae_pwe' => '2']));
+
+        $this->assertArrayNotHasKey('sae_pwe', $f,
+            '2 offers both methods and locks nobody out');
+    }
+
     public function testRadiusKeyedSaeWithHashToElementOnlyOnStockIsFatal(): void
     {
-        $f = $this->findings($this->sae(['sae_pwe' => '2', 'wpa_psk_radius' => '2']));
+        $f = $this->findings($this->sae(['sae_pwe' => '1', 'wpa_psk_radius' => '2']));
 
         $this->assertStringContainsString('no station can associate at all', $f['sae_pwe']);
     }
 
-    public function testRadiusKeyedSaeWithBothMethodsOnStockIsIntermittent(): void
+    public function testRadiusKeyedSaeOfferingBothOnStockLosesTheCapableOnes(): void
     {
-        // the case the first version of the rule missed entirely: sae_pwe=1
-        // offers both, so only the stations that choose H2E are refused
-        $f = $this->findings($this->sae(['sae_pwe' => '1', 'wpa_psk_radius' => '2']));
+        // The 2026-08-21 outage, read correctly: 2 advertises H2E, a station
+        // that can do H2E chooses it, and on stock hostapd there is no PT for
+        // a RADIUS password — so it is exactly the capable stations that fall
+        // off, while hunting-and-pecking is nominally still on offer.
+        $f = $this->findings($this->sae(['sae_pwe' => '2', 'wpa_psk_radius' => '2']));
 
-        $this->assertArrayHasKey('sae_pwe', $f, 'sae_pwe=1 is not silent on a stock build');
-        $this->assertStringContainsString('chooses H2E', $f['sae_pwe']);
+        $this->assertArrayHasKey('sae_pwe', $f, 'this is what took kalclients down');
+        $this->assertStringContainsString('can do H2E is refused', $f['sae_pwe']);
     }
 
-    public function testThePatchedBuildTurnsTheOutageIntoAChoice(): void
+    public function testThePatchedBuildMakesBothValuesSafe(): void
     {
-        $f = $this->findings($this->sae(['sae_pwe' => '2', 'wpa_psk_radius' => '2']), true);
+        $both = $this->findings($this->sae(['sae_pwe' => '2', 'wpa_psk_radius' => '2']), true);
+        $this->assertArrayNotHasKey('sae_pwe', $both, '2 on a patched build is simply correct');
 
-        $this->assertStringNotContainsString('no station can associate', $f['sae_pwe']);
-        $this->assertStringContainsString('sae_pwe=1 admits both', $f['sae_pwe']);
+        $only = $this->findings($this->sae(['sae_pwe' => '1', 'wpa_psk_radius' => '2']), true);
+        $this->assertArrayHasKey('sae_pwe', $only);
+        $this->assertStringContainsString('2 admits both', $only['sae_pwe'],
+            'and 1 is a choice about which stations may connect, not an outage');
     }
 
     public function testPerStationKeysCannotDeriveFtLocally(): void

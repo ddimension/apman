@@ -60,6 +60,23 @@ RADIUS-delivered password. The corollary in ipsk.md — "iPSK plus SAE cannot
 work on 6 GHz at all" — no longer holds for this build; 6 GHz permits nothing
 but H2E, so it was exactly the missing piece.
 
+**The three values, because they are easy to get backwards.** From
+`hostapd.conf`: `0` is hunting-and-pecking only, `1` is hash-to-element
+**only**, `2` is **both**. So `2` is the permissive value and `1` the
+restrictive one. `WlanConsistencyService` claimed the opposite until
+2026-08-29 and reported it confidently; the rule is corrected and the tests
+now pin the mapping.
+
+This is also the honest reading of the 2026-08-21 outage. `sae_pwe=2` does not
+force H2E — it advertises it, and a station that can do H2E then chooses it.
+Without a PT that station is refused with status 126 while hunting-and-pecking
+is, in principle, still on offer. What fell off was exactly the capable half of
+the fleet, not everything.
+
+One consequence worth carrying: a station that uses an SAE Password Identifier
+gets H2E **regardless of `sae_pwe`** — `hostapd.conf` says so outright — which
+now matters, because `sae_password_radius=1` is on.
+
 **But `ap.uc` still suppresses it.** The patches are in hostapd; the
 `if (!config.ppsk)` guard is in `wifi-scripts`, a different package that has not
 been touched. So on an access point running `wpad-saeradh2e` nothing changes by

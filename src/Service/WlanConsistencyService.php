@@ -418,63 +418,60 @@ class WlanConsistencyService
             $say('auth_server_addr', 'macaddr_acl=2 with no server — every station is denied');
         }
 
-        // sae_pwe=2 is hash-to-element only, and what that costs now depends
-        // on the build underneath.
+        // What sae_pwe means, from hostapd.conf, because this rule had it
+        // backwards until 2026-08-29 and said so confidently:
         //
-        // On stock hostapd it is fatal on a RADIUS-keyed network: a password
-        // from an Access-Accept has no SAE PT, so *every* station is refused,
-        // not just an old one. Rolled out on 2026-08-21 it threw an entire
-        // fleet of clients off with status 126 and they could not come back.
+        //   0 = hunting-and-pecking loop only
+        //   1 = hash-to-element ONLY
+        //   2 = BOTH hunting-and-pecking and hash-to-element
         //
-        // On wpad-saeradh2e the PT is derived and H2E works, so the option
-        // stops being an outage and goes back to meaning what it says: only
-        // stations that can do hash-to-element get in. That is still a real
-        // exclusion — sae_pwe=1 admits both — but it is a choice rather than
-        // a mistake, so it is said quietly and not marked as breaking roaming.
-        // Which of those it is depends on where the password comes from, and
-        // an earlier version of this rule got that wrong: it fired the
-        // RADIUS wording on any SAE network, so a plain one with a configured
-        // passphrase — where the PT is derived from that passphrase and
-        // sae_pwe works exactly as documented — was told no station could
-        // associate at all. Guarded properly now.
+        // So 2 is the permissive value and 1 the restrictive one, which is
+        // the opposite of what the old comment claimed.
+        //
+        // That also explains the 2026-08-21 outage properly. sae_pwe=2 does
+        // not force H2E - it advertises it, and a station that can do H2E
+        // then chooses it. On stock hostapd a password from an Access-Accept
+        // has no PT, so every one of those stations was refused with status
+        // 126 while, in principle, hunting-and-pecking was still on offer.
+        // The ones that fell off were exactly the capable ones.
+        //
+        // Note also that a station using an SAE Password Identifier gets H2E
+        // regardless of this setting - hostapd.conf says so outright - which
+        // matters now that sae_password_radius is on.
         $pwe = (string) ($cfg['sae_pwe'] ?? '');
         if ($sae && '6g' !== ($cfg['_band'] ?? '')) {
             if ($radiusKeys && !$patched && in_array($pwe, ['1', '2'], true)) {
-                // 1 offers both methods, so it is not fatal in the way 2 is —
-                // a station that picks hunting and pecking still gets in — but
-                // one that picks H2E is refused, which is an intermittent
-                // failure and harder to see than a total one.
                 $say('sae_pwe', $pwe.' on stock hostapd with per station keys — a password '
-                    .'from RADIUS has no PT, so '.('2' === $pwe
+                    .'from RADIUS has no PT, so '.('1' === $pwe
                         ? 'no station can associate at all'
-                        : 'every station that chooses H2E is refused'), true);
-            } elseif ('2' === $pwe) {
-                $say('sae_pwe', '2 (hash-to-element only) — stations without H2E cannot '
-                    .'associate; sae_pwe=1 admits both');
+                        : 'every station that can do H2E is refused'), true);
+            } elseif ('1' === $pwe) {
+                // hash-to-element only: a deliberate exclusion rather than a
+                // mistake, so it is said quietly
+                $say('sae_pwe', '1 (hash-to-element only) — stations without H2E cannot '
+                    .'associate; 2 admits both');
             }
         }
 
-        // A key that arrives over RADIUS has no PT, so it can do no H2E, and
-        // 6 GHz permits nothing else. The combination cannot work at all — and
-        // "cannot work" turned out to be literal. Measured on ap-av-grwz
-        // 2026-08-22: wap-kc2 beacons on 6055 MHz with SAE FT-SAE,
-        // wpa_psk_radius=2 and no sae_pwe, and has never had a station. It is
-        // not a network configured wrongly, it is a network nobody can enter,
-        // advertised in every scan.
+        // A key that arrives over RADIUS has no PT on stock hostapd, so it can
+        // do no H2E, and 6 GHz permits nothing else. The combination cannot
+        // work there at all — measured on ap-av-grwz 2026-08-22: wap-kc2
+        // beaconed on 6055 MHz with SAE FT-SAE, wpa_psk_radius=2 and no
+        // sae_pwe, and never had a station. Not a network configured wrongly,
+        // a network nobody can enter, advertised in every scan.
         if ($radiusKeys && $sae && '6g' === ($cfg['_band'] ?? '')) {
             if (!$patched) {
                 $say('wpa_psk_radius on 6 GHz SAE',
                     'keys delivered over RADIUS carry no PT, and 6 GHz requires H2E — '
                     .'this bss can never admit a station');
-            } elseif (!in_array($cfg['sae_pwe'] ?? '', ['1', '2'], true)) {
+            } elseif (!in_array($pwe, ['1', '2'], true)) {
                 // The build can do it; the configuration has not asked for
                 // it. ap.uc suppresses its own sae_pwe default whenever ppsk
                 // is set, so nothing writes the option by itself — but that
-                // guard only governs ap.uc's own rendering. A raw line in
-                // hostapd_bss_options is pasted into the interface section
-                // verbatim and is not subject to it, which is the same route
-                // IpskFeatureService already uses for wpa_psk_radius and
-                // macaddr_acl.
+                // guard governs only ap.uc's own rendering. A raw line in
+                // hostapd_bss_options is pasted in verbatim and is not
+                // subject to it, the same route IpskFeatureService already
+                // uses for wpa_psk_radius and macaddr_acl.
                 $say('sae_pwe',
                     'unset on a 6 GHz RADIUS-keyed SAE bss — this build supports H2E, '
                     .'but ap.uc writes no default while ppsk is set. '
