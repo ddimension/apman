@@ -77,6 +77,74 @@
 {% endif %}
 
 <form id="editor" method="post" action="{{ path('ssid_save', {'id': ssid.id}) }}">
+	{# The roaming key. Only shown where it decides something: a network with
+	   fast transition and per station keys cannot roam without one, because
+	   ap.uc then derives the FT key from the per access point RADIUS secret and
+	   no two access points agree. kalnet was in exactly that state for months
+	   and no page said so. #}
+	{# Raw hostapd lines. They are pasted into the interface section verbatim,
+	   so they are the one place a setting can change how a station is let in
+	   without appearing anywhere else on this page. sae_password_radius was
+	   switched on for kalclients and was invisible until this card existed. #}
+	{# From the configuration after the features have run, not from the
+	   network's own lists: most of these lines are contributed by a feature and
+	   would be invisible here otherwise - kalnet's oce and mbo_cell_data_conn_pref
+	   are, and so are the two the iPSK feature repeats. #}
+	{% set raw = features.final.hostapd_bss_options|default([]) %}
+	{% if raw|length %}
+	<div class="card">
+		<b>Raw hostapd options</b>
+		<p class="small">Written into the generated configuration as they stand,
+			after everything else. ap.uc does not know them and cannot correct them.</p>
+		<ul class="small">
+		{% for line in raw %}
+			<li><code>{{ line }}</code>
+			{% if line starts with 'sae_password_radius' %}
+				— ask the RADIUS server for the password behind an SAE Password Identifier,
+				so a station can be admitted by a name rather than by a MAC known in advance.
+				Needs a patched hostapd; a station using an identifier gets hash-to-element
+				regardless of <i>sae_pwe</i>.
+			{% elseif line starts with 'oce=' %}
+				— Optimized Connectivity Experience; 4 is the AP-mode bit, and it is
+				independent of <i>mbo</i>.
+			{% elseif line starts with 'mbo_cell_data_conn_pref' %}
+				— what the access point tells stations about using cellular data instead;
+				1 means it would rather they did not.
+			{% elseif line starts with 'wpa_psk_radius' or line starts with 'macaddr_acl' %}
+				— set by the iPSK feature, repeated here so the generated file says the same
+				thing whether ap.uc or hostapd is reading it.
+			{% endif %}
+			</li>
+		{% endfor %}
+		</ul>
+	</div>
+	{% endif %}
+
+	{% if ft_key.ft %}
+	<div class="card">
+		<b>Fast roaming key</b>
+		<p class="small">
+			{% if ft_key.key %}
+				<span class="pill up">key set</span>
+				<code>{{ ft_key.short }}</code> ({{ ft_key.bits }} bit), shared by every access point
+				of this network as <i>r0kh</i> and <i>r1kh</i>.
+			{% elseif ft_key.needed %}
+				<span class="pill down">missing</span>
+				Every station here has a key of its own, so the target of a roam cannot derive
+				one itself — it has to fetch it, and without <i>r0kh</i>/<i>r1kh</i> ap.uc falls back
+				to deriving from the per access point RADIUS secret, which no two access points
+				share. Transitions cannot be validated.
+				<br><code>apman:ft-key {{ ssid.name }} --create</code>, then provision every access
+				point of this network together.
+			{% else %}
+				<span class="pill">not needed</span>
+				One passphrase for the whole network, so the target of a roam derives the key
+				itself — <i>ft_psk_generate_local</i> is right here and no shared key is required.
+			{% endif %}
+		</p>
+	</div>
+	{% endif %}
+
 	<div class="card radius">
 		<b>RADIUS</b>
 		<input type="hidden" name="radius_fallback_present" value="1">

@@ -153,6 +153,43 @@ class FtKeyService
     }
 
     /**
+     * What a network's roaming key situation is, for a page to show.
+     *
+     * Returns needed, key and ok. "needed" is the combination that cannot work
+     * without a key - fast transition on a network whose keys are per station
+     * - and it is the whole point of showing this: kalnet had that combination
+     * for months, roamed badly, and nothing said so anywhere.
+     */
+    public function status(SSID $ssid, array $config): array
+    {
+        $key = $this->keyOf($ssid);
+        $needed = $this->ftEnabled($config) && $this->perStationKeys($config);
+
+        return [
+            'ft' => $this->ftEnabled($config),
+            'per_station_keys' => $this->perStationKeys($config),
+            'needed' => $needed,
+            'key' => $key,
+            'short' => null === $key ? null : substr($key, 0, 16).'…',
+            'bits' => null === $key ? 0 : 4 * strlen($key),
+            'ok' => !$needed || null !== $key,
+        ];
+    }
+
+    /**
+     * Does every station on this network have a key of its own.
+     */
+    public function perStationKeys(array $config): bool
+    {
+        if (in_array((string) ($config['ppsk'] ?? ''), ['1', 'true', 'on'], true)) {
+            return true;
+        }
+        $radius = (string) ($config['wpa_psk_radius'] ?? '');
+
+        return '' !== $radius && '0' !== $radius;
+    }
+
+    /**
      * Is fast transition on, as the configuration will reach the device.
      *
      * ieee80211r comes from a feature rather than the network itself on every

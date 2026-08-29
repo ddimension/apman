@@ -2143,7 +2143,7 @@ class DefaultController extends AbstractController
      * with its default shown where nothing is set.
      */
     #[Route(path: '/ssid/{id}', name: 'ssid_detail')]
-    public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\PpskService $ppsk, \ApManBundle\Service\StateTreeService $stateTree, $id)
+    public function ssidDetailAction(\ApManBundle\Service\WirelessSchemaService $schema, \ApManBundle\Service\PpskService $ppsk, \ApManBundle\Service\StateTreeService $stateTree, \ApManBundle\Service\FtKeyService $ftKeys, $id)
     {
         $ssid = $this->doctrine->getRepository('ApManBundle\Entity\SSID')->find($id);
         if (!$ssid) {
@@ -2199,6 +2199,8 @@ class DefaultController extends AbstractController
         }
         ksort($bssStates);
 
+        $featurePreview = $this->apservice->previewFeatureOverrides($ssid);
+
         return $this->render('default/ssid.html.twig', [
             'ssid' => $ssid,
             'groups' => $schema->describe($values, $lists),
@@ -2210,7 +2212,16 @@ class DefaultController extends AbstractController
             'lists' => $lists,
             'keys' => $this->doctrine->getRepository('ApManBundle\Entity\Ppsk')->findBy(['ssid' => $ssid]),
             'radius' => $this->radiusSummary($ssid, $values, $ppsk),
-            'features' => $this->apservice->previewFeatureOverrides($ssid),
+            'features' => $featurePreview,
+            // the roaming key, and whether this network is one that cannot
+            // work without one. kalnet had that combination for months and
+            // nothing said so anywhere, which is why it is on the page now.
+            //
+            // Judged on the configuration after the features have run, not on
+            // the network's own values: ieee80211r comes from a feature on
+            // every network in this fleet, so asking $values would have said
+            // "no fast transition" about a network that roams.
+            'ft_key' => $ftKeys->status($ssid, $featurePreview['final'] ?? []),
         ]);
     }
 
