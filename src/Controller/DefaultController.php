@@ -86,6 +86,46 @@ class DefaultController extends AbstractController
         '00-0f-ac-18' => 'OWE',
     ];
 
+    /**
+     * The authentication algorithm a station used, from
+     * src/common/ieee802_11_defs.h. Read as the answer to "how did this
+     * station get in": 3 means it did a full SAE exchange, 2 means it came
+     * over from another access point with a fast transition and never
+     * repeated it.
+     */
+    private const AUTH_ALGS = [
+        0 => 'Open System', 1 => 'Shared Key', 2 => 'FT (fast transition)',
+        3 => 'SAE', 4 => 'FILS-SK', 5 => 'FILS-SK-PFS', 6 => 'FILS-PK',
+        7 => 'PASN', 8 => '802.1X', 9 => 'EPPKE', 128 => 'LEAP',
+    ];
+
+    /**
+     * The finite cyclic group an SAE exchange settled on, by IANA number.
+     * 19 is what everything supports and nearly everything uses.
+     */
+    private const SAE_GROUPS = [
+        19 => 'P-256', 20 => 'P-384', 21 => 'P-521',
+        25 => 'P-192', 26 => 'P-224',
+        27 => 'brainpoolP224r1', 28 => 'brainpoolP256r1',
+        29 => 'brainpoolP384r1', 30 => 'brainpoolP512r1',
+    ];
+
+    /**
+     * The capability bits of the RSN Extension element, by bit number, from
+     * src/common/ieee802_11_defs.h. Only the ones worth a word are named; an
+     * unnamed bit that is set is still shown, by number, because the list
+     * keeps growing and a bit nobody here recognises is exactly the thing
+     * worth noticing.
+     */
+    private const RSNX_CAPABS = [
+        4 => 'protected TWT', 5 => 'SAE hash-to-element', 6 => 'SAE-PK',
+        8 => 'secure LTF', 9 => 'secure RTT', 10 => 'URNM-MFPR-X20',
+        14 => 'SPP A-MSDU', 15 => 'URNM-MFPR', 18 => 'KEK in PASN',
+        21 => 'SSID protection', 27 => 'encrypted association frames',
+        28 => '802.1X in auth frames', 29 => 'PMKSA caching privacy',
+        34 => 'SAE password id change', 36 => 'unauthenticated EPPKE',
+    ];
+
     /** and the cipher suite selectors */
     private const CIPHER_SUITES = [
         '00-0f-ac-1' => 'WEP-40',
@@ -186,6 +226,49 @@ class DefaultController extends AbstractController
      * AKMs the client picked, which cipher it uses, and whether its key
      * handshake ever completed.
      */
+    /**
+     * The capabilities a station announced in its RSN Extension element.
+     *
+     * hostapd hands over the whole element as hex, header included, so the
+     * body starts at octet 2 and its length is octet 1. The body encodes its
+     * own length again in the low four bits of its first octet - and those
+     * four bits are part of the capability bitmap all the same, which is why
+     * bit 4 is the first one with a meaning. Mirrors
+     * ieee802_11_rsnx_capab_len() rather than inventing a second reading.
+     *
+     * @return array<int,string> bit number => name, or the number as a name
+     */
+    public static function rsnxCapabilities(?string $hex): array
+    {
+        $hex = preg_replace('/[^0-9a-fA-F]/', '', (string) $hex);
+        if (strlen($hex) < 6 || 0 !== strlen($hex) % 2) {
+            return [];
+        }
+        $bytes = array_values(unpack('C*', hex2bin($hex)));
+        // octet 0 is the element id, octet 1 its length; anything else is not
+        // an RSNXE and is not going to be read as one
+        if (244 !== $bytes[0]) {
+            return [];
+        }
+        $body = array_slice($bytes, 2, $bytes[1]);
+        if (!$body) {
+            return [];
+        }
+        $flen = min(($body[0] & 0x0f) + 1, 8, count($body));
+        $capabs = 0;
+        for ($i = 0; $i < $flen; ++$i) {
+            $capabs |= $body[$i] << (8 * $i);
+        }
+        $out = [];
+        for ($bit = 4; $bit < 8 * $flen; ++$bit) {
+            if ($capabs & (1 << $bit)) {
+                $out[$bit] = self::RSNX_CAPABS[$bit] ?? ('bit '.$bit);
+            }
+        }
+
+        return $out;
+    }
+
     private function securityDetail($staCtrl)
     {
         if (!is_array($staCtrl) || !$staCtrl) {
@@ -200,6 +283,30 @@ class DefaultController extends AbstractController
         }
         if (isset($staCtrl['AKMSuiteSelector'])) {
             $out['AKM'] = self::AKM_SUITES[$staCtrl['AKMSuiteSelector']] ?? $staCtrl['AKMSuiteSelector'];
+        }
+        if (isset($staCtrl['auth_alg'])) {
+            $alg = (int) $staCtrl['auth_alg'];
+            $out['authentication'] = (self::AUTH_ALGS[$alg] ?? ('algorithm '.$alg)).' ('.$alg.')';
+        }
+        if (isset($staCtrl['sae_group'])) {
+            $group = (int) $staCtrl['sae_group'];
+            $out['SAE group'] = (self::SAE_GROUPS[$group] ?? 'group '.$group).' ('.$group.')';
+        }
+        // Normally empty, and only interesting when it is not: it names the
+        // curves the station refused before settling on one, which tells a
+        // picky client apart from a broken one.
+        if (!empty(trim((string) ($staCtrl['sae_rejected_groups'] ?? '')))) {
+            $out['SAE groups refused'] = trim($staCtrl['sae_rejected_groups']);
+        }
+        if (isset($staCtrl['rsnxe'])) {
+            $capabs = self::rsnxCapabilities($staCtrl['rsnxe']);
+            $out['RSN extensions'] = $capabs
+                ? implode(', ', $capabs)
+                : 'announced, none of the known bits set';
+            // said outright rather than left to be inferred from the list,
+            // because "can this station do SAE-PK" is the question the whole
+            // element was plumbed through to answer
+            $out['SAE-PK'] = isset($capabs[6]) ? 'supported' : 'not supported';
         }
         if (isset($staCtrl['dot11RSNAStatsSelectedPairwiseCipher'])) {
             $cipher = $staCtrl['dot11RSNAStatsSelectedPairwiseCipher'];
