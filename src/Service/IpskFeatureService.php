@@ -128,8 +128,9 @@ class IpskFeatureService extends AbstractFeatureService
         // access point RADIUS secret — the access points would never agree.
         // Turning local derivation off while that is the state of things would
         // trade one broken roam for another, so the flag waits for the key.
-        // FtKeyService::isMissing() is what makes the wait visible;
-        // WlanConsistencyService reports it and apman:ft-key ends it.
+        // What makes the wait visible is WlanConsistencyService, which judges
+        // the configuration generated on the device and names both halves;
+        // apman:ft-key ends it.
         //
         // This runs after the 802.11r feature that sets the flag to 1 —
         // by feature map id today, since every priority in this fleet is 0.

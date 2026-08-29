@@ -91,21 +91,6 @@ class FtKeyService
     }
 
     /**
-     * Does this network need a key and not have one.
-     *
-     * "Needs" is the combination that cannot work without it: fast transition
-     * on a network whose keys are per station.
-     */
-    public function isMissing(SSID $ssid, array $effectiveConfig): bool
-    {
-        if (!$this->ftEnabled($effectiveConfig) || !$this->perStationKeys($effectiveConfig)) {
-            return false;
-        }
-
-        return null === $this->keyOf($ssid);
-    }
-
-    /**
      * Give this network a key, or replace the one it has.
      *
      * Returns [key, created, rotated]. Nothing is written when a key is already
@@ -177,18 +162,5 @@ class FtKeyService
     public function ftEnabled(array $config): bool
     {
         return in_array((string) ($config['ieee80211r'] ?? ''), ['1', 'true', 'on'], true);
-    }
-
-    /**
-     * Does every station on this network have a key of its own.
-     */
-    public function perStationKeys(array $config): bool
-    {
-        if (in_array((string) ($config['ppsk'] ?? ''), ['1', 'true', 'on'], true)) {
-            return true;
-        }
-
-        return '' !== (string) ($config['wpa_psk_radius'] ?? '')
-            && '0' !== (string) ($config['wpa_psk_radius'] ?? '');
     }
 }

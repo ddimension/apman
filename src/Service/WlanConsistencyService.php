@@ -431,13 +431,26 @@ class WlanConsistencyService
         // stations that can do hash-to-element get in. That is still a real
         // exclusion — sae_pwe=1 admits both — but it is a choice rather than
         // a mistake, so it is said quietly and not marked as breaking roaming.
-        if ('2' === ($cfg['sae_pwe'] ?? '') && '6g' !== ($cfg['_band'] ?? '')) {
-            if ($patched) {
+        // Which of those it is depends on where the password comes from, and
+        // an earlier version of this rule got that wrong: it fired the
+        // RADIUS wording on any SAE network, so a plain one with a configured
+        // passphrase — where the PT is derived from that passphrase and
+        // sae_pwe works exactly as documented — was told no station could
+        // associate at all. Guarded properly now.
+        $pwe = (string) ($cfg['sae_pwe'] ?? '');
+        if ($sae && '6g' !== ($cfg['_band'] ?? '')) {
+            if ($radiusKeys && !$patched && in_array($pwe, ['1', '2'], true)) {
+                // 1 offers both methods, so it is not fatal in the way 2 is —
+                // a station that picks hunting and pecking still gets in — but
+                // one that picks H2E is refused, which is an intermittent
+                // failure and harder to see than a total one.
+                $say('sae_pwe', $pwe.' on stock hostapd with per station keys — a password '
+                    .'from RADIUS has no PT, so '.('2' === $pwe
+                        ? 'no station can associate at all'
+                        : 'every station that chooses H2E is refused'), true);
+            } elseif ('2' === $pwe) {
                 $say('sae_pwe', '2 (hash-to-element only) — stations without H2E cannot '
                     .'associate; sae_pwe=1 admits both');
-            } else {
-                $say('sae_pwe', '2 (hash-to-element only) on stock hostapd — a RADIUS '
-                    .'password has no PT, so no station can associate at all', true);
             }
         }
 
