@@ -1799,6 +1799,38 @@ class AccessPointService
         }
     }
 
+    /**
+     * Extended capability bit 19, BSS Transition, as its mask inside octet 2.
+     * hostapd hands the element over octet by octet, so the bit number has to
+     * be split the same way: 19 = 2 * 8 + 3.
+     */
+    private const EXTCAP_BSS_TRANSITION = 0x08;
+
+    /**
+     * Both sources for the same answer, the reliable one first.
+     *
+     * Kept apart from steerClient() because the decision between asking a
+     * station to move and throwing it off deserves to be tested on its own -
+     * it went the wrong way for five days without anything noticing.
+     */
+    public function canBeAskedToMove(array $apData): bool
+    {
+        $ec = $apData['extended_capabilities'] ?? null;
+        if (is_array($ec) && count($ec) > 2
+                && ((int) $ec[2] & self::EXTCAP_BSS_TRANSITION)) {
+            return true;
+        }
+        if (empty($apData['signature'])) {
+            return false;
+        }
+        $tags = $this->ieparser->parseSignature($apData['signature']);
+        if (!is_array($tags)) {
+            return false;
+        }
+
+        return in_array('BSS Transition', $this->ieparser->getExtendedCapabilities($tags), true);
+    }
+
     private function stationRunner(\ApManBundle\Entity\Device $device, string $mac, array $assocProps, array $apData)
     {
         $em = $this->doctrine->getManager();
@@ -1888,16 +1920,26 @@ class AccessPointService
 
         $signal = intval($assocProps['signal']);
 
-        if (isset($apData['signature']) and !empty($apData['signature'])) {
-            $ieTags = $this->ieparser->parseSignature($apData['signature']);
-            if (is_array($ieTags)) {
-                $ieCaps = $this->ieparser->getExtendedCapabilities($ieTags);
-                if (in_array('BSS Transition', $ieCaps)) {
-                    //$this->logger->warning('steerClient('.$mac.'): Capable of wnm notification.');
-                    $wnm_capable = true;
-                    $type = 'bss_transition_request';
-                }
-            }
+        // Can this station be asked to move, or does it have to be thrown off?
+        //
+        // hostapd answers that in get_clients, as extended_capabilities: the
+        // element already split into octets, next to the station's other
+        // flags. Bit 19 - octet 2, bit 3 - is BSS Transition.
+        //
+        // This used to be read only out of the taxonomy signature, and that is
+        // why the gentle path never ran. Measured on ap-av-grwz 2026-08-30, on
+        // one bss of kalnet: not one of six stations had extcap: in its
+        // signature, and one had no signature at all - while its
+        // extended_capabilities field was eight octets long and said BSS
+        // Transition plainly. In five days steerClient sent 24 del_client and
+        // not a single bss_transition_request, on a network where six of the
+        // fourteen steered stations announce the capability.
+        //
+        // The signature stays as a fallback: it is the only source when a
+        // station has been seen but hostapd has not filled the field yet.
+        if ($this->canBeAskedToMove($apData)) {
+            $wnm_capable = true;
+            $type = 'bss_transition_request';
         }
 
         if ('5g' == $band) {
