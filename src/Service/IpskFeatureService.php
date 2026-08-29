@@ -106,11 +106,14 @@ class IpskFeatureService extends AbstractFeatureService
         // fleet-wide while the build is per access point, and the rollout is
         // meant to be one access point at a time.
         //
-        // Where it is wanted, it goes in as a raw line — `sae_pwe=2` in
-        // hostapd_bss_options, exactly like the two above. ap.uc's `ppsk`
-        // guard governs only ap.uc's own rendering and has no say over a
-        // passthrough line. WlanConsistencyService knows which build an access
-        // point runs and judges the result accordingly.
+        // Where it is wanted it goes in as an ordinary wifi-iface option, not
+        // as a raw line. An earlier version of this comment said the opposite
+        // and was wrong: ap.uc's ppsk guard wraps only set_default (ap.uc:111),
+        // and append_vars (ap.uc:202) writes sae_pwe into the generated
+        // configuration whenever it is set at all. So a configured value
+        // survives the guard, and the raw route buys nothing while costing the
+        // schema's validation. WlanConsistencyService knows which build an
+        // access point runs and judges the result accordingly.
 
         // Fast transition cannot derive its keys locally on this network.
         //

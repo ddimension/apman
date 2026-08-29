@@ -465,17 +465,15 @@ class WlanConsistencyService
                     'keys delivered over RADIUS carry no PT, and 6 GHz requires H2E — '
                     .'this bss can never admit a station');
             } elseif (!in_array($pwe, ['1', '2'], true)) {
-                // The build can do it; the configuration has not asked for
-                // it. ap.uc suppresses its own sae_pwe default whenever ppsk
-                // is set, so nothing writes the option by itself — but that
-                // guard governs only ap.uc's own rendering. A raw line in
-                // hostapd_bss_options is pasted in verbatim and is not
-                // subject to it, the same route IpskFeatureService already
-                // uses for wpa_psk_radius and macaddr_acl.
+                // The build can do it; the configuration has not asked for it.
+                // ap.uc's ppsk guard (ap.uc:111) suppresses only its own
+                // default, so on an iPSK network nothing writes sae_pwe by
+                // itself - but a configured value passes through untouched,
+                // because append_vars (ap.uc:202) writes it whenever it is
+                // set. So it is set as the ordinary option it is.
                 $say('sae_pwe',
                     'unset on a 6 GHz RADIUS-keyed SAE bss — this build supports H2E, '
-                    .'but ap.uc writes no default while ppsk is set. '
-                    .'Add sae_pwe=2 to hostapd_bss_options.');
+                    .'but ap.uc writes no default while ppsk is set. Set sae_pwe=2.');
             }
         }
 
@@ -1281,9 +1279,9 @@ class WlanConsistencyService
         // out. Since the patched hostapd it is a per network decision that
         // nothing sets on its own - ap.uc suppresses its default while ppsk is
         // set, and IpskFeatureService will not set it either, because the
-        // feature is fleet-wide and the build is per access point. A raw line
-        // is the documented route, so flagging it made the check contradict
-        // the design it is meant to guard.
+        // feature is fleet-wide and the build is per access point. It is set
+        // as the ordinary wifi-iface option it is; the rule below, which wants
+        // a schema option rather than a raw line, is right about it.
         $owned = ['wpa_psk_radius', 'macaddr_acl', 'auth_server_addr',
             'auth_server_port', 'auth_server_shared_secret',
             'wpa_passphrase', 'wpa_psk', 'wpa_psk_file', 'sae_password',
