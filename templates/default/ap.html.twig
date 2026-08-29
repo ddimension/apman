@@ -18,6 +18,19 @@
 	{% if sysinfo and sysinfo.uptime is defined %}
 		<br>uptime {{ (sysinfo.uptime // 3600) }}h, load {{ sysinfo.load[0]|default('?') }}
 	{% endif %}
+	{# which hostapd, because sae_pwe and the SAE rules mean different things
+	   on each and the consistency page judges this access point by it #}
+	{% if hostapd_build.known|default(false) %}
+		<br>hostapd: {{ hostapd_build.package }} {{ hostapd_build.version|default('') }}
+		{% if hostapd_build.patched %}
+			<span class="pill up">SAE over RADIUS</span>
+		{% else %}
+			<span class="pill">stock — a RADIUS password has no SAE PT here</span>
+		{% endif %}
+	{% else %}
+		<br><span class="warn">hostapd build unknown{% if hostapd_build.why|default(false) %}
+			— {{ hostapd_build.why }}{% endif %}</span>
+	{% endif %}
 </p>
 
 {# The access point as a tree. Every node says what it is and how long it has

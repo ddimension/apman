@@ -398,6 +398,12 @@
 	<span class="small">
 		<span class="ok">{{ steering.accepted }} accepted</span>,
 		<span class="warn">{{ steering.rejected }} rejected</span>
+		{% set askable = current|filter(s => s.can_be_asked_to_move is defined and s.can_be_asked_to_move)|length %}
+		{% if askable %}
+			· <span class="ok">can be asked to move</span>
+		{% else %}
+			· <span class="warn">cannot be asked — steering has to disconnect it</span>
+		{% endif %}
 	</span>
 </h3>
 {% if steering_state.last is defined %}

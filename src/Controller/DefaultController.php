@@ -281,6 +281,23 @@ class DefaultController extends AbstractController
                 ? $identity['name'].' ('.$staCtrl['keyid'].')'
                 : $staCtrl['keyid'].' — no key with this identity in the database';
         }
+        // What the patched hostapd reports about how this station was let in.
+        // Both come from the station or from the RADIUS server, so both are
+        // printf_encode()d over there and are shown as text, not trusted.
+        //
+        // Kept apart from the identity above: that one is this controller's
+        // own name for the key, resolved from the keyid of the psk file. These
+        // two are what the access point itself says - the User-Name a RADIUS
+        // Access-Accept came back under, and the SAE Password Identifier the
+        // station asked with. On a network where the key is looked up by
+        // identifier rather than by MAC, they are the only record of which
+        // credential was used.
+        if (!empty($staCtrl['identity'])) {
+            $out['RADIUS identity'] = $staCtrl['identity'];
+        }
+        if (!empty($staCtrl['sae_password_id'])) {
+            $out['SAE password id'] = $staCtrl['sae_password_id'];
+        }
         if (isset($staCtrl['AKMSuiteSelector'])) {
             $out['AKM'] = self::AKM_SUITES[$staCtrl['AKMSuiteSelector']] ?? $staCtrl['AKMSuiteSelector'];
         }
@@ -407,7 +424,8 @@ class DefaultController extends AbstractController
     #[Route(path: '/ap/{name}', name: 'ap_detail')]
     public function apDetailAction($name, \ApManBundle\Service\StateTreeService $stateTree,
         \ApManBundle\Service\TopologyService $topology,
-        \ApManBundle\Service\SyslogService $syslog)
+        \ApManBundle\Service\SyslogService $syslog,
+        \ApManBundle\Service\HostapdBuildService $builds)
     {
         $em = $this->doctrine->getManager();
         $cf = $this->cacheFactory;
@@ -476,6 +494,10 @@ class DefaultController extends AbstractController
             'ap' => $ap,
             'agent' => $cf->getCacheItemValue('status.ap.'.$ap->getId().'.agent'),
             'board' => $cf->getCacheItemValue('status.ap.'.$ap->getId().'.board'),
+            // which hostapd this access point runs, because two of them answer
+            // differently to the same configuration and the consistency page
+            // judges by it. Cached for an hour, so this costs nothing per view.
+            'hostapd_build' => $builds->of($ap),
             'sysinfo' => $cf->getCacheItemValue('status.ap.'.$ap->getId().'.info'),
             'state' => \ApManBundle\Library\AccessPointState::getStateName(
                 $cf->getCacheItemValue('status.state['.$ap->getId().']')
@@ -651,7 +673,8 @@ class DefaultController extends AbstractController
     #[Route(path: '/client/{mac}', name: 'client_detail')]
     public function clientDetailAction($mac, \ApManBundle\Service\AirtimeService $airtime,
         \ApManBundle\Service\BlocklistService $blocklist,
-        \ApManBundle\Service\HistoryService $history)
+        \ApManBundle\Service\HistoryService $history,
+        \ApManBundle\Service\AccessPointService $apService)
     {
         $mac = strtolower($mac);
         $em = $this->doctrine->getManager();
@@ -750,6 +773,12 @@ class DefaultController extends AbstractController
                         // what this station actually negotiated, straight from
                         // the hostapd control channel (agent >= 56-4)
                         'security' => $this->securityDetail($status['sta_ctrl'][$mac] ?? null),
+                        // whether steering can ask this station to move or has
+                        // to throw it off — the same call steerClient makes, so
+                        // the page cannot disagree with what actually happens.
+                        // It is also what explains a steering panel that shows
+                        // no answers at all: nothing was ever asked.
+                        'can_be_asked_to_move' => $apService->canBeAskedToMove(is_array($hostapd) ? $hostapd : []),
                         'station' => $station,
                     ];
                 }
