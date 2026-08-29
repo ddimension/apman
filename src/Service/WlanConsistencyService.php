@@ -1272,9 +1272,20 @@ class WlanConsistencyService
      */
     private function rawOptionRules()
     {
-        // the options the security model and the iPSK feature set themselves
+        // The options the security model and the iPSK feature set themselves.
+        // A raw line for one of these is a second author for the same value,
+        // and the loser is whoever reads the configuration later.
+        //
+        // sae_pwe is deliberately NOT in this list any more. It was, back when
+        // the answer to it was "never" and the feature's job was to keep it
+        // out. Since the patched hostapd it is a per network decision that
+        // nothing sets on its own - ap.uc suppresses its default while ppsk is
+        // set, and IpskFeatureService will not set it either, because the
+        // feature is fleet-wide and the build is per access point. A raw line
+        // is the documented route, so flagging it made the check contradict
+        // the design it is meant to guard.
         $owned = ['wpa_psk_radius', 'macaddr_acl', 'auth_server_addr',
-            'auth_server_port', 'auth_server_shared_secret', 'sae_pwe',
+            'auth_server_port', 'auth_server_shared_secret',
             'wpa_passphrase', 'wpa_psk', 'wpa_psk_file', 'sae_password',
             'sae_password_file', 'wpa_key_mgmt', 'ieee80211w', 'ppsk'];
         $out = [];
