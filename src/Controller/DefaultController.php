@@ -11,6 +11,10 @@ use Amp;
 
 class DefaultController extends AbstractController
 {
+    /** Element 244, the one that carries the SAE H2E and SAE-PK bits, as
+     *  WifiIeParser names it. describeTaxonomy() returns names, not ids. */
+    private const IE_RSNX = 'RSNX';
+
     /**
      * After this long without a status message, a radio is not reporting and
      * the control socket is the only thing left to ask. Two status cycles.
@@ -772,7 +776,9 @@ class DefaultController extends AbstractController
                         'taxonomy' => $this->describeTaxonomy($hostapd['signature'] ?? null),
                         // what this station actually negotiated, straight from
                         // the hostapd control channel (agent >= 56-4)
-                        'security' => $this->securityDetail($status['sta_ctrl'][$mac] ?? null),
+                        'security' => $this->withRsnxeFromSignature(
+                            $this->securityDetail($status['sta_ctrl'][$mac] ?? null),
+                            $this->describeTaxonomy($hostapd['signature'] ?? null)),
                         // whether steering can ask this station to move or has
                         // to throw it off — the same call steerClient makes, so
                         // the page cannot disagree with what actually happens.
@@ -1221,6 +1227,43 @@ class DefaultController extends AbstractController
      * bits, spatial streams, the information elements it sent and the
      * extended capabilities that matter for steering.
      */
+    /**
+     * Whether this station announced an RSN extension element at all.
+     *
+     * Which is as far as sae_pwe can be read without the bytes. A station that
+     * sends no RSNXE cannot do hash-to-element, so with sae_pwe=2 it is on
+     * hunting-and-pecking and there is nothing else it could be. One that does
+     * send it almost certainly sends it for the H2E bit — but "almost" is not a
+     * measurement, and the bits themselves need patch 816, which is in
+     * wpad-saeradh2e r3. The fleet runs r1, so this says what it knows and no
+     * more.
+     */
+    private function withRsnxeFromSignature(?array $security, $taxonomy): ?array
+    {
+        if (null === $security) {
+            return null;
+        }
+        // already the real thing from STA info: the bits beat the guess
+        if (isset($security['RSN extensions'])) {
+            return $security;
+        }
+        // Only for a station that actually did SAE. There is no password
+        // element to derive on WPA2, and "hunting-and-pecking" said about a
+        // PSK association is not a weaker statement, it is a wrong one.
+        if (false === stripos((string) ($security['AKM'] ?? ''), 'SAE')) {
+            return $security;
+        }
+        $elements = is_array($taxonomy) ? ($taxonomy['elements'] ?? null) : null;
+        if (!is_array($elements)) {
+            return $security;
+        }
+        $security['SAE PWE'] = in_array(self::IE_RSNX, $elements, true)
+            ? 'hash-to-element — the station announced an RSN extension (the bits need hostapd r3)'
+            : 'hunting-and-pecking — the station announced no RSN extension, so it has no h2e to offer';
+
+        return $security;
+    }
+
     private function describeTaxonomy($signature)
     {
         if (!$signature) {
