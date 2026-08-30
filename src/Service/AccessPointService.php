@@ -668,8 +668,22 @@ class AccessPointService
         ];
 
         if ($dryRun) {
+            // This asks the access point nothing. It builds the command set and
+            // stops, so it can say what would be sent and not one word about
+            // what would change — the diff only exists once uci has staged it.
+            //
+            // change_count stayed unset here, and the command printed
+            // "($report['change_count'] ?? 0).' change(s) applied'": every dry
+            // run in the history of this command reported "0 change(s)
+            // applied", which reads as "the access point already matches" and
+            // was measured on 2026-08-30 to be false — a run right after one
+            // that said 0 applied 2415 changes.
             $report['ok'] = true;
             $report['staged'] = $this->summarise($commands);
+            $report['staged_count'] = count($report['staged']);
+            $report['note'] = $report['staged_count']
+                .' command(s) would be sent; a dry run does not ask the access '
+                .'point what they would change';
 
             return $report;
         }
