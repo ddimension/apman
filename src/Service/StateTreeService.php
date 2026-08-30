@@ -35,6 +35,13 @@ use Psr\Log\LoggerInterface;
  */
 class StateTreeService
 {
+    /** Where the record of both machines' pairings lives. */
+    private const PAIRINGS_KEY = 'state.compare.pairings';
+    /** Distinct pairings kept. There are nine states; this is room to spare. */
+    private const PAIRINGS_KEEP = 64;
+    /** Long enough to span the weeks it takes to see every transition once. */
+    private const PAIRINGS_TTL = 90 * 86400;
+
     /** long enough that a gap in the traffic is never mistaken for a fact */
     private const TTL = 7 * 86400;
 
@@ -180,6 +187,90 @@ class StateTreeService
         $this->cacheFactory->addCacheItem($key, $pair, self::TTL);
         $this->logger->notice(sprintf('stateTree: %s composes to %s, flat machine says %s',
             $ap->getName(), $tree['state_name'], $flatName));
+        $this->recordPairing($ap, $tree['state_name'], $flatName);
+    }
+
+    /**
+     * Keep every pairing the two machines have ever been seen in.
+     *
+     * The comparison above logs, and a log is not evidence here: this host
+     * keeps its journal in RAM, so on 2026-08-30 nothing before 06:10 existed
+     * any more. And the cache key holds only the pairing that is current, which
+     * says the two agree now — in the steady state, where agreeing is easy. The
+     * question that decides whether the flat machine can go is whether they
+     * ever disagreed during a transition: a boot, a channel availability check,
+     * a radio that dropped. That question needs a record that survives, so this
+     * is it.
+     *
+     * Counted per pairing rather than per occurrence: "ACTIVE|STATE_ACTIVE seen
+     * 412 times" and "CAC|STATE_DFS_RUNNING seen twice" is the whole story, and
+     * a list of every transition would be neither readable nor bounded.
+     */
+    private function recordPairing(AccessPoint $ap, string $tree, string $flat): void
+    {
+        $seen = $this->cacheFactory->getCacheItemValue(self::PAIRINGS_KEY);
+        $seen = is_array($seen) ? $seen : [];
+        $k = $tree.'|'.$flat;
+        if (!isset($seen[$k])) {
+            $seen[$k] = ['tree' => $tree, 'flat' => $flat, 'n' => 0,
+                'first' => time(), 'last' => 0, 'aps' => []];
+        }
+        ++$seen[$k]['n'];
+        $seen[$k]['last'] = time();
+        // which access points showed it, so a disagreement can be chased to one
+        $seen[$k]['aps'][$ap->getName()] = time();
+        if (count($seen) > self::PAIRINGS_KEEP) {
+            uasort($seen, fn ($a, $b) => $b['last'] <=> $a['last']);
+            $seen = array_slice($seen, 0, self::PAIRINGS_KEEP, true);
+        }
+        $this->cacheFactory->addCacheItem(self::PAIRINGS_KEY, $seen, self::PAIRINGS_TTL);
+    }
+
+    /**
+     * Every pairing seen, worst agreement first.
+     *
+     * @return array<int,array>
+     */
+    public function pairings(): array
+    {
+        $seen = $this->cacheFactory->getCacheItemValue(self::PAIRINGS_KEY);
+        if (!is_array($seen)) {
+            return [];
+        }
+        $out = [];
+        foreach ($seen as $row) {
+            $row['agree'] = self::agrees($row['tree'], $row['flat']);
+            $out[] = $row;
+        }
+        // disagreements first: they are the only rows anyone needs to read
+        usort($out, fn ($a, $b) => [$a['agree'], -$a['n']] <=> [$b['agree'], -$b['n']]);
+
+        return $out;
+    }
+
+    /**
+     * Whether a tree state and a flat state mean the same thing.
+     *
+     * The two vocabularies are not the same words, and the mapping is the whole
+     * argument for replacing one with the other, so it is written down here
+     * rather than left to whoever reads the table. The tree knows two states
+     * the flat machine has no word for at all — DEGRADED and UNKNOWN — and
+     * those are counted as a difference, not as a disagreement, because there
+     * is nothing to disagree with.
+     */
+    public static function agrees(string $tree, string $flat): bool
+    {
+        $map = [
+            'OFFLINE' => 'STATE_OFFLINE',
+            'ONLINE' => 'STATE_ONLINE',
+            'CONFIGURING' => 'STATE_PENDING',
+            'FAILED' => 'STATE_FAILED',
+            'CAC' => 'STATE_DFS_RUNNING',
+            'READY' => 'STATE_DFS_READY',
+            'ACTIVE' => 'STATE_ACTIVE',
+        ];
+
+        return isset($map[$tree]) && $map[$tree] === $flat;
     }
 
     /**

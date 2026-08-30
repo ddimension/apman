@@ -4053,6 +4053,9 @@ class DefaultController extends AbstractController
             'aps' => $aps,
             'steering' => $this->steeringStats(),
             'channel_map' => $channelMap,
+            // the record of how the two machines have compared, next to the
+            // two columns that show them
+            'pairings' => $stateTree->pairings(),
         ]);
     }
 
