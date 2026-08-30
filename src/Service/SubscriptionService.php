@@ -18,6 +18,7 @@ class SubscriptionService
     private $cache;
     private $cacheLocal = ['ap-by-name' => [], 'dev-by-ap-ifname' => []];
     private $cacheRefreshed = 0;
+    private ApUbusService $ubus;
     private $ppskService;
     private $radiusAuthService;
     private $stateTree;
@@ -64,8 +65,10 @@ class SubscriptionService
         DfsService $dfs,
         AirtimeService $airtime,
         BlocklistService $blocklist,
-        SyslogService $syslog
+        SyslogService $syslog,
+        ApUbusService $ubus
     ) {
+        $this->ubus = $ubus;
         $this->airtime = $airtime;
         $this->blocklist = $blocklist;
         $this->syslog = $syslog;
@@ -147,6 +150,9 @@ class SubscriptionService
         // read its socket, and its next publish would throw into the middle of
         // message handling.
         $this->apService->setPublisher($this->client);
+        // and the same warning for the synchronous ubus path: in here it must
+        // not be taken at all. It ended this process twice on 2026-08-30.
+        $this->ubus->inLoop();
 
         $client->on('message', function (\BinSoul\Net\Mqtt\Message $message) {
             $this->dispatch(new \ApManBundle\Mqtt\Message(
@@ -270,6 +276,25 @@ class SubscriptionService
             $this->logger->error('handleMessage(): the entity manager was closed, reopening');
             $this->doctrine->resetManager();
             $em = $this->doctrine->getManager();
+            // The local map holds entities that belonged to the manager which
+            // just went away, and a new manager does not know them. Persisting
+            // anything that points at one of them makes Doctrine walk to the
+            // access point behind its radio and call it new:
+            //
+            //   A new entity was found through the relationship
+            //   'ApManBundle\Entity\Radio#accesspoint'
+            //
+            // Reopening the manager without dropping the map is therefore not
+            // a recovery at all. Measured 2026-08-30: the manager was reopened
+            // at 04:30:10 after a single failed commit, and the next 285
+            // messages died on exactly that, until the process gave up and
+            // systemd started it again.
+            //
+            // cacheRefreshed goes back to 0 as well, or the rebuild would wait
+            // out the interval first and every message in it would be
+            // answered with "ap not found".
+            $this->cacheLocal = ['ap-by-name' => [], 'dev-by-ap-ifname' => []];
+            $this->cacheRefreshed = 0;
         }
         /*
                 if (strpos($message->topic, 'ap-outdoor.kalnet.hooya.de') !== false) {

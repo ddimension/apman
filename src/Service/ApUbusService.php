@@ -41,6 +41,34 @@ class ApUbusService
     ) {
     }
 
+    /** Set by the subscriber on itself. See inLoop(). */
+    private bool $inLoop = false;
+
+    /**
+     * Say that this process is the subscriber, whose event loop is turning.
+     *
+     * A synchronous call cannot work in there, and it does not fail quietly.
+     * mqttFactory hands out the blocking client, whose publish() goes through
+     * React\Async\await() — and await() runs the loop. Running a loop that is
+     * already running drains its future tick queue, so when the outer tick
+     * resumes its "while ($count--)" it dequeues from an empty one:
+     *
+     *   RuntimeException: Can't shift from an empty datastructure
+     *   at FutureTickQueue.php:46
+     *
+     * which ends the process. Measured twice on 2026-08-30, at 02:46:10 and at
+     * 04:35:53, both times through DfsService::probe() from the lifetime
+     * handler. And where it does not crash it blocks: waitForAnyResult() waits
+     * on a redis list with the loop stopped, so the publish never leaves and
+     * the answer cannot arrive.
+     *
+     * callAsync() is what this class offers the subscriber, and it says so.
+     */
+    public function inLoop(bool $yes = true): void
+    {
+        $this->inLoop = $yes;
+    }
+
     /**
      * Call one ubus method and wait for the answer.
      *
@@ -154,6 +182,15 @@ class ApUbusService
         }
         if (!$ap->usesMqtt()) {
             return $this->callManyHttp($ap, $calls, $timeout);
+        }
+        if ($this->inLoop) {
+            // Refusing is the whole point: this used to end the daemon.
+            $this->logger->warning('ApUbusService: refusing a synchronous '
+                .$calls[0]['object'].'.'.$calls[0]['method'].' for '.$ap->getName()
+                .' inside the subscriber — use callAsync()', ['ap' => $ap->getName()]);
+
+            return array_fill(0, count($calls), UbusResult::failed(
+                UbusResult::TRANSPORT_FAILED, 'synchronous ubus call refused inside the event loop'));
         }
         $client = $this->mqttFactory->getClient();
         if (!$client) {

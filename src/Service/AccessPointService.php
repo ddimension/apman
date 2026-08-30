@@ -1138,9 +1138,10 @@ class AccessPointService
      *
      * @return array<string,array> radio name => the probe
      */
-    private function askWhoIsListening(\ApManBundle\Entity\AccessPoint $ap): array
+    private function askWhoIsListening(\ApManBundle\Entity\AccessPoint $ap, ?int &$answered = null): array
     {
         $out = [];
+        $answered = 0;
         foreach ($ap->getRadios() as $radio) {
             if ('1' === (string) $radio->getConfigDisabled()) {
                 continue;
@@ -1158,6 +1159,7 @@ class AccessPointService
             if (null === $probe) {
                 continue;
             }
+            ++$answered;
             $this->dfs->noteProbe($radio, $probe);
             $this->stateTree->observeRadio($radio, ['cac' => (bool) $probe['checking']]);
             if ($probe['checking']) {
@@ -1456,11 +1458,16 @@ class AccessPointService
                     //
                     // Ask instead. hostapd has no ubus object while it listens,
                     // but its control socket answers state=DFS throughout.
-                    $listening = $this->askWhoIsListening($ap);
+                    $listening = $this->askWhoIsListening($ap, $answered);
+                    // "nobody is listening" and "nobody was asked" are not the
+                    // same sentence, and inside the subscriber it is the second
+                    // one: the synchronous probe is refused there.
                     $this->logger->warning('ApLifetimeHandler: '.$ap->getName().' has '.$found
                         .' of '.$cif.' interfaces; '
                         .($listening ? 'listening: '.implode(', ', array_keys($listening))
-                            : 'no radio says it is listening, so this is not dfs'));
+                            : ($answered
+                                ? 'no radio says it is listening, so this is not dfs'
+                                : 'no radio answered the probe, so whether this is dfs is unknown')));
                     if ($listening) {
                         $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING);
                     }
