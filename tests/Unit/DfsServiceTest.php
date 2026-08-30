@@ -234,4 +234,45 @@ class DfsServiceTest extends TestCase
         $this->assertSame(0, $dfs->expectFor($radio));
         $this->assertSame(40, $dfs->waitBudget($radio, 40));
     }
+
+    /**
+     * The status answer both probe paths now read.
+     *
+     * The synchronous probe and the deferred one share this, so it is the one
+     * place where "is this radio listening" is decided. Two traps live here:
+     * cac_time_left_seconds is the string "N/A" outside a check and must not
+     * become 0, because 0 reads as "the check is done"; and an answer without a
+     * state field is not a status at all — hostapd_cli prints its usage there —
+     * so it has to be null rather than a radio that is not checking.
+     */
+    public function testParseStatusReadsACheckInProgress(): void
+    {
+        $out = \ApManBundle\Service\DfsService::parseStatus(
+            "state=DFS\nphy=phy1\nfreq=5700\nchannel=140\n"
+            ."cac_time_seconds=600\ncac_time_left_seconds=418\nssid[0]=kalnet\n");
+
+        $this->assertSame('DFS', $out['state']);
+        $this->assertTrue($out['checking']);
+        $this->assertSame(5700, $out['freq']);
+        $this->assertSame(140, $out['channel']);
+        $this->assertSame(600, $out['expected']);
+        $this->assertSame(418, $out['left']);
+    }
+
+    public function testParseStatusLeavesNaAsNothingRatherThanZero(): void
+    {
+        $out = \ApManBundle\Service\DfsService::parseStatus(
+            "state=ENABLED\nfreq=5180\nchannel=36\ncac_time_seconds=0\n"
+            ."cac_time_left_seconds=N/A\n");
+
+        $this->assertFalse($out['checking']);
+        $this->assertNull($out['left'], '"N/A" is not a number and 0 would read as "done"');
+    }
+
+    public function testParseStatusRefusesAnAnswerWithoutAState(): void
+    {
+        $this->assertNull(\ApManBundle\Service\DfsService::parseStatus(
+            "Failed to connect to hostapd - wpa_ctrl_open: No such file or directory\n"));
+        $this->assertNull(\ApManBundle\Service\DfsService::parseStatus(''));
+    }
 }

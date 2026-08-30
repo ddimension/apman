@@ -150,9 +150,11 @@ class SubscriptionService
         // read its socket, and its next publish would throw into the middle of
         // message handling.
         $this->apService->setPublisher($this->client);
-        // and the same warning for the synchronous ubus path: in here it must
-        // not be taken at all. It ended this process twice on 2026-08-30.
-        $this->ubus->inLoop();
+        // and the same for the synchronous ubus path: in here it must not be
+        // taken at all — it ended this process twice on 2026-08-30. The
+        // connection goes with it, so callDeferred() can ask questions through
+        // the loop's own client instead of one that would run the loop.
+        $this->ubus->inLoop($this->client);
 
         $client->on('message', function (\BinSoul\Net\Mqtt\Message $message) {
             $this->dispatch(new \ApManBundle\Mqtt\Message(

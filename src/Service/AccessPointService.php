@@ -1152,7 +1152,19 @@ class AccessPointService
                 if ('' === $ifname) {
                     continue;
                 }
-                $probe = $this->dfs->probe($ap, $ifname);
+                if (null !== $this->publisher) {
+                    // Inside the subscriber the question cannot be waited for:
+                    // the answer would have to come through a loop that is
+                    // stopped waiting for it. So read the last answer and ask
+                    // again for the next round. A channel availability check
+                    // runs for a minute at least — ten on the weather radar
+                    // channels — and wireless status arrives far more often
+                    // than that, so one round of lag costs nothing.
+                    $probe = $this->dfs->recentProbe($ap, $ifname);
+                    $this->dfs->probeAsync($ap, $ifname);
+                } else {
+                    $probe = $this->dfs->probe($ap, $ifname);
+                }
                 // the socket answers for the whole phy, so one bss is enough
                 break;
             }

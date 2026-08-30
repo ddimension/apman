@@ -43,6 +43,8 @@ class ApUbusService
 
     /** Set by the subscriber on itself. See inLoop(). */
     private bool $inLoop = false;
+    /** The one connection the subscriber's loop services, or null outside it. */
+    private ?\ApManBundle\Mqtt\Publisher $loopPublisher = null;
 
     /**
      * Say that this process is the subscriber, whose event loop is turning.
@@ -64,9 +66,55 @@ class ApUbusService
      *
      * callAsync() is what this class offers the subscriber, and it says so.
      */
-    public function inLoop(bool $yes = true): void
+    public function inLoop(?\ApManBundle\Mqtt\Publisher $publisher = null): void
     {
-        $this->inLoop = $yes;
+        $this->inLoop = true;
+        $this->loopPublisher = $publisher;
+    }
+
+    /**
+     * Send one call and read its answer on a later turn of the loop.
+     *
+     * The way to ask a question from inside the subscriber. The id is the
+     * caller's, so the caller can find the answer again: every command result
+     * is kept under command.result.<ap>.<id> for an hour, which is what
+     * answerTo() reads.
+     *
+     * Publishing goes through the loop's own connection where there is one —
+     * the blocking client would run the loop from inside itself.
+     *
+     * @param object|array|null $args
+     *
+     * @return bool whether it went out, which is all that can be known here
+     */
+    public function callDeferred(AccessPoint $ap, string $id, string $object, string $method,
+        $args = null, float $timeout = self::DEFAULT_TIMEOUT): bool
+    {
+        $client = $this->loopPublisher ?: $this->mqttFactory->getClient();
+        if (!$client) {
+            $this->logger->debug('ApUbusService: no mqtt connection, '.$ap->getName()
+                .' did not get '.$object.'.'.$method);
+
+            return false;
+        }
+        // Not left over from the last round: an answer that is still lying
+        // there would be read as the answer to this question.
+        $this->cacheFactory->deleteCacheItem('command.result.'.$ap->getName().'.'.$id);
+        $cmd = $this->rpcService->createRpcRequest($id, 'call', null, $object, $method, $args);
+        $client->publish('apman/ap/'.$ap->getName().'/command',
+            json_encode($this->rpcService->setTimeout($cmd, $timeout)), 1);
+
+        return true;
+    }
+
+    /**
+     * The answer to a callDeferred(), or null while there is none.
+     */
+    public function answerTo(AccessPoint $ap, string $id): ?UbusResult
+    {
+        $hit = $this->cacheFactory->getCacheItemValue('command.result.'.$ap->getName().'.'.$id);
+
+        return is_array($hit) ? $this->interpret($hit) : null;
     }
 
     /**

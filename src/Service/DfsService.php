@@ -61,6 +61,11 @@ use ApManBundle\Entity\Radio;
  */
 class DfsService
 {
+    /** The id the deferred status probe is filed under, per interface. */
+    private const PROBE_ID = 'dfs-status-';
+    /** Older than this and the answer says nothing about now. */
+    private const PROBE_MAX_AGE = 300;
+
     /**
      * How far past the expectation counts as overdue.
      *
@@ -396,11 +401,8 @@ class DfsService
      */
     public function probe(\ApManBundle\Entity\AccessPoint $ap, string $ifname): ?array
     {
-        $opts = new \stdClass();
-        $opts->command = '/usr/sbin/hostapd_cli';
-        $opts->params = ['-p', '/var/run/hostapd', '-i', $ifname, 'status'];
         $started = microtime(true);
-        $res = $this->ubus->call($ap, 'file', 'exec', $opts, 10);
+        $res = $this->ubus->call($ap, 'file', 'exec', self::statusArgs($ifname), 10);
         $ms = round((microtime(true) - $started) * 1000, 1);
         if (!$res->isOk()) {
             $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname.' did not answer in '
@@ -408,15 +410,103 @@ class DfsService
 
             return null;
         }
-        $data = $res->data;
+
+        return $this->readStatus($res->data, $ap->getName().'/'.$ifname, $ms);
+    }
+
+    /** What to ask hostapd_cli, in one place, because two paths ask it. */
+    private static function statusArgs(string $ifname): \stdClass
+    {
+        $opts = new \stdClass();
+        $opts->command = '/usr/sbin/hostapd_cli';
+        $opts->params = ['-p', '/var/run/hostapd', '-i', $ifname, 'status'];
+
+        return $opts;
+    }
+
+    /**
+     * Ask without waiting, for the callers inside the subscriber's event loop.
+     *
+     * A synchronous call in there cannot work: the answer would have to arrive
+     * through a loop that is stopped waiting for it. So the question goes out
+     * now and recentProbe() reads the answer on a later turn — which is enough,
+     * because a channel availability check lasts a minute at least and ten on
+     * the weather radar channels, while status messages arrive far more often
+     * than that.
+     */
+    public function probeAsync(\ApManBundle\Entity\AccessPoint $ap, string $ifname): bool
+    {
+        if (!$this->ubus->callDeferred($ap, self::PROBE_ID.$ifname, 'file', 'exec',
+            self::statusArgs($ifname), 10)) {
+            return false;
+        }
+        $this->cacheFactory->addCacheItem('dfs.probe.sent.'.$ap->getId().'.'.$ifname, time(), 3600);
+
+        return true;
+    }
+
+    /**
+     * The answer to the last probeAsync(), while it is young enough to mean
+     * anything.
+     *
+     * Null covers all three of "never asked", "asked too long ago" and "asked,
+     * no answer yet" — the caller does not act differently on any of them, and
+     * conflating them here keeps it from pretending it knows.
+     */
+    public function recentProbe(\ApManBundle\Entity\AccessPoint $ap, string $ifname,
+        int $maxAge = self::PROBE_MAX_AGE): ?array
+    {
+        $sent = $this->cacheFactory->getCacheItemValue('dfs.probe.sent.'.$ap->getId().'.'.$ifname);
+        if (!is_numeric($sent) || (time() - (int) $sent) > $maxAge) {
+            return null;
+        }
+        $res = $this->ubus->answerTo($ap, self::PROBE_ID.$ifname);
+        if (null === $res || !$res->isOk()) {
+            return null;
+        }
+
+        return $this->readStatus($res->data, $ap->getName().'/'.$ifname,
+            (time() - (int) $sent) * 1000);
+    }
+
+    /** The half of probe() that reads what hostapd_cli said. */
+    private function readStatus($data, string $where, float $ms): ?array
+    {
         $stdout = is_object($data) ? (string) ($data->stdout ?? '') : '';
         if ('' === $stdout) {
-            $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname
+            $this->logger->debug('dfs probe: '.$where
                 .' answered in '.$ms.' ms with nothing on stdout — no control socket for it?');
 
             return null;
         }
 
+        $out = self::parseStatus($stdout);
+        if (null === $out) {
+            $this->logger->debug('dfs probe: '.$where.' answered in '.$ms
+                .' ms without a state field: '.substr(str_replace("\n", ' ', $stdout), 0, 120));
+
+            return null;
+        }
+        $this->logger->debug('dfs probe: '.$where.' is '.$out['state']
+            .' on '.($out['freq'] ?? '?').' MHz after '.$ms.' ms'
+            .(null !== $out['expected'] ? ', cac '.$out['expected'].'s' : '')
+            .(null !== $out['left'] ? ', '.$out['left'].'s left' : ''));
+
+        return $out;
+    }
+
+    /**
+     * What hostapd_cli status says, as far as a channel check is concerned.
+     *
+     * `state` is DFS while the radio is listening and ENABLED once it carries
+     * traffic. cac_time_left_seconds is the string "N/A" outside a check, which
+     * is not a number and must not become 0 — 0 would read as "done".
+     *
+     * @return array|null null when there is no state field, which is not a
+     *                    status answer at all
+     */
+    public static function parseStatus(string $stdout): ?array
+    {
         $fields = [];
         foreach (explode("\n", $stdout) as $line) {
             if (false === strpos($line, '=')) {
@@ -426,17 +516,9 @@ class DfsService
             $fields[trim($k)] = trim($v);
         }
         if (!isset($fields['state'])) {
-            $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname.' answered in '.$ms
-                .' ms without a state field: '.substr(str_replace("\n", ' ', $stdout), 0, 120));
-
             return null;
         }
-
         $left = $fields['cac_time_left_seconds'] ?? 'N/A';
-        $this->logger->debug('dfs probe: '.$ap->getName().'/'.$ifname.' is '.$fields['state']
-            .' on '.($fields['freq'] ?? '?').' MHz after '.$ms.' ms'
-            .(isset($fields['cac_time_seconds']) ? ', cac '.$fields['cac_time_seconds'].'s' : '')
-            .(is_numeric($left) ? ', '.$left.'s left' : ''));
 
         return [
             'state' => $fields['state'],
