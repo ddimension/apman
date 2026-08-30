@@ -272,6 +272,138 @@ class SyslogService
      * @param array $line as the agent publishes it: id, ts, source, facility,
      *                    level, ident, text
      */
+    /**
+     * The lines worth keeping longer than the access point keeps them.
+     *
+     * An access point's own log is a ring in tmpfs: a few hours, and gone
+     * entirely at the next boot. That is exactly wrong for the two things you
+     * want a history of — a firmware fault that ends in a reboot erases its own
+     * evidence, and a radar event is interesting precisely weeks later, when
+     * somebody asks why that radio is not on the channel it was configured for.
+     *
+     * So these are lifted out of the stream as they pass and kept centrally.
+     * Nothing here acts: the reboot on a firmware fault stays in the cron job
+     * on the access point, where it still works when the controller, the broker
+     * or the network in between is the thing that is broken.
+     *
+     * @var array<string,array{re:string,label:string,bad:bool}>
+     */
+    public const EVENTS = [
+        'ath11k_fault' => [
+            're' => '/failed to send WMI_PDEV_BSS_CHAN_INFO_REQUEST cmd|too many connected already/',
+            'label' => 'ath11k firmware fault', 'bad' => true,
+        ],
+        'dfs_radar' => [
+            're' => '/DFS-RADAR-DETECTED/',
+            'label' => 'radar detected', 'bad' => true,
+        ],
+        'dfs_new_channel' => [
+            're' => '/DFS-NEW-CHANNEL/',
+            'label' => 'moved off a radar channel', 'bad' => false,
+        ],
+        'dfs_cac_completed' => [
+            're' => '/DFS-CAC-COMPLETED/',
+            'label' => 'channel check finished', 'bad' => false,
+        ],
+    ];
+
+    /** how many of them to keep per access point */
+    public const EVENTS_KEEP = 100;
+
+    /** and for how long — long enough to answer "has this been happening" */
+    public const EVENTS_TTL = 30 * 86400;
+
+    public function eventsKey(AccessPoint $ap): string
+    {
+        return 'syslog.events.'.$ap->getId();
+    }
+
+    /**
+     * Does this line report something worth keeping, and as what?
+     *
+     * Pure, and it has to be: the trap here is that a line can quote the
+     * pattern rather than report the thing. The reboot cron on the access
+     * points greps for these very strings, and crond logs the whole command
+     * text once a minute — so its own line matches every pattern below. The
+     * job guards against that with grep -v crond and this does the same. It is
+     * not theoretical: measuring without that guard reported 314 firmware
+     * faults on ap-av-klwz on 2026-08-30, of which the real number was zero.
+     */
+    public static function classify(array $entry): ?string
+    {
+        $ident = (string) ($entry['ident'] ?? '');
+        if ('crond' === $ident || 'cron' === $ident) {
+            return null;
+        }
+        $text = (string) ($entry['text'] ?? '');
+        if ('' === $text || str_contains($text, 'crond')) {
+            return null;
+        }
+        foreach (self::EVENTS as $key => $event) {
+            if (preg_match($event['re'], $text)) {
+                return $key;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Fill the event store from the lines still in the ring.
+     *
+     * For the moment a detector is added or changed: up to KEEP lines per
+     * access point are sitting there already, and some of them are the events
+     * this is meant to keep. Without this the store starts empty and stays
+     * that way until the next radar hit, which may be months.
+     *
+     * Idempotent by timestamp and text, so running it twice does not double
+     * anything.
+     */
+    public function rescan(AccessPoint $ap): int
+    {
+        $kept = $this->events($ap);
+        $seen = [];
+        foreach ($kept as $event) {
+            $seen[($event['ts'] ?? 0).'|'.($event['text'] ?? '')] = true;
+        }
+        $added = 0;
+        foreach ($this->lines($ap) as $entry) {
+            $key = self::classify($entry);
+            if (null === $key) {
+                continue;
+            }
+            $mark = ($entry['ts'] ?? 0).'|'.($entry['text'] ?? '');
+            if (isset($seen[$mark])) {
+                continue;
+            }
+            $seen[$mark] = true;
+            $kept[] = [
+                'event' => $key,
+                'label' => self::EVENTS[$key]['label'],
+                'bad' => self::EVENTS[$key]['bad'],
+                'ts' => $entry['ts'],
+                'ident' => $entry['ident'],
+                'text' => $entry['text'],
+            ];
+            ++$added;
+        }
+        if ($added) {
+            usort($kept, fn ($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));
+            $this->cacheFactory->addCacheItem($this->eventsKey($ap),
+                array_slice($kept, 0, self::EVENTS_KEEP), self::EVENTS_TTL);
+        }
+
+        return $added;
+    }
+
+    /** The kept events of one access point, newest first. */
+    public function events(AccessPoint $ap): array
+    {
+        $out = $this->cacheFactory->getCacheItemValue($this->eventsKey($ap));
+
+        return is_array($out) ? $out : [];
+    }
+
     public function record(AccessPoint $ap, array $line): bool
     {
         $id = isset($line['id']) ? (int) $line['id'] : null;
@@ -295,6 +427,23 @@ class SyslogService
             $lines = array_slice($lines, 0, self::KEEP);
         }
         $this->cacheFactory->addCacheItem($key, $lines, self::TTL);
+
+        $event = self::classify($entry);
+        if (null !== $event) {
+            $kept = $this->events($ap);
+            array_unshift($kept, [
+                'event' => $event,
+                'label' => self::EVENTS[$event]['label'],
+                'bad' => self::EVENTS[$event]['bad'],
+                'ts' => $entry['ts'],
+                'ident' => $entry['ident'],
+                'text' => $entry['text'],
+            ]);
+            if (count($kept) > self::EVENTS_KEEP) {
+                $kept = array_slice($kept, 0, self::EVENTS_KEEP);
+            }
+            $this->cacheFactory->addCacheItem($this->eventsKey($ap), $kept, self::EVENTS_TTL);
+        }
 
         return true;
     }
@@ -437,6 +586,36 @@ class SyslogService
      * and an access point with no entry at all has not published any — which is
      * the answer for "the feature is off" and for "the agent is too old" alike.
      */
+    /**
+     * The kept events of the whole fleet, newest first, with a tally.
+     *
+     * For the dashboard, which is where these belong: a firmware fault or a
+     * radar hit is not a property of one access point you happen to be looking
+     * at, it is something you want to see without going looking.
+     */
+    public function fleetEvents(int $limit = 12): array
+    {
+        $all = [];
+        $counts = [];
+        foreach ($this->doctrine->getRepository('ApManBundle\Entity\AccessPoint')
+            ->findBy([], ['name' => 'ASC']) as $ap) {
+            foreach ($this->events($ap) as $event) {
+                $event['ap'] = $ap->getName();
+                $all[] = $event;
+                $key = $event['event'];
+                $counts[$key] = ($counts[$key] ?? 0) + 1;
+            }
+        }
+        usort($all, fn ($a, $b) => ($b['ts'] ?? 0) <=> ($a['ts'] ?? 0));
+
+        return [
+            'recent' => array_slice($all, 0, $limit),
+            'counts' => $counts,
+            'total' => count($all),
+            'bad' => count(array_filter($all, fn ($e) => !empty($e['bad']))),
+        ];
+    }
+
     public function fleetCounters(): array
     {
         $out = [];

@@ -2369,6 +2369,7 @@ class DefaultController extends AbstractController
         \ApManBundle\Service\AirtimeService $airtime,
         \ApManBundle\Service\BlocklistService $blocklist,
         \ApManBundle\Service\HistoryService $history,
+        \ApManBundle\Service\SyslogService $syslog,
         Request $request)
     {
         $em = $this->doctrine->getManager();
@@ -2562,6 +2563,12 @@ class DefaultController extends AbstractController
 
         return $this->render('default/overview.html.twig', [
             'airtime' => $airtimeRows,
+            // what the access points logged and then forgot: a firmware fault
+            // erases its own evidence by rebooting, and a radar hit is
+            // interesting weeks later. Kept centrally, shown here rather than
+            // on one access point's page, because you want to see it without
+            // going looking.
+            'syslog_events' => $syslog->fleetEvents(),
             'blocked' => $blocklist->blocked(),
             'busiest_clients' => $history->busiestClients(7, 10),
             'fleet_history' => $history->fleetSeries($fleetSpans[$fleetSpan]),

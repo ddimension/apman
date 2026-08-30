@@ -31,6 +31,33 @@
 
 <h2>Overview</h2>
 
+{# Events the access points logged and then lost. A firmware fault erases its
+   own evidence by rebooting into an empty ring buffer, and a radar hit is
+   interesting weeks later, when somebody asks why a radio is not on the
+   channel it was configured for. Only shown when there is something. #}
+{% if syslog_events.total %}
+<div class="card">
+	<h3 class="small">From the logs{% if syslog_events.bad %}
+		<span class="pill down">{{ syslog_events.bad }} to look at</span>{% endif %}</h3>
+	<p class="small stale">
+		{% for key, n in syslog_events.counts %}{{ n }}× {{ key|replace({'_': ' '}) }}{{ not loop.last ? ' · ' }}{% endfor %}
+		— kept for 30 days, which is longer than any access point keeps its own log.
+	</p>
+	<table class="small">
+		{% for e in syslog_events.recent %}
+			<tr>
+				<td class="stale">{{ e.ts|date('d.m. H:i') }}</td>
+				<td><a href="{{ path('ap_detail', {'name': e.ap}) }}">{{ e.ap }}</a></td>
+				<td class="{{ e.bad ? 'warn' : 'ok' }}">{{ e.label }}</td>
+				<td class="stale">{{ e.text|slice(0, 90) }}</td>
+			</tr>
+		{% endfor %}
+	</table>
+	<p class="small stale">The reboot on a firmware fault stays on the access point,
+		where it still works when the controller or the broker is the thing that is broken.</p>
+</div>
+{% endif %}
+
 <div class="cards">
 	<div class="card big">
 		<h3 class="small">Access points</h3>
