@@ -1487,7 +1487,33 @@ class AccessPointService
                     // Waiting is the controller's job; the access point should
                     // be doing something else meanwhile.
                     if (count($first['list'])) {
-                        $client->publishDelayed($topic, json_encode($second), self::MGMT_STAGGER_SECONDS);
+                        // ...but not by blocking, when this runs inside the
+                        // subscriber. publishDelayed() waits by calling
+                        // $loop->run(), and in the subscriber that loop is
+                        // already running: the nested run drains React's
+                        // future tick queue, and when the outer tick resumes
+                        // its "while ($count--)" it dequeues from an empty one.
+                        //
+                        //   RuntimeException: Can't shift from an empty
+                        //   datastructure at FutureTickQueue.php:46
+                        //
+                        // which killed the subscriber on 2026-08-30 at 02:46:10,
+                        // while ap-av-attic was coming back up and this very
+                        // handler ran for its transition to DFS_READY.
+                        //
+                        // A timer on the loop does the same waiting without
+                        // re-entering it. setPublisher() is what tells us we
+                        // are in the subscriber; outside it nothing else is
+                        // running and blocking is the simpler thing.
+                        if (null !== $this->publisher) {
+                            \React\EventLoop\Loop::get()->addTimer(
+                                self::MGMT_STAGGER_SECONDS,
+                                function () use ($client, $topic, $second) {
+                                    $client->publish($topic, json_encode($second));
+                                });
+                        } else {
+                            $client->publishDelayed($topic, json_encode($second), self::MGMT_STAGGER_SECONDS);
+                        }
                     } else {
                         $client->publish($topic, json_encode($second));
                     }
