@@ -10,6 +10,9 @@ class AccessPointService
 {
     /** ubus answers this when the object or the section does not exist */
     private const UBUS_NOT_FOUND = 4;
+    // rpcd answers this for a session it does not know any more — after a
+    // reboot, after an rpcd restart, or when the session simply expired.
+    private const UBUS_PERMISSION_DENIED = 6;
 
     /**
      * Seconds between switching bss management on for 5 GHz and for 2.4 GHz.
@@ -634,8 +637,28 @@ class AccessPointService
         }
         $session = $this->getApSession($ap);
         $commands = $this->publishConfig($ap, true);
-        if (!is_array($commands) || empty($commands['list'])) {
-            return ['ok' => false, 'error' => 'no configuration generated'];
+        // publishConfig answers three different things and they were all read
+        // as one failure. false means it could not build the configuration -
+        // no mqtt client, the access point offline - and that is an error.
+        // true means provisioning is switched off for this access point, which
+        // is a decision somebody made, not a fault. An array with an empty list
+        // means there was nothing to change, which --dry-run has always
+        // reported as "0 change(s) applied" and called a success.
+        //
+        // Until 2026-08-30 all three came out as "no configuration generated",
+        // so a fleet that was perfectly in sync looked broken, and a real
+        // failure looked the same as being up to date.
+        if (true === $commands) {
+            return ['ok' => false, 'ap' => $ap->getName(),
+                'error' => 'provisioning is disabled for this access point'];
+        }
+        if (!is_array($commands)) {
+            return ['ok' => false, 'ap' => $ap->getName(),
+                'error' => 'no configuration could be built — see the log for why'];
+        }
+        if (empty($commands['list'])) {
+            return ['ok' => true, 'ap' => $ap->getName(), 'change_count' => 0,
+                'note' => 'nothing to change, the access point already matches'];
         }
         $report = [
             'ap' => $ap->getName(),
@@ -671,6 +694,7 @@ class AccessPointService
         $results = $this->collectResults($ap, $commands, 8);
         $report['answered'] = count($results);
         $report['failed'] = [];
+        $denied = false;
         foreach ($results as $id => $res) {
             if (!isset($res['error'])) {
                 continue;
@@ -682,7 +706,21 @@ class AccessPointService
             if (self::UBUS_NOT_FOUND === ($res['error']['code'] ?? null) && str_starts_with((string) $id, 'delete-')) {
                 continue;
             }
+            if (self::UBUS_PERMISSION_DENIED === ($res['error']['code'] ?? null)) {
+                $denied = true;
+            }
             $report['failed'][$id] = ($res['error']['message'] ?? 'failed').' ('.($res['error']['code'] ?? '?').')';
+        }
+        // A refused session is dead, and it was cached for 180 days, so every
+        // later run refused too. Throwing it away here means the next attempt
+        // asks the access point for a new one instead of repeating the same
+        // rejection until somebody notices. The 'booted' message does this as
+        // well, but only when the controller is listening while the access
+        // point comes back.
+        if (!empty($denied)) {
+            $this->cacheFactory->deleteCacheItem('status.ap.'.$ap->getId().'.session');
+            $this->logger->notice('applyConfig(): '.$ap->getName()
+                .' refused the ubus session, forgetting it', ['ap' => $ap->getName()]);
         }
 
         if (!$results) {

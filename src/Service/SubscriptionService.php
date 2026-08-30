@@ -307,7 +307,8 @@ class SubscriptionService
                 return $this->handleCommandResult($hostname, $tp, $message);
             } elseif ('booted' == $tp[3]) {
                 //$this->assignAllNeighbors();
-                return true;
+                // go on — the access point is only looked up further down, and
+                // this needs it. Handled after that lookup.
             } elseif ('wireless' == $tp[3]) {
                 // go on
             } elseif ('online' == $tp[3]) {
@@ -387,6 +388,30 @@ class SubscriptionService
         $ap = $this->cacheLocal['ap-by-name'][$hostname];
         if (is_null($ap)) {
             $this->logger->info('handleMessage(): ap not found '.$hostname);
+
+            return true;
+        }
+        if ('booted' == $tp[3]) {
+            // An access point that has just booted cannot still hold the rpcd
+            // session we wrote down for it. The session is cached for 180
+            // days, so without this the controller keeps offering a dead one
+            // until the agent happens to publish a new one - and if that
+            // message is missed once, for half a year.
+            //
+            // What that looks like is not obvious from the outside:
+            // provisioning answers "permission denied (6)" on some runs and
+            // "no answer from the access point" on others, because rpcd
+            // rejects the id rather than saying it expired. Measured after the
+            // fleet reboot on 2026-08-30, on all seven.
+            //
+            // Forgetting it is safe: publishConfig falls back to an apply
+            // without rollback when there is no session, and the agent
+            // publishes a fresh one on properties/session/create at start —
+            // retained since then, so a controller that missed the moment
+            // still gets it.
+            $this->cacheFactory->deleteCacheItem('status.ap.'.$ap->getId().'.session');
+            $this->logger->notice('handleMessage(): '.$hostname
+                .' booted, forgetting its ubus session', ['ap' => $hostname]);
 
             return true;
         }

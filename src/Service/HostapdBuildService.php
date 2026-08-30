@@ -56,6 +56,23 @@ class HostapdBuildService
      */
     private const TTL = 3600;
 
+    /**
+     * An hour is right for an answer; it is wrong for a shrug.
+     *
+     * "Did not answer" is cached too, or every consistency run would spend a
+     * timeout on an access point that is down. But caching it as long as a
+     * real answer means one bad moment decides the next hour — and because an
+     * unknown build counts as stock, that hour is spent reporting an outage
+     * that is not happening.
+     *
+     * Measured on 2026-08-30: the fleet was rebooted, the probes did not get
+     * through, and the consistency page reported six deviations saying
+     * "sae_pwe=2 on stock hostapd" about seven access points that were all
+     * running the patched one. A minute is long enough to stop a stampede and
+     * short enough that nobody is misled by it.
+     */
+    private const TTL_UNKNOWN = 60;
+
     public function __construct(
         private readonly \Psr\Log\LoggerInterface $logger,
         private readonly \ApManBundle\Factory\CacheFactory $cacheFactory,
@@ -78,7 +95,8 @@ class HostapdBuildService
         }
 
         $answer = $this->ask($ap);
-        $this->cacheFactory->addCacheItem($key, $answer, self::TTL);
+        $this->cacheFactory->addCacheItem($key, $answer,
+            ($answer['known'] ?? false) ? self::TTL : self::TTL_UNKNOWN);
 
         return $answer;
     }
