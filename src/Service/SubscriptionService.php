@@ -19,6 +19,7 @@ class SubscriptionService
     private $cacheLocal = ['ap-by-name' => [], 'dev-by-ap-ifname' => []];
     private $cacheRefreshed = 0;
     private ApUbusService $ubus;
+    private MetricsService $metrics;
     private $ppskService;
     private $radiusAuthService;
     private $stateTree;
@@ -66,9 +67,11 @@ class SubscriptionService
         AirtimeService $airtime,
         BlocklistService $blocklist,
         SyslogService $syslog,
-        ApUbusService $ubus
+        ApUbusService $ubus,
+        MetricsService $metrics
     ) {
         $this->ubus = $ubus;
+        $this->metrics = $metrics;
         $this->airtime = $airtime;
         $this->blocklist = $blocklist;
         $this->syslog = $syslog;
@@ -128,6 +131,26 @@ class SubscriptionService
             }
         });
 
+        // From here the process measures itself. The lag probe is the point of
+        // it: a timer knows when it was due, so whatever blocks the loop is
+        // visible even when it logs nothing — which is what both crashes of
+        // 2026-08-30 did.
+        $this->metrics->activate();
+        $due = microtime(true) + MetricsService::LAG_INTERVAL;
+        $loop->addPeriodicTimer(MetricsService::LAG_INTERVAL, function () use (&$due) {
+            $now = microtime(true);
+            $this->metrics->lag($now - $due);
+            $due = $now + MetricsService::LAG_INTERVAL;
+        });
+        $loop->addPeriodicTimer(MetricsService::FLUSH_INTERVAL, function () {
+            try {
+                $this->metrics->flush();
+            } catch (\Throwable $e) {
+                // measuring must never be the thing that stops the daemon
+                $this->logger->warning('metrics: '.$e->getMessage());
+            }
+        });
+
 
         $loop->run();
 
@@ -168,10 +191,12 @@ class SubscriptionService
             $this->logger->warning('Mqtt: '.$e->getMessage());
         });
         $client->on('error', function (\Throwable $e) use ($loop) {
+            $this->metrics->bump('mqtt error');
             $this->logger->error('Mqtt: '.$e->getMessage());
             $this->scheduleReconnect($loop);
         });
         $client->on('close', function () use ($loop) {
+            $this->metrics->bump('mqtt connection closed');
             $this->logger->warning('Mqtt: connection closed');
             $this->scheduleReconnect($loop);
         });
@@ -249,6 +274,8 @@ class SubscriptionService
     private function dispatch(\ApManBundle\Mqtt\Message $message)
     {
         $tp = explode('/', $message->topic);
+        $started = microtime(true);
+        $failed = false;
         // From here on, every log line written while this message is handled
         // carries the AP it came from. The raw hostname, before the lookup:
         // messages from hosts the controller does not know get stamped too.
@@ -258,9 +285,12 @@ class SubscriptionService
                 $this->logger->debug('Failed to handle message. '.$message->topic);
             }
         } catch (\Throwable $e) {
+            $failed = true;
             $this->logger->error('Failed to handle message. '.$e.' '.$e->getTraceAsString());
         } finally {
             $this->apContext->clearAp();
+            $this->metrics->message(MetricsService::classify($tp),
+                microtime(true) - $started, $failed);
         }
     }
 
@@ -276,6 +306,7 @@ class SubscriptionService
             // Measured 2026-08-23: one control event without a station address
             // took the whole fleet's command path down for three minutes.
             $this->logger->error('handleMessage(): the entity manager was closed, reopening');
+            $this->metrics->bump('entity manager reopened');
             $this->doctrine->resetManager();
             $em = $this->doctrine->getManager();
             // The local map holds entities that belonged to the manager which

@@ -1318,6 +1318,85 @@ class DefaultController extends AbstractController
     /**
      * Cluster wide consistency of the running wlan configuration.
      */
+    /**
+     * What the controller can say about its own working.
+     *
+     * Two sources, and the page keeps them apart because they are not equally
+     * trustworthy. The subscriber's numbers come from a snapshot it wrote up to
+     * ten seconds ago — it is a different process and this one cannot see its
+     * memory. The store latencies are measured here, now, in this request.
+     */
+    #[Route(path: '/performance', name: 'performance')]
+    public function performanceAction(\ApManBundle\Service\MetricsService $metrics,
+        \ApManBundle\Factory\CacheFactory $cf): Response
+    {
+        $snapshot = $metrics->snapshot();
+        $series = $metrics->series();
+
+        // Ranked by time, not by count: the class that is a fiftieth of the
+        // messages and half of the work is the one worth seeing, and sorting by
+        // count hides it.
+        $classes = [];
+        $totalMs = 0.0;
+        $totalN = 0;
+        foreach (($snapshot['classes'] ?? []) as $name => $c) {
+            $totalMs += $c['ms'];
+            $totalN += $c['n'];
+        }
+        foreach (($snapshot['classes'] ?? []) as $name => $c) {
+            $classes[] = [
+                'name' => $name,
+                'n' => $c['n'],
+                'rate' => $c['n'] / ($snapshot['window'] ?: 1),
+                'ms' => $c['ms'],
+                'avg' => $c['n'] ? $c['ms'] / $c['n'] : 0,
+                'max' => $c['max'],
+                'err' => $c['err'],
+                'share' => $totalMs > 0 ? $c['ms'] / $totalMs : 0,
+            ];
+        }
+        usort($classes, fn ($a, $b) => $b['ms'] <=> $a['ms']);
+
+        // Measured in this request, so it says something about now rather than
+        // about whenever the daemon last looked.
+        $store = [];
+        $t = microtime(true);
+        try {
+            $cf->getCacheItemValue('metrics.probe.'.random_int(1, 1 << 20));
+            $store['cache read'] = (microtime(true) - $t) * 1000;
+        } catch (\Throwable $e) {
+            $store['cache read'] = null;
+        }
+        $t = microtime(true);
+        try {
+            $this->doctrine->getConnection()->executeQuery('SELECT 1')->fetchOne();
+            $store['database round trip'] = (microtime(true) - $t) * 1000;
+        } catch (\Throwable $e) {
+            $store['database round trip'] = null;
+        }
+        $t = microtime(true);
+        try {
+            $rows = $this->doctrine->getConnection()->executeQuery(
+                'SELECT COUNT(*) FROM event WHERE ts > NOW() - INTERVAL 1 HOUR')->fetchOne();
+            $store['event count, last hour'] = (microtime(true) - $t) * 1000;
+        } catch (\Throwable $e) {
+            $rows = null;
+            $store['event count, last hour'] = null;
+        }
+
+        return $this->render('default/performance.html.twig', [
+            'here' => 'performance',
+            'snapshot' => $snapshot,
+            'series' => $series,
+            'classes' => $classes,
+            'total_n' => $totalN,
+            'total_ms' => $totalMs,
+            'store' => $store,
+            'events_last_hour' => $rows,
+            'flush_interval' => \ApManBundle\Service\MetricsService::FLUSH_INTERVAL,
+        ]);
+    }
+
     #[Route(path: '/consistency', name: 'consistency')]
     public function consistencyAction(Request $request, \ApManBundle\Service\WlanConsistencyService $check)
     {

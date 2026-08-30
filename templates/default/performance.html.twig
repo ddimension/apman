@@ -1,0 +1,152 @@
+{% extends 'frontend.html.twig' %}
+{% block title %}Performance{% endblock %}
+
+{% block body %}
+{% set now = 'now'|date('U') %}
+<h2>Controller performance</h2>
+<p class="small">
+	What this controller can say about its own working. Two sources, kept apart
+	because they are not equally trustworthy: the subscriber's numbers come from a
+	snapshot it writes every {{ flush_interval }}s — it is a different process and
+	this page cannot see its memory — while the store latencies below are measured
+	in this request, now.
+</p>
+
+{% if not snapshot %}
+	<div class="card warnbox">
+		<h3>No snapshot</h3>
+		<p>The subscriber has not written one. Either it is not running, or it is a
+		build without the measurement — it starts writing {{ flush_interval }}s after
+		it comes up.</p>
+	</div>
+{% else %}
+	{% set age = now - snapshot.ts|round %}
+	<div class="card{{ age > flush_interval * 3 ? ' warnbox' }}">
+		<h3>The daemon</h3>
+		<table class="kv">
+			<tr><td>snapshot</td><td class="{{ age > flush_interval * 3 ? 'warn' }}">{{ age }}s ago
+				{% if age > flush_interval * 3 %}— stale, so everything below is too{% endif %}</td></tr>
+			{% set up = now - snapshot.started %}
+			<tr><td>running since</td><td>{{ up < 3600
+				? (up // 60) ~ ' min' : (up / 3600)|round(1) ~ ' h' }}</td></tr>
+			<tr><td>pid</td><td class="mono">{{ snapshot.pid }}</td></tr>
+			<tr><td>memory</td><td>{{ (snapshot.memory / 1048576)|round(1) }} MB
+				<span class="small stale">peak {{ (snapshot.memory_peak / 1048576)|round(1) }} MB</span></td></tr>
+			<tr><td>messages</td><td>{{ (total_n / snapshot.window)|round(1) }}/s
+				<span class="small stale">{{ total_n }} in the last {{ snapshot.window|round(1) }}s</span></td></tr>
+			<tr><td>time in handling</td><td>{{ (total_ms / 10 / snapshot.window)|round(1) }}%
+				<span class="small stale">{{ total_ms|round }} ms of {{ (snapshot.window * 1000)|round }} ms</span></td></tr>
+		</table>
+	</div>
+
+	<div class="card">
+		<h3>Event loop lag
+			<span class="small">how late a timer that was due ran</span></h3>
+		<p class="small">
+			This is the measurement worth having. A timer knows when it should have
+			fired, so anything that blocks the loop — a synchronous call, a slow
+			query, a wait on redis — appears here and in no log. Both crashes on
+			30.08. were preceded by exactly this, and nobody could see it.
+		</p>
+		<table class="kv">
+			<tr><td>worst</td>
+				<td class="{{ snapshot.lag.max > 1000 ? 'warn' : (snapshot.lag.max > 250 ? 'aged' : 'ok') }}">
+					{{ snapshot.lag.max|round(1) }} ms</td></tr>
+			<tr><td>average</td><td>{{ snapshot.lag.avg|round(2) }} ms
+				<span class="small stale">over {{ snapshot.lag.n }} probes</span></td></tr>
+		</table>
+		{% if snapshot.lag.buckets|length %}
+			<table class="kv">
+				{% for bucket, n in snapshot.lag.buckets %}
+					<tr><td>{{ bucket }}</td>
+						<td><span class="bar" style="display:inline-block;height:.7em;background:var(--accent);
+							width:{{ (n / snapshot.lag.n * 100)|round }}%"></span>
+							<span class="small">{{ n }}</span></td></tr>
+				{% endfor %}
+			</table>
+		{% endif %}
+	</div>
+
+	<div class="card">
+		<h3>Where the time goes
+			<span class="small">message classes, ranked by time and not by count</span></h3>
+		<p class="small">
+			A class that is a fiftieth of the messages and half of the work is the one
+			worth seeing, and a ranking by count hides it. Interface and access point
+			names are folded out of the topic — one row per bss would say nothing.
+		</p>
+		<div style="overflow-x:auto">
+		<table class="aps">
+			<tr><th>class</th><th>rate</th><th>share of time</th><th>avg</th><th>worst</th><th>failed</th></tr>
+			{% for c in classes %}
+				<tr>
+					<td class="mono">{{ c.name }}</td>
+					<td>{{ c.rate|round(2) }}/s</td>
+					<td>
+						<span style="display:inline-block;height:.7em;background:var(--accent);
+							width:{{ (c.share * 100)|round }}%;min-width:1px"></span>
+						<span class="small">{{ (c.share * 100)|round }}%</span>
+					</td>
+					<td>{{ c.avg|round(2) }} ms</td>
+					<td class="{{ c.max > 250 ? 'warn' : '' }}">{{ c.max|round(1) }} ms</td>
+					<td class="{{ c.err ? 'warn' : 'muted' }}">{{ c.err }}</td>
+				</tr>
+			{% endfor %}
+		</table>
+		</div>
+	</div>
+
+	<div class="card">
+		<h3>Counted, not logged
+			<span class="small">rare things, in the last {{ snapshot.window|round }}s</span></h3>
+		<p class="small">
+			These are rare by nature, which is why a counter beats a log line: the log
+			line is gone by the time anyone asks. This host keeps its journal in RAM
+			only, so the record of the night of 30.08. no longer exists.
+		</p>
+		{% if snapshot.events|length %}
+			<table class="kv">
+				{% for name, n in snapshot.events %}
+					<tr><td>{{ name }}</td><td class="warn">{{ n }}</td></tr>
+				{% endfor %}
+			</table>
+		{% else %}
+			<p class="small ok">Nothing — no reopened entity manager, no refused
+			synchronous call, no mqtt reconnect in this window.</p>
+		{% endif %}
+	</div>
+{% endif %}
+
+<div class="card">
+	<h3>The stores <span class="small">measured in this request</span></h3>
+	<table class="kv">
+		{% for name, ms in store %}
+			<tr><td>{{ name }}</td>
+				<td class="{{ ms is null ? 'warn' : (ms > 100 ? 'aged' : '') }}">
+					{{ ms is null ? 'failed' : ms|round(2) ~ ' ms' }}</td></tr>
+		{% endfor %}
+		{% if events_last_hour is not null %}
+			<tr><td>events written, last hour</td><td>{{ events_last_hour }}</td></tr>
+		{% endif %}
+	</table>
+</div>
+
+{% if series|length > 1 %}
+	<div class="card">
+		<h3>Recent history
+			<span class="small">{{ series|length }} snapshots, {{ ((series|length) * flush_interval / 60)|round(1) }} min</span></h3>
+		{% set maxrate = 0 %}
+		{% for s in series %}{% set maxrate = max(maxrate, s.n / s.window) %}{% endfor %}
+		<div style="display:flex;align-items:flex-end;gap:1px;height:60px">
+			{% for s in series %}
+				{% set r = s.n / s.window %}
+				<div title="{{ r|round(1) }} msg/s, lag {{ s.lag_max|round(1) }} ms"
+					style="flex:1 1 0;min-width:2px;background:{{ s.lag_max > 1000 ? 'var(--bad)' : 'var(--accent)' }};
+					height:{{ maxrate > 0 ? (r / maxrate * 100)|round : 0 }}%"></div>
+			{% endfor %}
+		</div>
+		<p class="small">Message rate per snapshot, newest on the right. A bar turns
+		red when the loop was blocked for more than a second in that window.</p>
+	</div>
+{% endif %}
+{% endblock %}

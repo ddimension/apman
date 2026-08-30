@@ -38,6 +38,7 @@ class ApUbusService
         private readonly \ApManBundle\Factory\MqttFactory $mqttFactory,
         private readonly \ApManBundle\Factory\CacheFactory $cacheFactory,
         private readonly wrtJsonRpc $rpcService,
+        private readonly MetricsService $metrics,
     ) {
     }
 
@@ -233,6 +234,7 @@ class ApUbusService
         }
         if ($this->inLoop) {
             // Refusing is the whole point: this used to end the daemon.
+            $this->metrics->bump('synchronous ubus refused');
             $this->logger->warning('ApUbusService: refusing a synchronous '
                 .$calls[0]['object'].'.'.$calls[0]['method'].' for '.$ap->getName()
                 .' inside the subscriber — use callAsync()', ['ap' => $ap->getName()]);
