@@ -2,7 +2,6 @@
 
 namespace ApManBundle\DynamicEntity;
 
-use ApManBundle\Library\AccessPointState;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Cache\Psr16Cache;
 
@@ -52,7 +51,6 @@ class AccessPoint
     {
         $this->cache = $cache;
         $this->stateCache = $this->cache->getMultipleCacheItemValues([
-        'status.state['.$this->getId().']',
         'state.ap.composed['.$this->getId().']',
         'status.ap.'.$this->getId().'.board',
         'status.ap.'.$this->getId().'.info',
@@ -215,25 +213,8 @@ class AccessPoint
     }
 
     /**
-     * get info.
-     *
-     * @return \?string
-     */
-    public function getState()
-    {
-        $key = 'status.state['.$this->getId().']';
-        if (!is_array($this->stateCache) or !isset($this->stateCache[$key])) {
-            return 'Unknown';
-        }
-        $state = $this->stateCache[$key];
-
-        return AccessPointState::getStateName($state);
-    }
-
-    /**
      * What the state tree makes of this access point — its radios and their
-     * bsses composed. Sits next to getState() while the two are compared;
-     * getState() is the flat machine and goes when the tree replaces it.
+     * bsses composed.
      */
     public function getTreeState()
     {

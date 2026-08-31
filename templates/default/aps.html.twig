@@ -49,15 +49,12 @@
 
 <table class="aps">
 	<tr>
-		<th>AP</th><th>State</th><th>Tree</th><th>Agent</th><th>Features</th><th>Intervals</th>
+		<th>AP</th><th>State</th><th>Agent</th><th>Features</th><th>Intervals</th>
 	</tr>
 	{% for ap in aps %}
 		<tr class="ap {{ ap.online == 'online' ? 'up' : 'down' }}">
 			<td><b><a href="{{ path('ap_detail', {'name': ap.name}) }}">{{ ap.name }}</a></b>{% if not ap.productive %} <i>(non productive)</i>{% endif %}</td>
 			<td>{{ ap.state }}{% if ap.online %} / {{ ap.online }}{% endif %}</td>
-			{# composed from the radios and their bsses, next to the flat state
-			   while the two are being compared #}
-			<td>{{ ap.tree_state }}</td>
 			<td>
 				{% if ap.agent %}
 					{{ ap.agent.agent|default('apman') }} {{ ap.agent.version|default('?') }}
@@ -180,42 +177,5 @@
 	tr.dev td:first-child { padding-left: 1.5em; }
 	.mld { background: var(--good-bg); padding: 0 4px; border-radius: var(--r-sm); }
 </style>
-
-{% if pairings|length %}
-	{% set bad = pairings|filter(p => not p.agree)|length %}
-	<div class="card{{ bad ? ' warnbox' }}">
-		<h3>Tree against flat machine
-			<span class="small">every pairing the two have been seen in</span></h3>
-		<p class="small">
-			The flat state and the composed state stand next to each other in the table
-			above while one replaces the other. That they agree right now says little —
-			in the steady state agreeing is easy. What decides whether the flat machine
-			can go is whether they ever parted during a transition: a boot, a channel
-			availability check, a radio that dropped. The journal on this host lives in
-			RAM and cannot answer that, so it is counted here instead.
-		</p>
-		<table class="aps">
-			<tr><th>tree</th><th>flat machine</th><th>seen</th><th>last</th><th>access points</th></tr>
-			{% for p in pairings %}
-				<tr>
-					<td class="mono {{ p.agree ? 'ok' : 'warn' }}">{{ p.tree }}</td>
-					<td class="mono {{ p.agree ? 'ok' : 'warn' }}">{{ p.flat }}</td>
-					<td>{{ p.n }}</td>
-					<td class="small">{{ p.last ? ((('now'|date('U')) - p.last) // 60) ~ ' min ago' : '—' }}</td>
-					<td class="small">{{ p.aps|keys|join(', ') }}</td>
-				</tr>
-			{% endfor %}
-		</table>
-		<p class="small">
-			{% if bad %}
-				<b class="warn">{{ bad }} pairing(s) the mapping does not call equal.</b>
-				DEGRADED and UNKNOWN are counted here too: the flat machine has no word
-				for either, so they are a difference and not a disagreement.
-			{% else %}
-				Every pairing seen so far is one the mapping calls equal.
-			{% endif %}
-		</p>
-	</div>
-{% endif %}
 
 {% endblock %}

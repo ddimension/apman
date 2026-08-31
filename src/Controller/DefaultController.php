@@ -503,10 +503,7 @@ class DefaultController extends AbstractController
             // judges by it. Cached for an hour, so this costs nothing per view.
             'hostapd_build' => $builds->of($ap),
             'sysinfo' => $cf->getCacheItemValue('status.ap.'.$ap->getId().'.info'),
-            'state' => \ApManBundle\Library\AccessPointState::getStateName(
-                $cf->getCacheItemValue('status.state['.$ap->getId().']')
-            ),
-            // the same access point as a tree: its radios, and under each of
+            // the access point as a tree: its radios, and under each of
             // them its bsses, every node with its own state
             'tree' => $stateTree->ap($ap),
             'devices' => $devices,
@@ -3954,14 +3951,12 @@ class DefaultController extends AbstractController
         foreach ($query->getResult() as $ap) {
             $agent = $cf->getCacheItemValue('status.ap.'.$ap->getId().'.agent');
             $online = $cf->getCacheItemValue('status.online['.$ap->getId().']');
-            $state = $cf->getCacheItemValue('status.state['.$ap->getId().']');
             $row = [
                 'name' => $ap->getName(),
                 'productive' => $ap->getIsProductive(),
-                'state' => \ApManBundle\Library\AccessPointState::getStateName($state),
                 // this page builds plain rows rather than handing the entity to
                 // the template, so the tree's verdict has to be fetched here
-                'tree_state' => \ApManBundle\Library\NodeState::name(
+                'state' => \ApManBundle\Library\NodeState::name(
                     \ApManBundle\Library\NodeState::TYPE_AP,
                     $stateTree->composedState(\ApManBundle\Library\NodeState::TYPE_AP, $ap->getId())),
                 'online' => is_array($online) && isset($online['status']) ? $online['status'] : null,
@@ -4053,9 +4048,6 @@ class DefaultController extends AbstractController
             'aps' => $aps,
             'steering' => $this->steeringStats(),
             'channel_map' => $channelMap,
-            // the record of how the two machines have compared, next to the
-            // two columns that show them
-            'pairings' => $stateTree->pairings(),
         ]);
     }
 

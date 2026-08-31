@@ -3,7 +3,7 @@
 
 {% block body %}
 <h2>{{ ap.name }}
-	<span class="pill {{ state == 'STATE_ACTIVE' ? 'up' : 'down' }}">{{ state }}</span>
+	<span class="pill {{ tree.state_name in ['ACTIVE', 'READY'] ? 'up' : 'down' }}">{{ tree.state_name }}</span>
 </h2>
 
 <p class="small">

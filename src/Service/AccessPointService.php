@@ -1271,23 +1271,10 @@ class AccessPointService
     public function lifetimeMessageHandler($ap, \ApManBundle\Mqtt\Message $message, $deviceList, \ApManBundle\Mqtt\Publisher $client)
     {
         //    var_dump($message);
-        $cache = $this->cacheFactory->getCache();
         $em = $this->doctrine->getManager();
         $tp = explode('/', $message->topic);
         $msg = json_decode($message->payload, true);
 
-        $stateKey = 'status.state['.$ap->getId().']';
-        $state = $this->cacheFactory->getCacheItemValue($stateKey);
-        if (!is_int($state)) {
-            $state = null;
-        }
-        $stateOld = $state;
-        // Nothing known yet is not the same as offline, even though intval()
-        // turns both into 0. Keep them apart: an access point we have never
-        // heard from has to be able to climb out of it, and the branches below
-        // use $unknown to tell the two apart.
-        $unknown = (null === $state);
-        $state = intval($state);
         $cif = 0;
         // Handle online message
         if ('online' == $tp[3]) {
@@ -1298,38 +1285,35 @@ class AccessPointService
 
             $this->cacheFactory->addCacheItem('status.online['.$ap->getId().']', $msg);
             $this->logger->info('ApLifetimeHandler(): save online status from '.$ap->getName(), $msg);
-            // stage one of the state tree: observe the same facts, decide nothing
             $this->stateTree->observeAp($ap, ['online' => 'online' == $msg['status']]);
-            if ('online' == $msg['status']) {
-                if ($unknown || \ApManBundle\Library\AccessPointState::STATE_OFFLINE == $state) {
-                    $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ONLINE);
-                }
-            } else {
-                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_OFFLINE);
-                // Management (bss_mgmt_enable) is hostapd runtime state: when
-                // the access point goes offline, hostapd is gone and the flags
-                // with it. Clearing the fact is what lets the tree see the
-                // moment it has to be switched back on — otherwise a bss
-                // returning after a boot would compose straight to ACTIVE,
-                // claiming management that nobody turned on.
-                //
-                // The same goes for the bsses themselves and the radios: the
-                // facts in the tree are up to a week old, and a fast reboot
-                // comes back while they still read as fresh. Left standing,
-                // "the interface is there" and "hostapd says ENABLED" would
-                // describe the boot that is no longer running — the tree would
-                // switch management on against a hostapd that has not started
-                // yet. Writing the offline side over them makes the bsses
-                // climb back through STARTING and READY on their own.
-                foreach ($ap->getRadios() as $radio) {
-                    $this->stateTree->observeRadio($radio, ['up' => false]);
-                    foreach ($radio->getDevices() as $device) {
-                        $this->stateTree->observeBss($device, [
-                            'present' => false,
-                            'managed' => false,
-                            'status' => null,
-                        ]);
-                    }
+            // Management (bss_mgmt_enable) is hostapd runtime state: when the
+            // access point goes offline — or announces a fresh connect, the
+            // only sign a reboot leaves behind when the broker swallows the
+            // will (a fast boot reconnects before the keepalive timeout, and
+            // the duplicate-clientid takeover closes the old connection
+            // without publishing it — measured twice on ap-av-attic,
+            // 2026-08-31) — hostapd is gone and the flags with it. Clearing
+            // the fact is what lets the tree see the moment
+            // it has to be switched back on — otherwise a bss returning after
+            // a boot would compose straight to ACTIVE, claiming management
+            // that nobody turned on.
+            //
+            // The same goes for the bsses themselves and the radios: the
+            // facts in the tree are up to a week old, and a fast reboot
+            // comes back while they still read as fresh. Left standing,
+            // "the interface is there" and "hostapd says ENABLED" would
+            // describe the boot that is no longer running — the tree would
+            // switch management on against a hostapd that has not started
+            // yet. Writing the offline side over them makes the bsses
+            // climb back through STARTING and READY on their own.
+            foreach ($ap->getRadios() as $radio) {
+                $this->stateTree->observeRadio($radio, ['up' => false]);
+                foreach ($radio->getDevices() as $device) {
+                    $this->stateTree->observeBss($device, [
+                        'present' => false,
+                        'managed' => false,
+                        'status' => null,
+                    ]);
                 }
             }
             // Handle status Message
@@ -1337,26 +1321,8 @@ class AccessPointService
             $this->cacheFactory->addCacheItem('status.wireless['.$ap->getId().']', $msg);
             $this->logger->info('ApLifetimeHandler(): save wireless status (length: '.strlen($message->payload).') from '.$ap->getName());
 
-            // A wireless status message is itself proof that the access point is
-            // talking to us. Returning here was how an access point got stuck:
-            // once the state had gone (or it had never been seen), every status
-            // message bailed out before the state could be written back, and
-            // only a fresh MQTT connect could ever lift it out again.
-            if ($state < \ApManBundle\Library\AccessPointState::STATE_ONLINE) {
-                $this->logger->info('ApLifetimeHandler(): '.$ap->getName().' sent wireless status while '.
-                    ($unknown ? 'unknown' : \ApManBundle\Library\AccessPointState::getStateName($state)).
-                    ', taking that as online');
-                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ONLINE);
-            }
-
-            $pending = false;
-            $failed = false;
-            // Counted, not overwritten. This used to be a plain $up that every
-            // radio reassigned, so the last one in the loop decided for the
-            // whole access point — an access point with one radio up and one
-            // down reported whatever the iteration order happened to hand over
-            // last. $pending and $failed were accumulated all along; $up was
-            // the odd one out.
+            // Counted, not overwritten: a plain $up that every radio reassigned
+            // made the last one in the loop decide for the whole access point.
             $radios = 0;
             $radiosUp = 0;
 
@@ -1408,12 +1374,6 @@ class AccessPointService
                     // Skip disabled radios
                     continue;
                 }
-                if ($rstate['pending']) {
-                    $pending = true;
-                }
-                if ($rstate['retry_setup_failed']) {
-                    $failed = true;
-                }
                 ++$radios;
                 if ($rstate['up']) {
                     ++$radiosUp;
@@ -1450,26 +1410,13 @@ class AccessPointService
                     }
                 }
             }
-            // One radio up is enough to keep going. Demanding all of them would
-            // park an access point with a single dead radio in PENDING, and
-            // PENDING never reaches ACTIVE — so the radios that *are* working
-            // would lose their beacons and neighbour reports too. The partial
-            // case is worth knowing about, not worth stopping for.
-            $up = $radiosUp > 0;
+            // One radio up is enough to keep going. The partial case — an
+            // access point with a single dead radio — is worth knowing about,
+            // not worth stopping for: the tree carries it as DEGRADED while
+            // the working radios stay in service.
             if ($radios > 0 && $radiosUp < $radios) {
                 $this->logger->warning('ApLifetimeHandler(): '.$ap->getName().' has '.
                     $radiosUp.' of '.$radios.' enabled radios up');
-            }
-            if ($failed) {
-                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_FAILED);
-            } elseif ($pending) {
-                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_PENDING);
-            } elseif ($up && $state < \ApManBundle\Library\AccessPointState::STATE_CONFIGURED) {
-                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_CONFIGURED);
-            } elseif ($up) {
-                // keep
-            } else {
-                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_PENDING);
             }
         }
 
@@ -1478,31 +1425,14 @@ class AccessPointService
          */
         if (is_array($deviceList)) {
             // Handle CAC / DFS
-            if ($cif && $state >= \ApManBundle\Library\AccessPointState::STATE_CONFIGURED) {
-                $cac_active = false;
+            if ($cif) {
                 $found = 0;
                 foreach ($deviceList as $device) {
-                    $key = 'status.device.'.$device->getId();
-                    $ds = $this->cacheFactory->getCacheItemValue($key);
-                    if (null !== $ds) {
+                    if (null !== $this->cacheFactory->getCacheItemValue('status.device.'.$device->getId())) {
                         ++$found;
-                    }
-                    if (!is_array($ds) || !isset($ds['ap_status']) || !isset($ds['ap_status']['dfs']) || !isset($ds['ap_status']['dfs']['cac_active'])) {
-                        continue;
-                    }
-                    //				if ($ap->getName() == 'ap-outdoor2.kalnet.hooya.de') echo "K $key V".substr(json_encode($ds),0,130)."\n";
-                    //var_dump($ds['ap_status']['dfs']);
-                    if ($ds['ap_status']['dfs']['cac_active']) {
-                        $cac_active = true;
                     }
                 }
                 if ($found >= $cif) {
-                    if ($cac_active && $state >= \ApManBundle\Library\AccessPointState::STATE_CONFIGURED) {
-                        $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING);
-                    }
-                    if (!$cac_active && $state >= \ApManBundle\Library\AccessPointState::STATE_CONFIGURED && $state <= \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING) {
-                        $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_READY);
-                    }
                     // nothing missing, so nothing is listening
                     $this->clearCacFacts($ap);
                 } else {
@@ -1524,9 +1454,6 @@ class AccessPointService
                             : ($answered
                                 ? 'no radio says it is listening, so this is not dfs'
                                 : 'no radio answered the probe, so whether this is dfs is unknown')));
-                    if ($listening) {
-                        $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_DFS_RUNNING);
-                    }
                 }
             }
 
@@ -1639,22 +1566,11 @@ class AccessPointService
                 $this->assignAllNeighbors();
             }
 
-            // The flat machine keeps running for the comparison on /aps, and
-            // it still reaches ACTIVE on its own — only the switching is no
-            // longer its job.
-            if (\ApManBundle\Library\AccessPointState::STATE_DFS_READY == $state) {
-                $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ACTIVE);
-            }
         }
 
-        // Cache update
-        $state = $this->changeLifetimeState($ap, $state);
-
-        // Stage one of the state tree: say what it would have concluded, so the
-        // two can be compared before anything is moved over to it.
-        $this->stateTree->compareWithFlat($ap,
-            \ApManBundle\Library\AccessPointState::getStateName($state));
-        $this->logger->debug("ApLifetimeHandler(): state '".\ApManBundle\Library\AccessPointState::getStateName($state)."' of ap ".$ap->getName());
+        // Compose the tree once per message, so the composed states the pages
+        // read are never older than the last thing this access point said.
+        $this->stateTree->refresh($ap);
 
         return true;
     }
@@ -1762,32 +1678,6 @@ class AccessPointService
                     'radio '.(NodeState::RADIO_FAILED === $radio['state'] ? 'failed' : 'degraded'));
             }
         }
-    }
-
-    /**
-     * How long a state is remembered. Deliberately far longer than anything the
-     * access points do: the default 30 seconds meant the state expired between
-     * two status messages, and since a missing entry reads back as 0 —
-     * STATE_OFFLINE — a perfectly healthy access point was reported offline for
-     * no reason other than a gap in the traffic. Offline is something we are
-     * told (the agent's MQTT last will) or something we conclude from the age
-     * of the last message, never something a cache eviction decides.
-     */
-    private const STATE_TTL = 7 * 86400;
-
-    private function changeLifetimeState($ap, int $state)
-    {
-        $stateKey = 'status.state['.$ap->getId().']';
-        $stateOld = $this->cacheFactory->getCacheItemValue($stateKey);
-        if ($state !== $stateOld) {
-            $this->logger->notice("changeLifetimeState(): changing state from '".\ApManBundle\Library\AccessPointState::getStateName($stateOld).
-            "' to '".\ApManBundle\Library\AccessPointState::getStateName($state)."'  of ap ".$ap->getName());
-            // when it changed, so "how long has it been failing" is answerable
-            $this->cacheFactory->addCacheItem('status.state.since['.$ap->getId().']', time(), self::STATE_TTL);
-        }
-        $this->cacheFactory->addCacheItem($stateKey, $state, self::STATE_TTL);
-
-        return $state;
     }
 
     /**
