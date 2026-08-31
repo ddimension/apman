@@ -453,8 +453,9 @@
 <script>
 // push: the page reloads when this very client connects or leaves, instead
 // of showing its last state for up to a poll. Guarded so a reload never
-// interrupts typing or an action in flight.
-const stream = new EventSource('{{ path('stream_clients', {'mac': mac|lower}) }}');
+// interrupts typing or an action in flight. Served by the subscriber's
+// loop, not by this app — the path is fixed in contrib/apache-apman.conf.
+const stream = new EventSource('/apman/stream/clients?mac=' + encodeURIComponent('{{ mac|lower }}'));
 let pendingReload = null;
 stream.onmessage = () => {
 	if (pendingReload || !document.hasFocus()) { return; }
