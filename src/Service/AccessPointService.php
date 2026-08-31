@@ -1306,6 +1306,31 @@ class AccessPointService
                 }
             } else {
                 $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_OFFLINE);
+                // Management (bss_mgmt_enable) is hostapd runtime state: when
+                // the access point goes offline, hostapd is gone and the flags
+                // with it. Clearing the fact is what lets the tree see the
+                // moment it has to be switched back on — otherwise a bss
+                // returning after a boot would compose straight to ACTIVE,
+                // claiming management that nobody turned on.
+                //
+                // The same goes for the bsses themselves and the radios: the
+                // facts in the tree are up to a week old, and a fast reboot
+                // comes back while they still read as fresh. Left standing,
+                // "the interface is there" and "hostapd says ENABLED" would
+                // describe the boot that is no longer running — the tree would
+                // switch management on against a hostapd that has not started
+                // yet. Writing the offline side over them makes the bsses
+                // climb back through STARTING and READY on their own.
+                foreach ($ap->getRadios() as $radio) {
+                    $this->stateTree->observeRadio($radio, ['up' => false]);
+                    foreach ($radio->getDevices() as $device) {
+                        $this->stateTree->observeBss($device, [
+                            'present' => false,
+                            'managed' => false,
+                            'status' => null,
+                        ]);
+                    }
+                }
             }
             // Handle status Message
         } elseif ('wireless' == $tp[3] && 'status' == $tp[4]) {
@@ -1368,9 +1393,14 @@ class AccessPointService
                         'failed' => (bool) ($rstate['retry_setup_failed'] ?? false),
                     ]);
                     foreach ($radio->getDevices() as $rdev) {
+                        $present = isset($sections[$rdev->getName()]);
+                        // an interface that is not there has no management
+                        // either — the fact must be cleared here, or the bss
+                        // would come back claiming ACTIVE after a channel
+                        // check or a radio restart
                         $this->stateTree->observeBss($rdev, [
-                            'present' => isset($sections[$rdev->getName()]),
-                        ]);
+                            'present' => $present,
+                        ] + ($present ? [] : ['managed' => false]));
                     }
                 }
 
@@ -1500,10 +1530,21 @@ class AccessPointService
                 }
             }
 
-            // After DFS is ready, AP is also ready for activation
-            if (\ApManBundle\Library\AccessPointState::STATE_DFS_READY == $state) {
+            // The decision that used to hang off the flat machine. When the
+            // tree says READY — every radio up, every bss enabled, management
+            // not switched on yet — enable beacons and BSS management.
+            //
+            // Not off AP_ACTIVE: ACTIVE means management is on, and this is
+            // the only thing that switches it on — the trigger would never
+            // fire. READY is the edge before that. The tree says READY again
+            // after every boot and every channel check, because the managed
+            // fact is cleared wherever management dies: when the access point
+            // goes offline, when an interface is missing, when a bss is in a
+            // channel availability check.
+            $tree = $this->stateTree->refresh($ap);
+            if (\ApManBundle\Library\NodeState::AP_READY === $tree['state']) {
                 // Enable Beacons and BSS management
-                $this->logger->info("ApLifetimeHandler(): state $state on ap ".$ap->getName().' detected, updating beacon.');
+                $this->logger->info('ApLifetimeHandler(): tree says '.$tree['state_name'].' on ap '.$ap->getName().' detected, updating beacon.');
                 $topic = 'apman/ap/'.$ap->getName().'/command/bulk';
                 // At first 5g, then 2g
                 $dev2G = [];
@@ -1539,8 +1580,8 @@ class AccessPointService
                 $first = $batch($dev5G);
                 if (count($first['list'])) {
                     $client->publish($topic, json_encode($first));
-                    // stage one: this is the only place management is switched
-                    // on today, so it is the only place the tree can learn it
+                    // this is the only place management is switched on, so it
+                    // is the only place the tree can learn it
                     foreach ($dev5G as $device) {
                         $this->stateTree->observeBss($device, ['managed' => true]);
                     }
@@ -1594,8 +1635,14 @@ class AccessPointService
                 }
 
                 // Assign Neighbors, enable reports
-                $this->logger->info('ApLifetimeHandler(): state '.\ApManBundle\Library\AccessPointState::getStateName($state).' on ap '.$ap->getName().' detected, start AssignAllNeighbors.');
+                $this->logger->info('ApLifetimeHandler(): '.$ap->getName().' activated, start AssignAllNeighbors.');
                 $this->assignAllNeighbors();
+            }
+
+            // The flat machine keeps running for the comparison on /aps, and
+            // it still reaches ACTIVE on its own — only the switching is no
+            // longer its job.
+            if (\ApManBundle\Library\AccessPointState::STATE_DFS_READY == $state) {
                 $state = $this->changeLifetimeState($ap, \ApManBundle\Library\AccessPointState::STATE_ACTIVE);
             }
         }

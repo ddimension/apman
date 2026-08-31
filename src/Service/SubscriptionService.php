@@ -1433,11 +1433,19 @@ class SubscriptionService
         // it up there rather than to the access point, which is where the old
         // machine put it and why "no data" and "CAC running" became the same
         // thing.
+        $cac = isset($data['ap_status']['dfs']['cac_active'])
+            ? (bool) $data['ap_status']['dfs']['cac_active'] : null;
+        $status = $data['ap_status']['status'] ?? null;
+        // Management is hostapd runtime state on top of the config flags, and
+        // a hostapd not reporting ENABLED — stopped, restarting, in a channel
+        // check — is one that has restarted since the fact was set. Clear it,
+        // so the bss comes back through READY and the switch happens again.
+        // A missing status decides nothing: with it, one agent old enough to
+        // skip the field would loop the switch every message.
         $this->stateTree->observeBss($device, [
-            'status' => $data['ap_status']['status'] ?? null,
-            'cac' => isset($data['ap_status']['dfs']['cac_active'])
-                ? (bool) $data['ap_status']['dfs']['cac_active'] : null,
-        ]);
+            'status' => $status,
+            'cac' => $cac,
+        ] + (($cac || (null !== $status && 'ENABLED' !== $status)) ? ['managed' => false] : []));
         // and the same check as an episode with a start, an expectation and a
         // deadline, so a radio stuck in it can be told from one two seconds in
         if (is_array($data['ap_status'] ?? null)) {

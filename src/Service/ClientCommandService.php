@@ -307,7 +307,8 @@ class ClientCommandService
                 // old reading is the only one available and also the right one.
                 if ('lookup' === ($res['error']['stage'] ?? null)) {
                     $result['missing'][] = $label;
-                    $this->stateTree->observeBss($where['bss'], ['present' => false]);
+                    // a bss whose ubus object is gone has no management either
+                    $this->stateTree->observeBss($where['bss'], ['present' => false, 'managed' => false]);
                 } else {
                     // not found: the station is simply not on this bss
                     $result['absent'][] = $label;
