@@ -1286,26 +1286,28 @@ class AccessPointService
             $this->cacheFactory->addCacheItem('status.online['.$ap->getId().']', $msg);
             $this->logger->info('ApLifetimeHandler(): save online status from '.$ap->getName(), $msg);
             $this->stateTree->observeAp($ap, ['online' => 'online' == $msg['status']]);
-            // Management (bss_mgmt_enable) is hostapd runtime state: when the
-            // access point goes offline — or announces a fresh connect, the
-            // only sign a reboot leaves behind when the broker swallows the
-            // will (a fast boot reconnects before the keepalive timeout, and
-            // the duplicate-clientid takeover closes the old connection
-            // without publishing it — measured twice on ap-av-attic,
-            // 2026-08-31) — hostapd is gone and the flags with it. Clearing
-            // the fact is what lets the tree see the moment
-            // it has to be switched back on — otherwise a bss returning after
-            // a boot would compose straight to ACTIVE, claiming management
-            // that nobody turned on.
-            //
-            // The same goes for the bsses themselves and the radios: the
-            // facts in the tree are up to a week old, and a fast reboot
-            // comes back while they still read as fresh. Left standing,
-            // "the interface is there" and "hostapd says ENABLED" would
-            // describe the boot that is no longer running — the tree would
-            // switch management on against a hostapd that has not started
-            // yet. Writing the offline side over them makes the bsses
-            // climb back through STARTING and READY on their own.
+            // The agent also publishes the online status as a heartbeat, every
+            // status cycle — only the offline side may drive this. Clearing on
+            // every online message put the fleet in a loop of clearing and
+            // re-activating once per cycle, measured 2026-08-31. A reboot that
+            // slips past without an offline message is caught elsewhere: the
+            // first device status that is not ENABLED clears managed.
+            if ('online' != $msg['status']) {
+                // Management (bss_mgmt_enable) is hostapd runtime state: when
+                // the access point goes offline, hostapd is gone and the flags
+                // with it. Clearing the fact is what lets the tree see the
+                // moment it has to be switched back on — otherwise a bss
+                // returning after a boot would compose straight to ACTIVE,
+                // claiming management that nobody turned on.
+                //
+                // The same goes for the bsses themselves and the radios: the
+                // facts in the tree are up to a week old, and a fast reboot
+                // comes back while they still read as fresh. Left standing,
+                // "the interface is there" and "hostapd says ENABLED" would
+                // describe the boot that is no longer running — the tree would
+                // switch management on against a hostapd that has not started
+                // yet. Writing the offline side over them makes the bsses
+                // climb back through STARTING and READY on their own.
             foreach ($ap->getRadios() as $radio) {
                 $this->stateTree->observeRadio($radio, ['up' => false]);
                 foreach ($radio->getDevices() as $device) {
@@ -1315,6 +1317,7 @@ class AccessPointService
                         'status' => null,
                     ]);
                 }
+            }
             }
             // Handle status Message
         } elseif ('wireless' == $tp[3] && 'status' == $tp[4]) {
