@@ -31,6 +31,9 @@ class SubscriptionService
     /** seconds between two rounds of asking, when there is anything to ask */
     private const DFS_CHECK_INTERVAL = 20;
 
+    /** How often the slow request-path leftovers run, in seconds. */
+    private const GRID_UPKEEP_INTERVAL = 30;
+
     /**
      * How many byte counter samples to keep per bss. At a ten second status
      * cycle that is half an hour, which is what a small graph can show without
@@ -68,10 +71,12 @@ class SubscriptionService
         BlocklistService $blocklist,
         SyslogService $syslog,
         ApUbusService $ubus,
-        MetricsService $metrics
+        MetricsService $metrics,
+        SseServer $sse
     ) {
         $this->ubus = $ubus;
         $this->metrics = $metrics;
+        $this->sse = $sse;
         $this->airtime = $airtime;
         $this->blocklist = $blocklist;
         $this->syslog = $syslog;
@@ -122,6 +127,9 @@ class SubscriptionService
         $loop = \React\EventLoop\Loop::get();
 
         $this->connectMqtt($loop);
+        // the browser push channel lives in this loop: the events are raised
+        // here, so the stream costs no round trip and no php worker
+        $this->sse->start($loop);
         $loop->addPeriodicTimer(self::HOUSEKEEPING_INTERVAL, function () {
             try {
                 $this->doHouseKeeping();
@@ -933,6 +941,41 @@ class SubscriptionService
         $this->cacheFactory->addCacheItem($key, $counts, 7 * 86400);
     }
 
+    /**
+     * Which stations are associated on one bss, kept event-fresh.
+     *
+     * The status poll rewrites this list every cycle, so it is the authority;
+     * the connect and disconnect events only make it fresher in between. The
+     * same note feeds the browser stream — the grid and the client page
+     * refresh on the event instead of waiting for the next poll.
+     */
+    private function notePresence($device, $address, bool $present): void
+    {
+        if (!$device || !$address) {
+            return;
+        }
+        $mac = strtolower($address);
+        $key = 'clients.presence.'.$device->getId();
+        $map = $this->cacheFactory->getCacheItemValue($key);
+        $map = is_array($map) ? $map : [];
+        if ($present) {
+            $map[$mac] = ['ts' => time()];
+        } else {
+            unset($map[$mac]);
+        }
+        $this->cacheFactory->addCacheItem($key, $map, 7 * 86400);
+
+        $radio = $device->getRadio();
+        $this->sse->push([
+            'event' => $present ? 'connect' : 'disconnect',
+            'mac' => $mac,
+            'device' => $device->getId(),
+            'ap' => $radio ? $radio->getAccessPoint()->getName() : null,
+            'ifname' => $device->ifname(),
+            'ts' => time(),
+        ]);
+    }
+
     private function handleCtrlEvent($ap, $device, $name, $data)
     {
         if (!is_array($data)) {
@@ -985,6 +1028,12 @@ class SubscriptionService
                     // second case is worth learning from
                     $this->learnFromRadius($device, $address);
                 }
+                // the client list learns it is there now, not on the next poll
+                $this->notePresence($device, $address, true);
+                break;
+
+            case 'AP-STA-DISCONNECTED':
+                $this->notePresence($device, $address, false);
                 break;
 
             case 'BSS-TM-RESP':
@@ -1187,7 +1236,26 @@ class SubscriptionService
         $this->apService->lifetimeHouseKeeping($this->cacheLocal['ap-by-name'], $this->cacheLocal['dev-by-ap-ifname']);
         $this->spawnDfsCheck();
         $this->flushPpskPending();
+        $this->spawnGridUpkeep();
         $this->resetLogger();
+    }
+
+    /**
+     * Neighbours and reverse names, off the request path. Same shape as
+     * spawnDfsCheck(): a process of its own, because the firewall round trips
+     * in it would block this loop — and the pages, which used to pay for them
+     * on every poll.
+     */
+    private function spawnGridUpkeep(): void
+    {
+        $now = time();
+        if (($this->gridUpkeepAt ?? 0) + self::GRID_UPKEEP_INTERVAL > $now) {
+            return;
+        }
+        $this->gridUpkeepAt = $now;
+        $console = dirname(__DIR__, 2).'/bin/console';
+        exec(sprintf('%s %s --env=prod apman:grid-upkeep > /dev/null 2>&1 &',
+            escapeshellarg(PHP_BINARY), escapeshellarg($console)));
     }
 
     /**
@@ -1446,6 +1514,15 @@ class SubscriptionService
             'status' => $status,
             'cac' => $cac,
         ] + (($cac || (null !== $status && 'ENABLED' !== $status)) ? ['managed' => false] : []));
+        // the authority behind the presence events: every poll rewrites the
+        // list, so a missed event corrects itself within one cycle
+        $present = [];
+        foreach (($data['assoclist']['results'] ?? []) as $entry) {
+            if (!empty($entry['mac'])) {
+                $present[strtolower($entry['mac'])] = ['ts' => time()];
+            }
+        }
+        $this->cacheFactory->addCacheItem('clients.presence.'.$device->getId(), $present, 7 * 86400);
         // and the same check as an episode with a start, an expectation and a
         // deadline, so a radio stuck in it can be told from one two seconds in
         if (is_array($data['ap_status'] ?? null)) {

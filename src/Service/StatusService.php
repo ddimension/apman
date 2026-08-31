@@ -54,35 +54,31 @@ class StatusService
         return ['mac' => $mac, 'name' => \Amp\Dns\query($ip, \Amp\Dns\DnsRecord::PTR)];
     }
 
-    public function getStatusDump(\ApManBundle\Service\wrtJsonRpc $rpc, $withHeatmap = true)
-{
-        $logger = $this->logger;
-        $apsrv = $this->apservice;
-        $doc = $this->doctrine;
-        $em = $doc->getManager();
+    /** The neighbour table, read only: dhcp leases plus firewall neighbours. */
+    private function neighborsFromCache(): array
+    {
+        $cached = $this->cacheFactory->getCacheItemValue('status.neighbors');
 
-        $neighbors = [];
-        $firewall_host = $this->firewallUrl;
-        $firewall_user = $this->firewallUser;
-        $firewall_pwd = $this->firewallPassword;
+        return is_array($cached) ? $cached : [];
+    }
 
-        // The neighbour table (dhcp leases plus two rpc round trips to the
-        // firewall) is identical between polls and was rebuilt on every
-        // request, including the ones from the auto refreshing grid.
+    /**
+     * Rebuild the neighbour table when its entry has expired. Runs from
+     * apman:grid-upkeep, a process of its own: the dhcp-lease-list exec and
+     * the two rpc round trips to the firewall must never sit inside a page
+     * load or the subscriber loop.
+     */
+    public function refreshNeighbors(\ApManBundle\Service\wrtJsonRpc $rpc): void
+    {
         $neighborCacheKey = 'status.neighbors';
-        $cachedNeighbors = $this->cacheFactory->getCacheItemValue($neighborCacheKey);
-        $neighborsCached = is_array($cachedNeighbors);
-        if ($neighborsCached) {
-            $neighbors = $cachedNeighbors;
+        if (is_array($this->cacheFactory->getCacheItemValue($neighborCacheKey))) {
+            return;
         }
-
-        // read dhcpd leases
-        $output = [];
+        $neighbors = [];
         $result = null;
-        if (!$neighborsCached) {
-            exec('dhcp-lease-list  --parsable', $lines, $result);
-        }
-        if (!$neighborsCached and 0 == $result) {
+        // read dhcpd leases
+        exec('dhcp-lease-list  --parsable', $lines, $result);
+        if (0 == $result) {
             foreach ($lines as $line) {
                 if ('MAC ' != substr($line, 0, 4)) {
                     continue;
@@ -94,39 +90,22 @@ class StatusService
                 }
             }
         }
-        /*
-        print_r($neighbors);
-        exit();
-            $query = $em->createQuery("SELECT c FROM ApManBundle\Entity\Client c");
-            $result = $query->getResult();
-            foreach ($result as $client) {
-                $mac = $client->getMac();
-                $neighbors[$mac] = [];
-                $neighbors[$mac]['name'] = $client->getName();
-            }
-        */
         // The firewall, not an access point: it has no apman agent and no
         // transport column, so this is one of the two places that stay on HTTP
         // by necessity rather than by choice. The other is the LuCI login in
         // CustomActionsController, where the session has to end up in the
         // user's own browser.
-        if ($firewall_host and !$neighborsCached) {
-            $logger->debug('Building MAC cache');
-            $session = $rpc->login($firewall_host, $firewall_user, $firewall_pwd);
-            $logger->debug('Result of firewall login:', ['session' => $session, 'host' => $firewall_host, 'user' => $firewall_user]);
+        if ($this->firewallUrl) {
+            $session = $rpc->login($this->firewallUrl, $this->firewallUser, $this->firewallPassword);
             if (false !== $session) {
                 // Read dnsmasq leases
                 $opts = new \stdclass();
                 $opts->command = 'cat';
                 $opts->params = ['/tmp/dhcp.leases'];
                 $stat = $session->call('file', 'exec', $opts);
-
-                $logger->debug('L0', ['stat' => $stat]);
                 if (is_object($stat) && property_exists($stat, 'stdout') && is_array($stat->stdout)) {
-                    $logger->debug('L1');
                     $lines = explode("\n", $stat->stdout);
                     foreach ($lines as $line) {
-                        $logger->debug('L', ['line' => $line]);
                         $ds = explode(' ', $line);
                         if (!array_key_exists(3, $ds)) {
                             continue;
@@ -144,28 +123,90 @@ class StatusService
                 $opts = new \stdclass();
                 $opts->command = '/sbin/ip';
                 $opts->params = ['-j', '-4', 'neighb'];
-		$stat = $session->call('file', 'exec', $opts);
-		if (is_object($stat)) {
-			$lines = json_decode($stat->stdout, true);
-			foreach ($lines as $row) {
-			    if (!isset($row['lladdr'])) {
-				continue;
-			    }
-			    $mac = strtolower($row['lladdr']);
-			    if (strlen($mac)) {
-				if (!isset($neighbors[$mac])) {
-				    $neighbors[$mac] = [];
-				}
-				$neighbors[$mac]['ip'] = $row['dst'];
-			    }
-			}
-		}
+                $stat = $session->call('file', 'exec', $opts);
+                if (is_object($stat)) {
+                    $rows = json_decode($stat->stdout, true);
+                    foreach ($rows as $row) {
+                        if (!isset($row['lladdr'])) {
+                            continue;
+                        }
+                        $mac = strtolower($row['lladdr']);
+                        if (strlen($mac)) {
+                            if (!isset($neighbors[$mac])) {
+                                $neighbors[$mac] = [];
+                            }
+                            $neighbors[$mac]['ip'] = $row['dst'];
+                        }
+                    }
+                }
             }
-            $logger->debug('MAC cache complete');
         }
-        if (!$neighborsCached) {
-            $this->cacheFactory->addCacheItem($neighborCacheKey, $neighbors, self::NEIGHBOR_TTL);
+        $this->cacheFactory->addCacheItem($neighborCacheKey, $neighbors, self::NEIGHBOR_TTL);
+    }
+
+    /**
+     * Reverse lookups, budgeted: each costs up to a second, so a run resolves
+     * at most $budget unknowns and the rest wait for the next one. Runs from
+     * apman:grid-upkeep; the views only read the results.
+     */
+    public function resolvePtrs(int $budget = self::PTR_RESOLVE_PER_REQUEST): void
+    {
+        $neighbors = $this->neighborsFromCache();
+        $pending = [];
+        foreach ($neighbors as $mac => $neighbor) {
+            if (empty($neighbor['ip'])) {
+                continue;
+            }
+            if (null !== $this->cacheFactory->getCacheItemValue(self::ptrCacheKey($neighbor['ip']))) {
+                continue;
+            }
+            if (count($pending) < $budget) {
+                $pending[$mac] = $neighbor['ip'];
+            }
         }
+        if (!$pending) {
+            return;
+        }
+        $ips = [];
+        foreach ($pending as $mac => $ip) {
+            $ips[$mac] = \Amp\async(fn () => $this->ptrQuery($ip, $mac));
+        }
+        $rres = \Amp\Future\awaitAll($ips);
+        foreach (($rres[1] ?? []) as $mac => $result) {
+            $name = '';
+            if (isset($result['name'][0]) && is_object($result['name'][0])) {
+                $name = (string) $result['name'][0]->getValue();
+            }
+            $this->cacheFactory->addCacheItem(
+                self::ptrCacheKey($pending[$mac]),
+                $name,
+                '' === $name ? self::PTR_TTL_NEGATIVE : self::PTR_TTL
+            );
+        }
+        // no reverse zone, NXDOMAIN or timeout: remember that too, an
+        // unresolvable address costs the same second on every run
+        foreach (($rres[0] ?? []) as $mac => $error) {
+            $this->cacheFactory->addCacheItem(
+                self::ptrCacheKey($pending[$mac]),
+                '',
+                self::PTR_TTL_NEGATIVE
+            );
+        }
+    }
+
+    public function getStatusDump(\ApManBundle\Service\wrtJsonRpc $rpc, $withHeatmap = true)
+{
+        $logger = $this->logger;
+        $apsrv = $this->apservice;
+        $doc = $this->doctrine;
+        $em = $doc->getManager();
+
+        // The neighbour table is built by apman:grid-upkeep, never on request:
+        // a cache miss here would mean dhcp-lease-list plus two rpc round
+        // trips to the firewall inside a page load. A miss renders without
+        // names; the next upkeep run fills them.
+        $neighbors = $this->neighborsFromCache();
+
         $aps = $doc->getRepository('ApManBundle\Entity\AccessPoint')->findAll();
         // one redis round trip for all device states instead of one per device
         $statusKeys = [];
@@ -261,56 +302,16 @@ class StatusService
             }
         }
 
-        // Resolve names. A reverse lookup against the site resolver costs about
-        // a second, and this runs on every grid poll, which is what made the
-        // page stall. Results are cached in redis (negatives too, they are just
-        // as expensive) and only a few unknown addresses are resolved per
-        // request; the rest fill in on the following polls.
-        $ips = [];
-        $pending = [];
+        // Resolve names. The lookups themselves run in apman:grid-upkeep, on
+        // a budget: here every address is either already resolved and cached,
+        // or waits for the next run — a page load never pays for one.
         foreach ($neighbors as $mac => $neighbor) {
             if (empty($neighbor['ip'])) {
                 continue;
             }
             $cached = $this->cacheFactory->getCacheItemValue(self::ptrCacheKey($neighbor['ip']));
-            if (null !== $cached) {
-                if ('' !== $cached) {
-                    $neighbors[$mac]['name'] = $cached;
-                }
-                continue;
-            }
-            if (count($pending) < self::PTR_RESOLVE_PER_REQUEST) {
-                $pending[$mac] = $neighbor['ip'];
-            }
-        }
-
-        foreach ($pending as $mac => $ip) {
-            $ips[$mac] = \Amp\async(fn () => $this->ptrQuery($ip, $mac));
-        }
-        if ($ips) {
-            $rres = \Amp\Future\awaitAll($ips);
-            foreach (($rres[1] ?? []) as $mac => $result) {
-                $name = '';
-                if (isset($result['name'][0]) && is_object($result['name'][0])) {
-                    $name = (string) $result['name'][0]->getValue();
-                }
-                $this->cacheFactory->addCacheItem(
-                    self::ptrCacheKey($pending[$mac]),
-                    $name,
-                    '' === $name ? self::PTR_TTL_NEGATIVE : self::PTR_TTL
-                );
-                if ('' !== $name) {
-                    $neighbors[$mac]['name'] = $name;
-                }
-            }
-            // no reverse zone, NXDOMAIN or timeout: remember that too, an
-            // unresolvable address costs the same second on every poll
-            foreach (($rres[0] ?? []) as $mac => $error) {
-                $this->cacheFactory->addCacheItem(
-                    self::ptrCacheKey($pending[$mac]),
-                    '',
-                    self::PTR_TTL_NEGATIVE
-                );
+            if (null !== $cached && '' !== $cached) {
+                $neighbors[$mac]['name'] = $cached;
             }
         }
 

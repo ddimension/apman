@@ -392,6 +392,17 @@ function busy() {
 	return !!(sel && String(sel).length > 2);
 }
 
+// ---- push ------------------------------------------------------------------
+// The subscriber publishes on every connect and disconnect; the poll above
+// stays as the completeness net, the stream only makes changes arrive now.
+const stream = new EventSource('{{ path('stream_clients') }}');
+let streamPending = null;
+stream.onmessage = () => {
+	if (streamPending) { return; }
+	// coalesce: a wave of events is one refresh, not one per event
+	streamPending = setTimeout(() => { streamPending = null; updateGrid(); }, 300);
+};
+
 // keep search term, sort state and scroll position across the update
 function applyRows(rows) {
 	const input = document.querySelector('.gridjs-search-input');

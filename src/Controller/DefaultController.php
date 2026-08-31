@@ -4157,6 +4157,21 @@ class DefaultController extends AbstractController
                     }
                 }
 
+                // the presence list is event-fresh: a station that left is
+                // dropped now instead of on the next poll, and one that just
+                // connected appears with whatever the poll does not know yet
+                if (isset($ifData['deviceId'])) {
+                    $presence = $this->cacheFactory->getCacheItemValue('clients.presence.'.$ifData['deviceId']);
+                    if (is_array($presence)) {
+                        foreach (array_diff_key($clients, $presence) as $stale => $_) {
+                            unset($clients[$stale]);
+                        }
+                        foreach (array_diff_key($presence, $clients) as $fresh => $entry) {
+                            $clients[$fresh] = ['fresh' => is_array($entry) ? ($entry['ts'] ?? time()) : time()];
+                        }
+                    }
+                }
+
                 foreach ($clients as $clientName => $clientData) {
                     $key = $clientName.$apName.$ifName;
                     $client = [
@@ -4203,6 +4218,11 @@ class DefaultController extends AbstractController
                 'manufacturer' => null,
                 'authuser' => null,
                     ];
+                    if (is_array($clientData) && isset($clientData['fresh'])) {
+                        // joined since the last poll: the event is the age
+                        $client['age'] = max(0, (int) (time() - $clientData['fresh']));
+                        $client['inactive'] = 0;
+                    }
                     if (isset($ifData['clients'][$clientName]['signal'])) {
                         $client['signal'] = $ifData['clients'][$clientName]['signal'];
                     } elseif (isset($ifData['assoclist'][$clientName]['signal'])) {

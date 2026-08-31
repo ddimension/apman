@@ -451,6 +451,18 @@
 {% endif %}
 
 <script>
+// push: the page reloads when this very client connects or leaves, instead
+// of showing its last state for up to a poll. Guarded so a reload never
+// interrupts typing or an action in flight.
+const stream = new EventSource('{{ path('stream_clients', {'mac': mac|lower}) }}');
+let pendingReload = null;
+stream.onmessage = () => {
+	if (pendingReload || !document.hasFocus()) { return; }
+	const active = document.activeElement;
+	if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) { return; }
+	pendingReload = setTimeout(() => { location.reload(); }, 400);
+};
+
 // ask the client for a fresh measurement, then wait for the reports to land
 document.getElementById('measure').addEventListener('click', async () => {
 	const out = document.getElementById('measureresult');
