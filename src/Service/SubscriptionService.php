@@ -426,6 +426,20 @@ class SubscriptionService
                 or !$knownDevice)
             and (time() - $this->cacheRefreshed) >= self::CACHE_REFRESH_INTERVAL) {
             $this->cacheRefreshed = time();
+            // The map is only half the story. The access point's radio and
+            // device collections were hydrated by this long-running manager
+            // earlier and keep their old rows — so a bss another process
+            // created never appears in the tree this loop composes, and the
+            // management trigger never fires for it. Measured 2026-09-02:
+            // radio1_kalclients on ap-av-grwz sat READY for minutes while
+            // the pages, composing fresh entities, showed the same AP READY
+            // — the loop composed ACTIVE because its collection predates
+            // the bss. A fresh manager is what makes the rebuilt map and
+            // the collections it hands out agree; the map must go with it,
+            // for the same reason as in the error recovery above.
+            $this->doctrine->resetManager();
+            $this->cacheLocal = ['ap-by-name' => [], 'dev-by-ap-ifname' => []];
+            $em = $this->doctrine->getManager();
             //$this->logger->notice("SubscribtionService: Flushing pid local cache.");
             $query = $em->createQuery("SELECT d,r,a FROM ApManBundle\Entity\Device d
 				LEFT JOIN d.radio r
