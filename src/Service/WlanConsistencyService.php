@@ -12,13 +12,20 @@ namespace ApManBundle\Service;
  * OpenWrt derives mobility_domain and the FT key when they are not configured
  * (wifi-scripts ap.uc), and the derivation changed between firmware versions,
  * so an access point on an older build silently formed its own roaming island.
+ *
+ * r0kh and r1kh are deliberately not in CRITICAL any more. Since 2026-09-02
+ * the controller expands the network's key into one row per peer bss on the
+ * way out (AccessPointService::getDeviceConfig), so the raw rows differ per
+ * access point by design — which is what stopped the "Missing required
+ * pairwise in pull response" races. What still has to agree is the key the
+ * rows carry, and that comparison lives in fleetRules(), grouped by network.
  */
 class WlanConsistencyService
 {
     /** must match across all access points serving the same SSID on the same band */
     public const CRITICAL = [
         'wpa', 'wpa_key_mgmt', 'wpa_pairwise', 'rsn_pairwise', 'ieee80211w',
-        'ieee80211r', 'mobility_domain', 'r0kh', 'r1kh', 'ft_over_ds',
+        'ieee80211r', 'mobility_domain', 'ft_over_ds',
         'ft_psk_generate_local', 'pmk_r1_push', 'reassociation_deadline',
         'r0_key_lifetime', 'auth_server_addr', 'auth_server_port',
         'acct_server_addr', 'okc', 'disable_pmksa_caching', 'dynamic_vlan',
@@ -75,7 +82,7 @@ class WlanConsistencyService
             'ap.uc takes it from ieee80211w_mgmt_cipher, or its own default when that is unset.'],
     ];
 
-    /** these carry key material, show the tail only */
+    /** these carry key material, show the tail only — display, not comparison */
     public const MASKED = ['r0kh', 'r1kh'];
 
     private $logger;
@@ -235,7 +242,8 @@ class WlanConsistencyService
             }
             foreach (self::MASKED as $masked) {
                 if (isset($cfg[$masked])) {
-                    $parts = explode(' ', $cfg[$masked]);
+                    $parts = explode(' ', is_array($cfg[$masked])
+                        ? implode(' ', $cfg[$masked]) : $cfg[$masked]);
                     $cfg[$masked] = implode(' ', array_slice($parts, 0, -1)).' …'.substr(end($parts), -8);
                 }
             }
@@ -264,10 +272,6 @@ class WlanConsistencyService
                 $seen = [];
                 foreach ($members as $m) {
                     $val = $m['cfg'][$opt] ?? '<unset>';
-                    if (in_array($opt, self::MASKED, true) && '<unset>' !== $val) {
-                        $parts = explode(' ', $val);
-                        $val = implode(' ', array_slice($parts, 0, -1)).' …'.substr(end($parts), -8);
-                    }
                     $seen[$val][] = $m['ap'].'/'.$m['bss'];
                 }
                 if (count($seen) > 1) {
@@ -514,6 +518,45 @@ class WlanConsistencyService
             }
         }
 
+        // The key lists leave FtKeyService as one wildcard row each and
+        // getDeviceConfig expands them per peer bss. The wildcard sends every
+        // pull out as a broadcast, answered by every bss that can decrypt it,
+        // and the bss that never held the PMK-R0 answers empty — the
+        // requester takes the first response it can decrypt, empty or not,
+        // and fails the transition ("Missing required pairwise in pull
+        // response"). The zero r1kh row is worse: pushes go to
+        // 00:00:00:00:00:00 and hostapd_rrb_receive() drops them, so a
+        // pushed PMK-R1 never arrives anywhere. Both are what an access
+        // point provisioned before 2026-09-02 runs.
+        if ($ft) {
+            foreach (['r0kh' => 'ff:ff:ff:ff:ff:ff', 'r1kh' => '00:00:00:00:00:00'] as $list => $wildcard) {
+                $rows = $cfg[$list] ?? [];
+                if (!is_array($rows) || !$rows) {
+                    continue;
+                }
+                $named = 0;
+                $fallback = false;
+                foreach ($rows as $row) {
+                    $mac = explode(' ', $row)[0] ?? '';
+                    if ($mac === $wildcard) {
+                        $fallback = true;
+                    } elseif ('' !== $mac) {
+                        ++$named;
+                    }
+                }
+                if (0 === $named) {
+                    $say($list, 'r0kh' === $list
+                        ? 'only the wildcard row — every pull is a broadcast and the bss that '
+                          .'never held the key answers empty, racing the one real answer'
+                        : 'only the zero row — pushes go to 00:00:00:00:00:00 and are dropped, '
+                          .'so every roam has to pull', true);
+                } elseif (!$fallback) {
+                    $say($list, 'per-bss rows but no wildcard fallback — a client whose cached '
+                        .'R0KH-ID predates a bss cannot transition');
+                }
+            }
+        }
+
         // OWE without protected management frames cannot work: the whole
         // point of OWE is an encrypted association, and 802.11 requires PMF
         // for it. hostapd sets it itself for an OWE-only bss, so this fires
@@ -610,6 +653,129 @@ class WlanConsistencyService
                 'values' => ['0 — everything hostapd has to say' => array_keys($aps)],
                 'roaming' => false,
             ];
+        }
+
+        // The R0KH-ID (nas_identifier) names one bss. Two bsses with the
+        // same id both answer a pull for it — the one that held the PMK-R0
+        // with it, the other empty — and the requester takes the first
+        // answer, empty or not. One id per access point, the form before
+        // 2026-09-02, guarantees this collision across its bands.
+        $nasids = [];
+        foreach ($blocks as $b) {
+            $nasid = $b['cfg']['nasid'] ?? '';
+            if ('' !== $nasid) {
+                $nasids[$nasid][] = $b['ap'].'/'.$b['bss'];
+            }
+        }
+        foreach ($nasids as $nasid => $where) {
+            if (count($where) < 2) {
+                continue;
+            }
+            $out[] = [
+                'group' => '802.11r',
+                'option' => 'nas_identifier',
+                'values' => [$nasid.' — the R0KH-ID of '.count($where).' bsses; every one of them '
+                    .'answers a pull for it and the empty answer wins half the races' => $where],
+                'roaming' => true,
+            ];
+        }
+
+        // The key lists per network. Grouped by SSID, not by band: a
+        // transition crosses bands, and the rows name bsses of both.
+        $networks = [];
+        foreach ($blocks as $b) {
+            $ssid = $b['cfg']['ssid'] ?? trim($b['cfg']['ssid2'] ?? '', '"');
+            if ('' !== $ssid) {
+                $networks[$ssid][] = $b;
+            }
+        }
+        foreach ($networks as $ssid => $members) {
+            // One key for the whole network. The rows legitimately differ
+            // per bss — every bss lists every other — but the key they
+            // carry is what a pull from a neighbour decrypts with, and one
+            // network carrying two keys roams only in one direction.
+            foreach (['r0kh', 'r1kh'] as $list) {
+                $keys = [];
+                $without = [];
+                foreach ($members as $m) {
+                    $rows = $m['cfg'][$list] ?? null;
+                    if (!is_array($rows) || !$rows) {
+                        $without[] = $m['ap'].'/'.$m['bss'];
+                        continue;
+                    }
+                    foreach ($rows as $row) {
+                        $key = explode(' ', $row)[2] ?? '';
+                        if ('' !== $key) {
+                            $keys[$key][$m['ap'].'/'.$m['bss']] = true;
+                        }
+                    }
+                }
+                if (count($keys) > 1) {
+                    $vals = [];
+                    foreach ($keys as $key => $where) {
+                        $vals['…'.substr($key, -8)] = array_keys($where);
+                    }
+                    $out[] = [
+                        'group' => $ssid.' / 802.11r',
+                        'option' => $list.' key — '.count($keys).' different keys on one '
+                            .'network, a pull encrypted with one cannot be decrypted where '
+                            .'the other is configured',
+                        'values' => $vals,
+                        'roaming' => true,
+                    ];
+                }
+                if ($without && count($without) < count($members)) {
+                    $out[] = [
+                        'group' => $ssid.' / 802.11r',
+                        'option' => $list,
+                        'values' => ['no rows — ap.uc then derives the FT key from the per access '
+                            .'point RADIUS secret and no two access points agree' => $without],
+                        'roaming' => true,
+                    ];
+                }
+            }
+
+            // Every bss must name every other bss of its network in its
+            // rows. A bss added after the neighbours were last provisioned
+            // is missing from their rows — and a client transitioning from
+            // it falls back to the broadcast pull, which is exactly the
+            // race the per-bss form exists to prevent.
+            $macs = [];
+            foreach ($members as $m) {
+                $mac = strtolower($m['cfg']['bssid'] ?? '');
+                if ('' !== $mac) {
+                    $macs[$mac] = $m['ap'].'/'.$m['bss'];
+                }
+            }
+            foreach ($members as $m) {
+                $own = strtolower($m['cfg']['bssid'] ?? '');
+                foreach (['r0kh', 'r1kh'] as $list) {
+                    $rows = $m['cfg'][$list] ?? null;
+                    if (!is_array($rows) || !$rows) {
+                        continue;
+                    }
+                    $named = [];
+                    foreach ($rows as $row) {
+                        $named[strtolower(explode(' ', $row)[0] ?? '')] = true;
+                    }
+                    $missing = [];
+                    foreach ($macs as $mac => $where) {
+                        if ($mac !== $own && !isset($named[$mac])) {
+                            $missing[] = $where;
+                        }
+                    }
+                    if ($missing) {
+                        $out[] = [
+                            'group' => $ssid.' / 802.11r',
+                            'option' => $list,
+                            'values' => [implode(', ', $missing).' — not named in the '.$list
+                                .' rows of '.$m['ap'].'/'.$m['bss'].'; a transition from there '
+                                .'falls back to the broadcast pull' => [$m['ap'].'/'.$m['bss']]],
+                            'roaming' => true,
+                        ];
+                    }
+                }
+            }
         }
 
         return $out;
@@ -1490,6 +1656,12 @@ class WlanConsistencyService
             if (null === $name) {
                 // radio level settings before the first interface=
                 $preamble[$k] = $v;
+                continue;
+            }
+            // r0kh and r1kh are uci lists: repeated lines, and the checks
+            // below want every row, not just the last one written.
+            if (in_array($k, ['r0kh', 'r1kh'], true)) {
+                $cur[$k][] = $v;
                 continue;
             }
             $cur[$k] = $v;
