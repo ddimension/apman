@@ -39,6 +39,7 @@ class AccessPointService
     private $steeringState = ['clients' => [], 'state' => []];
     private $ieparser;
     private FeatureRegistry $features;
+    private $ftKeyService;
 
     public function __construct(
         \Psr\Log\LoggerInterface $logger,
@@ -53,7 +54,8 @@ class AccessPointService
         PpskService $ppskService,
         SteeringService $steering,
         StateTreeService $stateTree,
-        FeatureRegistry $features
+        FeatureRegistry $features,
+        FtKeyService $ftKeyService
     ) {
         $this->logger = $logger;
         $this->doctrine = $doctrine;
@@ -68,6 +70,7 @@ class AccessPointService
         $this->steering = $steering;
         $this->stateTree = $stateTree;
         $this->features = $features;
+        $this->ftKeyService = $ftKeyService;
     }
 
     public function getSteering()
@@ -204,22 +207,70 @@ class AccessPointService
                     .' failed on '.$device->getName().': '.$e->getMessage(), 0, $e);
             }
         }
-        // 802.11r: nas_identifier (uci: nasid) is the R0KH-ID and has to be
-        // unique per access point. Coming from the SSID config it is the same
-        // row for the whole fleet, so every access point accepts every
-        // broadcast PMK-R1 pull and the ones that never held the key answer
-        // "No matching PMK-R0-Name found", racing the one real answer.
-        // Measured 2026-08-21: with a unique value the transition completes
-        // (auth_alg=ft), with the shared one it never did.
+        // 802.11r: nas_identifier (uci: nasid) is the R0KH-ID. It has to be
+        // unique per bss, not per access point: a PMK-R1 pull carries the
+        // R0KH-ID of the bss that last held the client, and a responder only
+        // answers when the id is its own (wpa_ft_rrb_check_r0kh). With one
+        // id per access point, every bss of the old AP accepts every pull,
+        // the bss that never held the PMK-R0 answers "No matching
+        // PMK-R0-Name found" (an empty response), and the requester takes
+        // the first response it can decrypt, empty or not, and fails the
+        // transition — "Missing required pairwise in pull response".
+        // Measured 2026-08-21 (one id per fleet) and 2026-09-02 (one per AP:
+        // the cross-band transition raced 1:1).
         //
         // Set last, after the features have had their say — ieee80211r often
-        // comes from one of them. Derived from the access point name so it is
-        // stable across runs, and cut to the 48 octets hostapd accepts.
+        // comes from one of them. <access point>-<device> is unique across
+        // the fleet, stable across runs, and under the 48 octets hostapd
+        // accepts.
         if (!empty($cfg['ieee80211r']) || !empty($cfg['mobility_domain'])) {
             $ap = $device->getRadio() ? $device->getRadio()->getAccessPoint() : null;
             if ($ap && $ap->getName()) {
-                $cfg['nasid'] = substr($ap->getName(), 0, 48);
+                $cfg['nasid'] = substr($ap->getName().'-'.$device->getName(), 0, 48);
             }
+        }
+
+        // The r0kh/r1kh lists as FtKeyService writes them hold one wildcard
+        // row each. The wildcard sends every pull to ff:ff:ff:ff:ff:ff — a
+        // broadcast answered by every bss of the network that can decrypt
+        // it, see above — and every push to 00:00:00:00:00:00, which
+        // hostapd_rrb_receive() drops because it is neither a multicast
+        // address nor a bss's own: the pushed PMK-R1 never arrives anywhere,
+        // so every transition has to pull. Expand the wildcard into one row
+        // per peer bss here, where the whole fleet is known: the pull goes
+        // unicast to the bss named by the client's R0KH-ID, the push unicast
+        // into the right PMK-R1 cache. The wildcard row stays as the last
+        // entry — a client whose cached R0KH-ID predates a bss or this
+        // rollout still needs the broadcast fallback, and an access point
+        // still on the old config matches nothing else.
+        $key = $this->ftKeyService->keyOf($device->getSsid());
+        if ($key) {
+            $peers = $em->createQuery(
+                'SELECT d FROM ApManBundle\Entity\Device d
+                 WHERE d.ssid = :ssid AND d <> :self'
+            )->setParameter('ssid', $device->getSsid())
+             ->setParameter('self', $device)
+             ->getResult();
+            $r0kh = [];
+            $r1kh = [];
+            foreach ($peers as $peer) {
+                $mac = $peer->getAddress();
+                if (empty($mac)) {
+                    // No MAC assigned yet — the wildcard row covers it.
+                    continue;
+                }
+                $mac = strtolower($mac);
+                $peerAp = $peer->getRadio() ? $peer->getRadio()->getAccessPoint() : null;
+                $peerNasid = ($peerAp && $peerAp->getName())
+                    ? substr($peerAp->getName().'-'.$peer->getName(), 0, 48)
+                    : '';
+                $r0kh[] = $mac.','.$peerNasid.','.$key;
+                $r1kh[] = $mac.','.$mac.','.$key;
+            }
+            $r0kh[] = sprintf(FtKeyService::R0KH, $key);
+            $r1kh[] = sprintf(FtKeyService::R1KH, $key);
+            $cfg['r0kh'] = $r0kh;
+            $cfg['r1kh'] = $r1kh;
         }
 
         $configObject = new \stdClass();
