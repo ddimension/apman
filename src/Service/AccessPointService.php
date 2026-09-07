@@ -1945,6 +1945,29 @@ class AccessPointService
         }
         $client = $this->steeringState['clients'][$mac];
 
+        // The map can hold an entity from a manager the subscriber has reset
+        // since — the local cache rebuild does that. Persisting a detached
+        // entity makes Doctrine treat it as new and INSERT it again, which
+        // dies on the mac unique key with 1062 and closes the manager.
+        // Measured 2026-09-07 on ap-outdoor2.
+        if (!$em->contains($client)) {
+            $query = $em->createQuery(
+                'SELECT c
+                 FROM ApManBundle\Entity\Client c
+                 WHERE c.mac=:mac'
+            );
+            $query->setParameter('mac', $mac);
+            try {
+                $client = $query->getSingleResult();
+            } catch (\Doctrine\ORM\NoResultException $e) {
+                $this->logger->warning('stationRunner('.$mac.'): Client gone from the database, create it.');
+                $client = new \ApManBundle\Entity\Client();
+                $client->setMac($mac);
+                $updated = true;
+            }
+            $this->steeringState['clients'][$mac] = $client;
+        }
+
         // Check if band updates are needed
         if ('5g' == $band) {
             if (!$client->getModeA()) {
