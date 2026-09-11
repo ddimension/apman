@@ -11,7 +11,7 @@
 # der Release kommt aus --release.
 #
 #   contrib/build-images.sh -o ~/images
-#   contrib/build-images.sh -o ~/images -r 24.10.8 -d ap-av-attic -d ap-outdoor
+#   contrib/build-images.sh -o ~/images -r 25.12.5 -d ap-av-attic -d ap-outdoor
 #   contrib/build-images.sh -o ~/images --type all --with-apman-config
 #   contrib/build-images.sh -o ~/images --feed https://ddimension.github.io/openwrt-repo/... \
 #                                       --key contrib/ddimension.pem -p apman
@@ -37,7 +37,8 @@ Optionen:
                             --inventory-cmd "ssh root@app1 'cd /usr/local/share/apman &&
                               sudo -u www-data php8.4 bin/console --env prod
                               apman:image-inventory --with-config'"
-  -r, --release REL       OpenWrt-Release, z.B. 24.10.8 / 25.12.5 / SNAPSHOT
+  -r, --release REL       OpenWrt-Release, z.B. 25.12.5 / SNAPSHOT — apman gibt
+                          es im Feed nur fuer snapshot und openwrt-25.12
                           [default: auto = neuestes stable]
   -d, --device NAME       nur dieses Geraet, mehrfach angebbar
   -t, --type TYPE         sysupgrade|factory|all   [default: sysupgrade]
