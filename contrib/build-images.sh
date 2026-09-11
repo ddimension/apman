@@ -57,6 +57,8 @@ Optionen:
       --apman-pkgs "..."  was aus dem Feed installiert wird [default: apman]
       --feed-root URL     Wurzel des ddimension-Feeds
                           [default: https://ddimension.github.io/openwrt-repo]
+      --feed-channel C    Kanal des ddimension-Feeds: stable (Releases) oder
+                          main (Entwicklung)             [default: stable]
       --with-apman-config /etc/config/apman aus dem Inventory ins Image legen
                           (braucht ein Inventory mit --with-config)
       --files DIR         zusaetzliches Overlay fuer ALLE Images (files/-Baum)
@@ -77,8 +79,8 @@ Standard-Paketset (--no-default-pkgs schaltet es ab):
   und EAP-Umfang, gegen OpenSSL gelinkt), ip-full und ip-bridge statt ip-tiny,
   lldpd, tcpdump und das uebliche Debug-Werkzeug.
 
-apman kommt aus dem signierten ddimension-Feed (siehe README.md des
-openwrt-repo). Der Release-Zweig wird aus --release abgeleitet
+apman kommt aus dem signierten ddimension-Feed, Kanal --feed-channel (siehe
+README.md des openwrt-repo). Der Release-Zweig wird aus --release abgeleitet
 (25.12.x -> openwrt-25.12, SNAPSHOT -> snapshot), die Architektur liest der
 Container aus der .config des ImageBuilders — es gibt also keine
 Target-nach-Arch-Tabelle, die veralten koennte.
@@ -110,6 +112,7 @@ WITH_LUCI=1
 WITH_COLLECTD=0
 APMAN_PKGS="apman"
 FEED_ROOT="https://ddimension.github.io/openwrt-repo"
+FEED_CHANNEL="stable"
 ENGINE=""
 IMAGE_REPO="openwrt/imagebuilder"
 PULL=0
@@ -169,6 +172,7 @@ while [ $# -gt 0 ]; do
 	--with-collectd) WITH_COLLECTD=1; shift ;;
 	--apman-pkgs) APMAN_PKGS="$2"; shift 2 ;;
 	--feed-root) FEED_ROOT="$2"; shift 2 ;;
+	--feed-channel) FEED_CHANNEL="$2"; shift 2 ;;
 	--feed) FEEDS+=("$2"); shift 2 ;;
 	--key) KEYFILE="$2"; shift 2 ;;
 	--engine) ENGINE="$2"; shift 2 ;;
@@ -222,12 +226,20 @@ fi
 # Der Feed ist nach OpenWrt-Zweig sortiert, nicht nach Punkt-Release:
 # 25.12.5 -> openwrt-25.12, alles ohne Versionsnummer -> snapshot.
 FEED_BRANCH=""
+FEED_DIR=""
 if [ "$WITH_APMAN" = 1 ]; then
 	case "$RELEASE" in
 	[0-9]*.[0-9]*) FEED_BRANCH="openwrt-${RELEASE%.*}" ;;
 	*) FEED_BRANCH="snapshot" ;;
 	esac
-	echo ">> apman aus $FEED_ROOT/$FEED_BRANCH/<arch>/ ($APMAN_PKGS)"
+	# Der Feed hat zwei Kanaele, <kanal>/<release>/<arch>: stable = Releases,
+	# main = Entwicklung. Images fuer die Flotte kommen aus stable.
+	case "$FEED_CHANNEL" in
+	stable | main) ;;
+	*) echo "FEHLER: --feed-channel muss stable oder main sein, nicht '$FEED_CHANNEL'" >&2; exit 1 ;;
+	esac
+	FEED_DIR="$FEED_CHANNEL/$FEED_BRANCH"
+	echo ">> apman aus $FEED_ROOT/$FEED_DIR/<arch>/ ($APMAN_PKGS)"
 
 	if [ -z "$KEYFILE" ]; then
 		# Signaturpruefung bleibt an, also muss der oeffentliche Schluessel her.
@@ -358,11 +370,11 @@ for group in $BUILD_GROUPS; do
 		# als jede Tabelle target->arch, die hier gepflegt werden muesste.
 		script+='ARCH="$(sed -n '"'"'s/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"$/\1/p'"'"' .config)"'$'\n'
 		script+='[ -n "$ARCH" ] || { echo "FEHLER: CONFIG_TARGET_ARCH_PACKAGES nicht gefunden"; exit 1; }'$'\n'
-		script+='echo "apman-Feed: '"$FEED_ROOT/$FEED_BRANCH"'/$ARCH"'$'\n'
+		script+='echo "apman-Feed: '"$FEED_ROOT/$FEED_DIR"'/$ARCH"'$'\n'
 		script+='if [ -f repositories ]; then'$'\n'
-		script+='	echo "'"$FEED_ROOT/$FEED_BRANCH"'/$ARCH/packages.adb" >> repositories'$'\n'
+		script+='	echo "'"$FEED_ROOT/$FEED_DIR"'/$ARCH/packages.adb" >> repositories'$'\n'
 		script+='else'$'\n'
-		script+='	echo "src/gz ddimension '"$FEED_ROOT/$FEED_BRANCH"'/$ARCH" >> repositories.conf'$'\n'
+		script+='	echo "src/gz ddimension '"$FEED_ROOT/$FEED_DIR"'/$ARCH" >> repositories.conf'$'\n'
 		script+='fi'$'\n'
 	fi
 	for feed in ${FEEDS[@]+"${FEEDS[@]}"}; do
